@@ -1,0 +1,24 @@
+{
+  "arch": "x86",
+  "code-model": "kernel",
+  "data-layout": "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-f64:32:64-f80:32-n8:16:32-S64",
+  "disable-redzone": true,
+  "executables": true,
+  "exe-suffix": "",
+  "frame-pointer": "always",
+  "has-thread-local": true,
+  "linker-flavor": "gnu-lld",
+  "linker": "rust-lld",
+  "llvm-target": "i686-unknown-none",
+  "max-atomic-width": 64,
+  "no-default-libraries": true,
+  "panic-strategy": "abort",
+  "position-independent-executables": false,
+  "pre-link-args": {
+    "gnu-lld": ["-z", "max-page-size=0x1000"]
+  },
+  "relocation-model": "static",
+  "target-c-int-width": "32",
+  "target-family": "kidneyos",
+  "target-pointer-width": "32"
+}
