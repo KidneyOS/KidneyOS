@@ -21,16 +21,7 @@
           inherit system;
         };
         inherit (pkgs) mkShell qemu rust-analyzer rust-bin;
-        rust = rust-bin.nightly.latest.minimal.override {
-          extensions = [
-            "clippy"
-            "llvm-tools-preview"
-            "rustfmt"
-            "rust-src"
-            "rust-std"
-          ];
-          targets = [ "i686-unknown-linux-gnu" ];
-        };
+        rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-cc = (import nixpkgs {
           crossSystem = "i686-linux";
           inherit system;
