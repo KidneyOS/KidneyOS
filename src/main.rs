@@ -7,6 +7,7 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
+#[cfg_attr(target_family = "kidneyos", no_mangle)]
 fn main() {
     loop {}
 }
