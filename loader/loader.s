@@ -31,7 +31,18 @@ halt:
 puts:
 	# Use return address as the address of the string to print.
 	mov si, [esp]
-	mov ah, 0xE # Specify "Display Character" operation for the BIOS interrupts below.
+
+	# This function uses the 0x10 video BIOS interrupt's ah = 0xE teletype
+	# output operation. It requires the following arguments:
+	#
+	# ah = 0xE (operation)
+	# al (ascii-encoded character to write)
+	# bh = 0 (used to swap between multiple alternate pages, but we don't)
+	# bl = 0 (used for alternate foreground colours)
+
+	mov ah, 0xE
+	xor bh, bh
+	xor bl, bl
 
 .puts_loop:
 	lodsb # Load value at address in si into al and increment si.
