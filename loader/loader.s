@@ -44,6 +44,14 @@ _start:
 	call puts
 	.asciz "Hello, world!\r\n"
 
+	# TODO: Should we be disabling interrupts somewhere so we don't get
+	# destroyed by one until we set up the interrupt handler table?
+	# TODO: Enable A20 line.
+	# TODO: Get into 32-bit mode.
+	# TODO: Inform BIOS of target processor mode?
+	# TODO: Do memory map stuff (might not be required for hello world).
+	# TODO: Find kernel in disk, load it into memory, and jump to main.
+
 	call puts
 	.asciz "Not implemented, failing...\r\n"
 	int 0x18 # Boot fail BIOS interrupt.
