@@ -14,15 +14,39 @@ _start:
 	# NOTE: This may need to be increased if loader complexity grows.
 	mov esp, 0x400
 
+	# Clear screen using the the 0x10 video BIOS interrupt's ah = 7 scroll
+	# down window operation. It requires the following arguments:
+	#
+	# ah = 7 (operation)
+	# al = 0 (lines to scroll down, 0 means clear the whole window)
+	# bh = 7 (attribute to write, 7 means white on black)
+	# ch, cl = 0, 0 (start row, col)
+	# dh, dl = 24, 79 (end row, col, assumes typical 25x80 screen)
+	mov ah, 7
+	xor al, al
+	xor bh, 7
+	xor cx, cx
+	mov dx, 0x184f
+	int 0x10
+
+	# Move cursor back tot he top of the now-cleared screen using the the
+	# 0x10 video BIOS interrupt's ah = 2 set cursor position operation. It
+	# requires the following arguments:
+	#
+	# ah = 2 (operation)
+	# bh = 0 (used to swap between multiple alternate pages, but we don't)
+	# dh, dl = 0, 0 (row, col; 0, 0 means top left)
+	mov ah, 2
+	xor bh, bh
+	xor dx, dx
+	int 0x10
+
 	call puts
 	.asciz "Hello, world!\r\n"
+
 	call puts
-	.asciz "Halting...\r\n"
-
-halt:
-	cli
-	hlt
-
+	.asciz "Not implemented, failing...\r\n"
+	int 0x18 # Boot fail BIOS interrupt.
 
 # puts prints the null-terminated string whose data is contained in the code
 # immediately following the call to puts to the screen using BIOS interrupts. If
