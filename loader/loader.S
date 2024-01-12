@@ -1,3 +1,5 @@
+#include "loader.h"
+
 .intel_syntax noprefix
 .code16 # We have to start the bootloader in 16-bit mode.
 
@@ -17,7 +19,7 @@ _start:
 
 	# Start the stack (which grows downward) at 1K.
 	# NOTE: This may need to be increased if loader complexity grows.
-	mov esp, 0x400
+	mov esp, LOADER_STACK_TOP
 
 	# Clear screen using the the 0x10 video BIOS interrupt's ah = 7 scroll
 	# down window operation. It requires the following arguments:
@@ -34,7 +36,7 @@ _start:
 	mov dx, 0x184f
 	int 0x10
 
-	# Move cursor back tot he top of the now-cleared screen using the the
+	# Move cursor back to the top of the now-cleared screen using the the
 	# 0x10 video BIOS interrupt's ah = 2 set cursor position operation. It
 	# requires the following arguments:
 	#
@@ -47,14 +49,61 @@ _start:
 	int 0x10
 
 	call puts
-	.asciz "Hello, world!\r\n"
+	.asciz "Starting Lima loader...\r\n"
 
-	# TODO: Enable A20 line.
-	# TODO: Get into 32-bit mode.
+	# TODO: Set up bochs to test that enabling code works, since qemu starts
+	# with things enabled.
+
+	# Enable the "A20 Line" so we can access more than 1MB of memory.
+	call puts
+	.asciz "Checking A20 line\r\n"
+
+	# We load the value from 1MB past the magic address and check if it's
+	# equal to MAGIC_VALUE. If not, we know A20 is definitely already
+	# enabled.
+	mov si, 1
+	shl si, 20
+	lea ax, magic
+	add si, ax
+	cmp word ptr [si], MAGIC_VALUE
+	jne a20_already_enabled
+
+	# At this point we know the two values are equal, but we have no
+	# guarantee that they were equal because we actually accessed the same
+	# memory location: they might've just been equal by coincidence. We can
+	# make sure by modifying the magic then checking if the far value
+	# changed.
+
+	lea di, magic
+	inc word ptr [di]
+	cmp word ptr [si], MAGIC_VALUE + 1
+	jne a20_already_enabled_restore
+
+	dec word ptr [di]
+
+	# If things are equal on the second comparison then we know they're the
+	# same location so A20 definitely still needs to be enabled.
+
+	call puts
+	.asciz "Enabling A20 line\r\n"
+	jmp not_implemented
+
+a20_already_enabled_restore:
+	dec word ptr [di]
+
+a20_already_enabled:
+	call puts
+	.asciz "A20 line was already enabled\r\n"
+	jmp a20_done
+
+a20_done:
+
+	# TODO: Get into protected mode.
 	# TODO: Inform BIOS of target processor mode?
 	# TODO: Do memory map stuff (might not be required for hello world).
-	# TODO: Find kernel in disk, load it into memory, and jump to main.
+	# TODO: Find kernel in disk, load it into memory, and jump to _start.
 
+not_implemented:
 	call puts
 	.asciz "Not implemented, failing...\r\n"
 	int 0x18 # Boot fail BIOS interrupt.
@@ -96,5 +145,6 @@ puts:
 	ret
 
 # Include magic number to mark sector as bootable.
+magic:
 	. = _start + 510
-	.word 0xAA55
+	.word MAGIC_VALUE

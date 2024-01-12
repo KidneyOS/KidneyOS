@@ -1,0 +1,2 @@
+#define LOADER_STACK_TOP 0x400
+#define MAGIC_VALUE 0xAA55
