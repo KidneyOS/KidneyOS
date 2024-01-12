@@ -4,6 +4,11 @@
 .section .text
 .global _start
 _start:
+	# Disable interrupts so they don't blow things up. Since we haven't set
+	# up the interrupt vector table yet, recieving an interrupt would be
+	# problematic.
+	cli
+
 	# Set up data and stack segments to both start from zero so we can refer
 	# to absolute addresses in the following setup code.
 	xorw ax, ax
@@ -44,8 +49,6 @@ _start:
 	call puts
 	.asciz "Hello, world!\r\n"
 
-	# TODO: Should we be disabling interrupts somewhere so we don't get
-	# destroyed by one until we set up the interrupt handler table?
 	# TODO: Enable A20 line.
 	# TODO: Get into 32-bit mode.
 	# TODO: Inform BIOS of target processor mode?
