@@ -51,9 +51,6 @@ _start:
 	call puts
 	.asciz "Starting Lima loader...\r\n"
 
-	# TODO: Set up bochs to test that enabling code works, since qemu starts
-	# with things enabled.
-
 	# Enable the "A20 Line" so we can access more than 1MB of memory.
 	call puts
 	.asciz "Checking A20 line\r\n"
@@ -83,6 +80,8 @@ _start:
 
 	# If things are equal on the second comparison then we know they're the
 	# same location so A20 definitely still needs to be enabled.
+
+	# TODO: Figure out how to test A20 enable code.
 
 	call puts
 	.asciz "Enabling A20 line\r\n"
