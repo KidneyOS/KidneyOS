@@ -1,12 +1,16 @@
-ENTRY(main)
+ENTRY(_start)
 OUTPUT_FORMAT(elf32-i386)
 
-KERNEL_OFFSET = 0xC0000000;
+KERNEL_OFFSET = 0x100000;
 
 SECTIONS {
     . = KERNEL_OFFSET;
 
     . += SIZEOF_HEADERS;
+
+    .boot : {
+        KEEP(*(.multiboot2_header))
+    }
 
     .text ALIGN(4K) : AT(ADDR(.text) - KERNEL_OFFSET) {
         __text_start = .;

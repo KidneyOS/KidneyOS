@@ -2,4 +2,5 @@ result
 /.direnv
 
 /target
-/kernel
+/isofiles/boot/kernel.bin
+/kidneyos.iso

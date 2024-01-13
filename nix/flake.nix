@@ -20,7 +20,8 @@
           overlays = [ (import rust-overlay) ];
           inherit system;
         };
-        inherit (pkgs) mkShell qemu rust-analyzer rust-bin unixtools;
+        inherit (pkgs) grub2 mkShell qemu rust-analyzer rust-bin unixtools
+          xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-cc = (import nixpkgs {
@@ -30,7 +31,7 @@
       in
       {
         devShells.default = mkShell {
-          packages = [ i686-cc qemu rust rust-analyzer xxd ];
+          packages = [ grub2 i686-cc qemu rust rust-analyzer xorriso xxd ];
 
           CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER = "${i686-cc.targetPrefix}cc";
           CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_RUNNER = "${qemu}/bin/qemu-i386";

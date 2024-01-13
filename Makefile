@@ -9,8 +9,13 @@ build:
 	  -- \
 	  -C link-arg=-T -C link-arg=linkers/i686.ld \
 	  -C link-arg=-z -C link-arg=max-page-size=0x1000 \
-	  -C link-arg=-S \
-	  --emit link=kernel
+	  -C link-arg=-S -C link-arg=-n \
+	  --emit link=isofiles/boot/kernel.bin
+	grub-mkrescue -o kidneyos.iso isofiles
+
+.PHONY: run
+run:
+	qemu-system-i386 -cdrom kidneyos.iso
 
 .PHONY: test
 test:
@@ -19,4 +24,4 @@ test:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -f kernel
+	rm -f isofiles/boot/kernel.bin kidneyos.iso
