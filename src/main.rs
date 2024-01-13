@@ -12,7 +12,7 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
 }
 
 #[cfg_attr(target_os = "none", no_mangle)]
-fn _start() {
+fn _start() -> ! {
     #[allow(unused)]
     #[repr(packed)]
     struct Character {
@@ -37,6 +37,7 @@ fn _start() {
     print(0, HELLO);
 
     unsafe { asm!("hlt") };
+    loop {}
 }
 
 pub fn add(left: usize, right: usize) -> usize {
