@@ -85,7 +85,51 @@ _start:
 
 	call puts
 	.asciz "Enabling A20 line\r\n"
-	jmp not_implemented
+
+	# Source: https://wiki.osdev.org/A20_Line#Keyboard_Controller_2
+
+	call a20_wait
+	mov al, 0xAD
+	out 0x64, al
+
+	call a20_wait
+	mov al, 0xD0
+	out 0x64, al
+
+	call a20_wait2
+	in al, 0x60
+	push eax
+
+	call a20_wait
+	mov al, 0xD1
+	out 0x64, al
+
+	call a20_wait
+	pop eax
+	or al, 2
+	out 0x60, al
+
+	call a20_wait
+	mov al, 0xAE
+	out 0x64, al
+
+	call a20_wait
+
+	call puts
+	.asciz "A20 line enabled\r\n"
+	jmp a20_done
+
+a20_wait:
+	in al, 0x64
+	test al, 2
+	jnz a20_wait
+	ret
+
+a20_wait2:
+	in al, 0x64
+	test al, 1
+	jz a20_wait2
+	ret
 
 a20_already_enabled_restore:
 	dec word ptr [di]
