@@ -8,11 +8,20 @@ use core::arch::asm;
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
+    // TODO: Actually communicate the panic somehow.
     loop {}
 }
 
 #[cfg_attr(target_os = "none", no_mangle)]
-fn _start() -> ! {
+extern "C" fn _start() -> ! {
+    let magic: usize;
+    unsafe { asm!("", out("eax") magic) };
+    assert!(
+        magic == 0x36d76289,
+        "invalid magic, expected 0x36d76289, got {:x}",
+        magic
+    );
+
     #[allow(unused)]
     #[repr(packed)]
     struct Character {
