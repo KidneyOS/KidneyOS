@@ -1,0 +1,3 @@
+[[language]]
+name = "gas"
+file-types = ["s", "S"]
