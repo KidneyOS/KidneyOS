@@ -3,7 +3,7 @@ use core::mem::size_of;
 // https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html#OS-image-format
 
 #[allow(unused)]
-#[repr(align(8))]
+#[repr(align(64))]
 struct Multiboot2Header {
     magic: u32,
     architecture: u32,
@@ -13,7 +13,7 @@ struct Multiboot2Header {
 }
 
 #[allow(unused)]
-#[repr(align(8))]
+#[repr(align(64))]
 struct Multiboot2HeaderTag {
     r#type: u16,
     flags: u16,
