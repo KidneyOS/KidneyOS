@@ -1,3 +1,6 @@
 [[language]]
 name = "gas"
 file-types = ["s", "S"]
+
+[language-server.rust-analyzer.config]
+checkOnSave.command = "clippy"

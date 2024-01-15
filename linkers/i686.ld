@@ -8,11 +8,11 @@ SECTIONS {
 
     . += SIZEOF_HEADERS;
 
-    .boot : {
+    .multiboot2_header : {
         KEEP(*(.multiboot2_header))
     }
 
-    .text ALIGN(4K) : AT(ADDR(.text) - KERNEL_OFFSET) {
+    .text ALIGN(4K) : {
         __text_start = .;
         *(.text*)
         __usercopy_start = .;
@@ -20,13 +20,13 @@ SECTIONS {
         __usercopy_end = .;
     }
 
-    .rodata ALIGN(4K) : AT(ADDR(.rodata) - KERNEL_OFFSET) {
+    .rodata ALIGN(4K) : {
         __text_end = .;
         __rodata_start = .;
         *(.rodata*)
     }
 
-    .data ALIGN(4K) : AT(ADDR(.data) - KERNEL_OFFSET) {
+    .data ALIGN(4K) : {
         __rodata_end = .;
         __data_start = .;
         *(.data*)

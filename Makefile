@@ -4,7 +4,6 @@ build:
 	  --bin kidney-os \
 	  --manifest-path Cargo.toml \
 	  --target targets/i686-unknown-kernel.json \
-	  --release \
 	  -Z build-std=core \
 	  -- \
 	  -C link-arg=-T -C link-arg=linkers/i686.ld \

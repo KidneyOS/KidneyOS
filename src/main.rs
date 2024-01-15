@@ -1,55 +1,56 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
-mod multiboot2_header;
+#[macro_use]
+mod debug;
+mod multiboot2;
+#[macro_use]
+mod video_memory;
 
 use core::arch::asm;
+use multiboot2::info::{Info, InfoTag};
 
 #[cfg(target_os = "none")]
 #[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    // TODO: Actually communicate the panic somehow.
+fn panic(args: &core::panic::PanicInfo) -> ! {
+    println!("{}", args);
     loop {}
 }
 
 #[cfg_attr(target_os = "none", no_mangle)]
-extern "C" fn _start() -> ! {
+pub extern "C" fn _start() -> ! {
     let magic: usize;
     unsafe { asm!("", out("eax") magic) };
     assert!(
-        magic == 0x36d76289,
-        "invalid magic, expected 0x36d76289, got {:x}",
+        magic == 0x36D76289,
+        "invalid magic, expected 0x36D76289, got {:#X}",
         magic
     );
 
-    #[allow(unused)]
-    #[repr(packed)]
-    struct Character {
-        ascii: u8,
-        attribute: u8,
+    let multiboot2_info: *mut u32;
+    unsafe { asm!("mov {}, ebx", out(reg) multiboot2_info) };
+    let multiboot2_info = unsafe { &mut *(multiboot2_info as *mut Info) };
+
+    // TODO: Save the useful information somewhere via copying before we start
+    // writing to memory so we don't have to worry about overwriting the
+    // multiboot2 info.
+    for tag in multiboot2_info.iter() {
+        match tag {
+            InfoTag::Commandline(_) => println!("Found commandline."),
+            InfoTag::BootLoaderName(_) => println!("Found bootloader name."),
+            InfoTag::BasicMemoryInfo(_) => println!("Found memory info."),
+        }
     }
 
-    const VIDEO_MEMORY_BASE: usize = 0xb8000;
-    let video_memory =
-        unsafe { core::slice::from_raw_parts_mut(VIDEO_MEMORY_BASE as *mut Character, 80 * 25) };
-
-    let mut print = |start: usize, bytes: &[u8]| {
-        for (i, b) in bytes.into_iter().enumerate() {
-            video_memory[start + i] = Character {
-                ascii: *b,
-                attribute: 0x2f,
-            };
-        }
-    };
-
-    static HELLO: &[u8] = b"Hello, world!";
-    print(0, HELLO);
+    println!("Done checking info.");
 
     unsafe { asm!("hlt") };
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 
-pub fn add(left: usize, right: usize) -> usize {
+#[allow(dead_code)]
+fn add(left: usize, right: usize) -> usize {
     left + right
 }
 
