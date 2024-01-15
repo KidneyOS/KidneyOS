@@ -1,2 +1,5 @@
 /loader.bin
-/loader.o
+/loader.lds.s
+*.o
+
+/bx_enh_dbg.ini

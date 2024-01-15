@@ -1,0 +1,6 @@
+floppya: 1_44=loader.bin, status=inserted
+boot: floppy
+mouse: enabled=0
+display_library: x, options="gui_debug"
+sound: driver=dummy
+magic_break: enabled=1
