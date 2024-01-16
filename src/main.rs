@@ -13,7 +13,7 @@ use multiboot2::info::{Info, InfoTag};
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
-    println!("{}", args);
+    eprintln!("{}", args);
     loop {}
 }
 

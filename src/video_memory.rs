@@ -8,38 +8,47 @@ const VIDEO_MEMORY_SIZE: usize = VIDEO_MEMORY_COLS * VIDEO_MEMORY_LINES;
 pub struct VideoMemoryWriter {
     // TODO: Actually move cursor visually.
     cursor: usize,
+    pub attribute: Attribute,
+}
+
+#[allow(dead_code)]
+pub enum Colour {
+    Black = 0,
+    Blue = 1,
+    Green = 2,
+    Cyan = 3,
+    Red = 4,
+    Purple = 5,
+    Brown = 6,
+    Gray = 7,
+    DarkGray = 8,
+    LightBlue = 9,
+    LightGreen = 10,
+    LightCyan = 11,
+    LightRed = 12,
+    LightPurple = 13,
+    Yellow = 14,
+    White = 15,
+}
+
+#[derive(Clone, Copy)]
+#[repr(packed)]
+pub struct Attribute {
+    #[allow(dead_code)]
+    inner: u8,
+}
+
+impl Attribute {
+    pub const fn new(fg: Colour, bg: Colour) -> Self {
+        const MASK_3: u8 = (1 << 3) - 1;
+        Self {
+            inner: (((bg as u8) & MASK_3) << 4) | (fg as u8),
+        }
+    }
 }
 
 impl fmt::Write for VideoMemoryWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        #[allow(dead_code)]
-        enum Colour {
-            Black = 0,
-            Blue = 1,
-            Green = 2,
-            Cyan = 3,
-            Red = 4,
-            Purple = 5,
-            Brown = 6,
-            Gray = 7,
-            DarkGray = 8,
-            LightBlue = 9,
-            LightGreen = 10,
-            LightCyan = 11,
-            LightRed = 12,
-            LightPurple = 13,
-            Yellow = 14,
-            White = 15,
-        }
-
-        struct Attribute(u8);
-        impl Attribute {
-            fn new(fg: Colour, bg: Colour) -> Self {
-                const MASK_3: u8 = (1 << 3) - 1;
-                Self((((bg as u8) & MASK_3) << 4) | (fg as u8))
-            }
-        }
-
         #[allow(dead_code)]
         #[repr(packed)]
         struct Character {
@@ -67,7 +76,7 @@ impl fmt::Write for VideoMemoryWriter {
 
             video_memory[self.cursor] = Character {
                 ascii: *b,
-                attribute: Attribute::new(Colour::White, Colour::Black),
+                attribute: self.attribute,
             };
             self.cursor += 1;
         }
@@ -76,7 +85,10 @@ impl fmt::Write for VideoMemoryWriter {
     }
 }
 
-pub static mut VIDEO_MEMORY_WRITER: VideoMemoryWriter = VideoMemoryWriter { cursor: 0 };
+pub static mut VIDEO_MEMORY_WRITER: VideoMemoryWriter = VideoMemoryWriter {
+    cursor: 0,
+    attribute: Attribute::new(Colour::White, Colour::Black),
+};
 
 #[macro_export]
 macro_rules! print {
@@ -98,6 +110,38 @@ macro_rules! println {
         unsafe {
             write!($crate::video_memory::VIDEO_MEMORY_WRITER, "{}", format_args!($($arg)*)).unwrap();
             write!($crate::video_memory::VIDEO_MEMORY_WRITER, "\n").unwrap();
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! eprint {
+    ($($arg:tt)*) => {{
+        use core::fmt::Write;
+        use $crate::video_memory::*;
+        unsafe {
+            let prev_attribute = VIDEO_MEMORY_WRITER.attribute;
+            VIDEO_MEMORY_WRITER.attribute = Attribute::new(Colour::Red, Colour::Black);
+            write!(VIDEO_MEMORY_WRITER, "{}", format_args!($($arg)*)).unwrap();
+            VIDEO_MEMORY_WRITER.attribute = prev_attribute;
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! eprintln {
+    () => {
+        write!($crate::video_memory::VIDEO_MEMORY_WRITER, "\n");
+    };
+    ($($arg:tt)*) => {{
+        use core::fmt::Write;
+        use $crate::video_memory::*;
+        unsafe {
+            let prev_attribute = VIDEO_MEMORY_WRITER.attribute;
+            VIDEO_MEMORY_WRITER.attribute = Attribute::new(Colour::Red, Colour::Black);
+            write!(VIDEO_MEMORY_WRITER, "{}", format_args!($($arg)*)).unwrap();
+            write!(VIDEO_MEMORY_WRITER, "\n").unwrap();
+            VIDEO_MEMORY_WRITER.attribute = prev_attribute;
         }
     }};
 }
