@@ -12,9 +12,22 @@ build:
 	  --emit link=isofiles/boot/kernel.bin
 	grub-mkrescue -o kidneyos.iso isofiles
 
-.PHONY: run
-run:
-	qemu-system-i386 -cdrom kidneyos.iso
+.PHONY: run-bochs
+run-bochs:
+	bochs -q -f bochsrc.txt
+
+.PHONY: run-qemu
+run-qemu:
+	qemu-system-i386 -no-reboot -no-shutdown -cdrom kidneyos.iso
+
+.PHONY: run-qemu-gdb
+run-qemu-gdb:
+	qemu-system-i386 -s -S -no-reboot -no-shutdown -cdrom kidneyos.iso
+
+.PHONY: run-qemu-ng
+run-qemu-ng:
+	# NOTE: You can quit with Ctrl-A X
+	qemu-system-i386 -nographic -no-reboot -no-shutdown -cdrom kidneyos.iso
 
 .PHONY: test
 test:
