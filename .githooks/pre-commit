@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 cargo clippy --quiet
-find src -name '*.rs' -print0 | xargs -0 rustfmt --quiet --check
+find src -name '*.rs' -print0 | xargs -0 cargo fmt -- --quiet --check

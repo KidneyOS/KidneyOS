@@ -1,0 +1,15 @@
+ifdef PODMAN
+EXTRA_DOCKER_FLAGS := --userns=keep-id
+else
+EXTRA_DOCKER_FLAGS :=
+endif
+
+.PHONY: build-builder
+build-builder:
+	docker container ls -a --format "{{.Names}}" | grep kidneyos-builder-builder || docker create $(EXTRA_DOCKER_FLAGS) --name kidneyos-builder-builder -t -v $$PWD:/KidneyOS -w /KidneyOS nixos/nix:latest bash -c 'cp "$$(nix --extra-experimental-features flakes --extra-experimental-features nix-command build --no-link --print-out-paths ./nix#containerImages.x86_64-linux.build)" kidneyos-builder.tar.gz'
+	docker start -ai kidneyos-builder-builder
+	docker load -i kidneyos-builder.tar.gz
+
+.PHONY: run-builder
+run-builder:
+	docker run $(EXTRA_DOCKER_FLAGS) --rm -it -v $$PWD:/KidneyOS -w /KidneyOS kidneyos-builder:latest

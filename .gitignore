@@ -4,3 +4,4 @@ result
 /target
 /isofiles/boot/kernel.bin
 /kidneyos.iso
+/kidneyos-builder.tar.gz
