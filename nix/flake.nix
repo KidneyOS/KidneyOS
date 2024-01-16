@@ -20,8 +20,8 @@
           overlays = [ (import rust-overlay) ];
           inherit system;
         };
-        inherit (pkgs) bochs gdb grub2 mkShell qemu rust-analyzer rust-bin
-          unixtools xorriso;
+        inherit (pkgs) bochs gdb grub2 mkShell qemu rustfmt rust-analyzer
+          rust-bin unixtools xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-cc = (import nixpkgs {
@@ -38,6 +38,7 @@
             i686-cc
             qemu
             rust
+            rustfmt
             rust-analyzer
             xorriso
             xxd
