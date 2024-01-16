@@ -76,10 +76,9 @@ impl Info {
     }
 }
 
-#[repr(C)]
 pub struct InfoIterator<'a> {
     info: &'a Info,
-    pub offset: u32,
+    offset: u32,
 }
 
 impl<'a> InfoIterator<'a> {
