@@ -62,8 +62,8 @@ pub struct BasicMemoryInfoTag {
 }
 
 #[repr(C)]
-pub struct Headers {
-    pub r#type: u32,
+struct Headers {
+    r#type: u32,
     size: u32,
 }
 
