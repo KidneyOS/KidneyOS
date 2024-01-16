@@ -42,23 +42,23 @@
               gnumake
               grub2
               i686-cc
+              qemu
               rust
               xorriso
             ];
+
+            CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER = "${i686-cc.targetPrefix}cc";
+            CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_RUNNER = "${qemu}/bin/qemu-i386";
           };
 
           default = self.devShells.${system}.build.overrideAttrs (oldAttrs: {
             nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
               bochs
               gdb
-              qemu
               rust-analyzer
               xxd
             ];
           });
-
-          CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER = "${i686-cc.targetPrefix}cc";
-          CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_RUNNER = "${qemu}/bin/qemu-i386";
         };
       });
 }
