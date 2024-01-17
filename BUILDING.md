@@ -2,7 +2,7 @@
 
 ## With Nix
 
-If you have a version of the [Nix](https://nixos.org) package manager with [flake support](https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-flake.html) installed, you can run `nix develop ./nix#` from the root of the repository to build and enter a environment with all dependencies present. If you want to avoid downloading a few extra tools that aren't essential for building the project (but are useful for testing and debugging), you can run `nix develop ./nix#build` instead. Once the environment has been created, run `make build run-qemu` to build the project and boot the ISO with QEMU.
+If you have a version of the [Nix](https://nixos.org) package manager with [flake support](https://nixos.org/manual/nix/unstable/command-ref/new-cli/nix3-flake.html) installed, you can run `nix develop ./nix#` from the root of the repository to build and enter a environment with all dependencies present. (Depending on your version of Nix and how it's configured, you might also need to add the flags `--extra-experimental-features flakes --extra-experimental-features nix-command` right after `nix` in your command.) If you want to avoid downloading a few extra tools that aren't essential for building the project (but are useful for testing and debugging), you can run `nix develop ./nix#build` instead (the same applies here about the extra flags). Once the environment has been created, run `make build run-qemu` to build the project and boot the ISO with QEMU.
 
 ## With Docker
 
