@@ -51,6 +51,7 @@ impl fmt::Write for VideoMemoryWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         #[allow(dead_code)]
         #[repr(packed)]
+        #[derive(Clone, Copy)]
         struct Character {
             ascii: u8,
             attribute: Attribute,
@@ -64,8 +65,7 @@ impl fmt::Write for VideoMemoryWriter {
 
         for b in s.as_bytes().iter() {
             if self.cursor >= video_memory.len() {
-                // TODO: Enable this once linker errors are fixed:
-                // video_memory.copy_within(VIDEO_MEMORY_COLS..VIDEO_MEMORY_SIZE, 0);
+                video_memory.copy_within(VIDEO_MEMORY_COLS..VIDEO_MEMORY_SIZE, 0);
                 self.cursor -= VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS;
             }
 

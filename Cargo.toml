@@ -2,7 +2,3 @@
 name = "kidney-os"
 version = "0.1.0"
 edition = "2021"
-
-[profile.dev]
-# TODO: Investigate memcpy/etc. linking issues that make this necessary.
-opt-level = 3

@@ -7,7 +7,7 @@ mod multiboot2;
 #[macro_use]
 mod video_memory;
 
-use core::arch::asm;
+use core::{arch::asm, ffi::CStr};
 use multiboot2::info::{Info, InfoTag};
 
 #[cfg(target_os = "none")]
@@ -36,8 +36,18 @@ pub extern "C" fn _start() -> ! {
     // multiboot2 info.
     for tag in multiboot2_info.iter() {
         match tag {
-            InfoTag::Commandline(_) => println!("Found commandline."),
-            InfoTag::BootLoaderName(_) => println!("Found bootloader name."),
+            InfoTag::Commandline(commandline_tag) => {
+                println!(
+                    "Found commandline: {:?}",
+                    Into::<&CStr>::into(commandline_tag).to_str()
+                )
+            }
+            InfoTag::BootLoaderName(bootloadoer_name_tag) => {
+                println!(
+                    "Found bootloader name: {:?}",
+                    Into::<&CStr>::into(bootloadoer_name_tag).to_str()
+                )
+            }
             InfoTag::BasicMemoryInfo(_) => println!("Found memory info."),
         }
     }

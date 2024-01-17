@@ -5,6 +5,7 @@ build:
 	  --manifest-path Cargo.toml \
 	  --target targets/i686-unknown-kernel.json \
 	  -Z build-std=core \
+	  -Z build-std-features=compiler-builtins-mem \
 	  -- \
 	  -C link-arg=-T -C link-arg=linkers/i686.ld \
 	  -C link-arg=-z -C link-arg=max-page-size=0x1000 \

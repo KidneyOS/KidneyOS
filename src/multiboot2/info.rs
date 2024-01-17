@@ -1,6 +1,9 @@
 // https://www.gnu.org/software/grub/manual/multiboot2/multiboot.html#Boot-information-format
 
-use core::{ffi::c_char, mem::size_of};
+use core::{
+    ffi::{c_char, CStr},
+    mem::size_of,
+};
 
 #[repr(C)]
 pub struct Info {
@@ -28,17 +31,17 @@ pub enum InfoTag {
 // https://github.com/rust-lang/rfcs/issues/1151. This is why the impls below
 // are necessary.
 
-// TODO: Use &CStr instead of *const c_char below once linking issues are fixed.
-
 #[repr(C)]
 pub struct CommandlineTag {
     _size: u32,
     commandline_start: c_char,
 }
 
-impl From<&CommandlineTag> for *const c_char {
+impl From<&CommandlineTag> for &CStr {
     fn from(val: &CommandlineTag) -> Self {
-        unsafe { (val as *const _ as *const u32).offset(1) as *const _ as *const c_char }
+        unsafe {
+            CStr::from_ptr((val as *const _ as *const u32).offset(1) as *const _ as *const c_char)
+        }
     }
 }
 
@@ -48,9 +51,11 @@ pub struct BootLoaderNameTag {
     boot_loader_name_start: c_char,
 }
 
-impl From<&BootLoaderNameTag> for *const c_char {
+impl From<&BootLoaderNameTag> for &CStr {
     fn from(val: &BootLoaderNameTag) -> Self {
-        unsafe { (val as *const _ as *const u32).offset(1) as *const _ as *const c_char }
+        unsafe {
+            CStr::from_ptr((val as *const _ as *const u32).offset(1) as *const _ as *const c_char)
+        }
     }
 }
 
