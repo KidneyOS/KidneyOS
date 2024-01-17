@@ -66,7 +66,7 @@ impl fmt::Write for VideoMemoryWriter {
         for b in s.as_bytes().iter() {
             if self.cursor >= video_memory.len() {
                 video_memory.copy_within(VIDEO_MEMORY_COLS..VIDEO_MEMORY_SIZE, 0);
-                self.cursor -= VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS;
+                self.cursor = VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS;
             }
 
             if *b == b'\n' {
