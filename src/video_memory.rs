@@ -70,7 +70,7 @@ impl fmt::Write for VideoMemoryWriter {
             }
 
             if *b == b'\n' {
-                self.cursor = self.cursor.next_multiple_of(80);
+                self.cursor = self.cursor.next_multiple_of(VIDEO_MEMORY_COLS);
                 continue;
             }
 
