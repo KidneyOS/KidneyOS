@@ -20,7 +20,7 @@
           overlays = [ (import rust-overlay) ];
           inherit system;
         };
-        inherit (pkgs) bochs gdb gnumake grub2 mkShell qemu rust-analyzer
+        inherit (pkgs) bochs gdb gnumake grub2 mkShell mtools qemu rust-analyzer
           rust-bin unixtools xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
@@ -30,10 +30,10 @@
         }).stdenv.cc;
       in
       {
-        containerImages.build = pkgs.dockerTools.buildNixShellImage {
+        packages.kidneyos-builder = pkgs.dockerTools.buildNixShellImage {
           name = "kidneyos-builder";
           tag = "latest";
-          drv = self.devShells.x86_64-linux.build;
+          drv = self.devShells.${system}.build;
         };
 
         devShells = {
@@ -42,6 +42,7 @@
               gnumake
               grub2
               i686-cc
+              mtools
               qemu
               rust
               xorriso
