@@ -1,7 +1,13 @@
-.PHONY: build
-build:
+kidneyos.iso: isofiles/boot/kernel.bin isofiles/boot/grub/grub.cfg
+	grub-mkrescue -o $@ isofiles
+
+isofiles/boot/kernel.bin: $(realpath .)/target/i686-unknown-kernel/debug/kidneyos
+	cp $< $@
+
+-include target/i686-unknown-kernel/debug/kidneyos.d
+$(realpath .)/target/i686-unknown-kernel/debug/kidneyos:
 	cargo rustc \
-	  --bin kidney-os \
+	  --bin kidneyos \
 	  --manifest-path Cargo.toml \
 	  --target targets/i686-unknown-kernel.json \
 	  -Z build-std=core \
@@ -9,24 +15,22 @@ build:
 	  -- \
 	  -C link-arg=-T -C link-arg=linkers/i686.ld \
 	  -C link-arg=-z -C link-arg=max-page-size=0x1000 \
-	  -C link-arg=-S -C link-arg=-n \
-	  --emit link=isofiles/boot/kernel.bin
-	grub-mkrescue -o kidneyos.iso isofiles
+	  -C link-arg=-S -C link-arg=-n
 
 .PHONY: run-bochs
-run-bochs:
+run-bochs: kidneyos.iso
 	bochs -q -f bochsrc.txt
 
 .PHONY: run-qemu
-run-qemu:
+run-qemu: kidneyos.iso
 	qemu-system-i386 -no-reboot -no-shutdown -cdrom kidneyos.iso
 
 .PHONY: run-qemu-gdb
-run-qemu-gdb:
+run-qemu-gdb: kidneyos.iso
 	qemu-system-i386 -s -S -no-reboot -no-shutdown -cdrom kidneyos.iso
 
 .PHONY: run-qemu-ng
-run-qemu-ng:
+run-qemu-ng: kidneyos.iso
 	# NOTE: You can quit with Ctrl-A X
 	qemu-system-i386 -nographic -no-reboot -no-shutdown -cdrom kidneyos.iso
 
@@ -37,4 +41,4 @@ test:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -f isofiles/boot/kernel.bin kidneyos.iso
+	rm -f kidneyos.iso isofiles/boot/kernel.bin
