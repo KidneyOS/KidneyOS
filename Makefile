@@ -4,6 +4,9 @@ kidneyos.iso: isofiles/boot/kernel.bin isofiles/boot/grub/grub.cfg
 isofiles/boot/kernel.bin: $(realpath .)/target/i686-unknown-kernel/debug/kidneyos
 	cp $< $@
 
+# TODO: Investigate and fix but with release profile, then set up stuff for
+# building in release mode in here.
+
 -include target/i686-unknown-kernel/debug/kidneyos.d
 $(realpath .)/target/i686-unknown-kernel/debug/kidneyos:
 	cargo rustc \
