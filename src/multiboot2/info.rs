@@ -3,6 +3,7 @@
 use core::{
     ffi::{c_char, CStr},
     mem::size_of,
+    ptr::from_ref,
 };
 
 #[repr(C)]
@@ -39,9 +40,7 @@ pub struct CommandlineTag {
 
 impl From<&CommandlineTag> for &CStr {
     fn from(val: &CommandlineTag) -> Self {
-        unsafe {
-            CStr::from_ptr((val as *const _ as *const u32).offset(1) as *const _ as *const c_char)
-        }
+        unsafe { CStr::from_ptr((from_ref(val).cast::<u32>()).offset(1).cast::<c_char>()) }
     }
 }
 
@@ -53,9 +52,7 @@ pub struct BootLoaderNameTag {
 
 impl From<&BootLoaderNameTag> for &CStr {
     fn from(val: &BootLoaderNameTag) -> Self {
-        unsafe {
-            CStr::from_ptr((val as *const _ as *const u32).offset(1) as *const _ as *const c_char)
-        }
+        unsafe { CStr::from_ptr(((from_ref(val).cast::<u32>()).offset(1)).cast::<c_char>()) }
     }
 }
 
@@ -73,10 +70,11 @@ struct Headers {
 }
 
 impl Info {
-    pub fn iter(&self) -> InfoIterator {
+    pub const fn iter(&self) -> InfoIterator {
         InfoIterator {
             info: self,
-            offset: size_of::<Info>() as u32,
+            #[allow(clippy::cast_possible_truncation)]
+            offset: size_of::<Self>() as u32,
         }
     }
 }
@@ -87,12 +85,20 @@ pub struct InfoIterator<'a> {
 }
 
 impl<'a> InfoIterator<'a> {
-    pub unsafe fn curr_ptr(&self) -> *const u8 {
-        (self.info as *const _ as *const u8).offset(self.offset as isize)
+    pub const unsafe fn curr_ptr(&self) -> *const u8 {
+        (from_ref(self.info).cast::<u8>()).add(self.offset as usize)
     }
 
-    fn curr_headers(&self) -> &Headers {
-        unsafe { &*(self.curr_ptr() as *const Headers) }
+    const fn curr_headers(&self) -> &Headers {
+        // The return value of curr_ptr depends on Info, which is guaranteed by
+        // multiboot to have an alignment of 64, as well as on offset, which is
+        // guaranteed by both multiboot and by our checks to be a multiple of 8,
+        // meaning the result of curr_ptr is guaranteed to have an alignment of
+        // at least 64, which is greater than what is required by Headers.
+        #[allow(clippy::cast_ptr_alignment)]
+        unsafe {
+            &*(self.curr_ptr().cast::<Headers>())
+        }
     }
 }
 
@@ -104,7 +110,8 @@ impl<'a> Iterator for InfoIterator<'a> {
         let curr = match curr_headers.r#type {
             END_TYPE => return None,
             COMMANDLINE_TYPE | BOOT_LOADER_NAME_TYPE | BASIC_MEMORY_INFO_TYPE => unsafe {
-                &*(self.curr_ptr() as *const _ as *const InfoTag)
+                #[allow(clippy::cast_ptr_alignment)]
+                &*(self.curr_ptr().cast::<InfoTag>())
             },
             _ => {
                 // It is UB to cast this to a variant since its discriminant is

@@ -29,7 +29,7 @@ pub extern "C" fn _start() -> ! {
 
     let multiboot2_info: *mut u32;
     unsafe { asm!("mov {}, ebx", out(reg) multiboot2_info) };
-    let multiboot2_info = unsafe { &mut *(multiboot2_info as *mut Info) };
+    let multiboot2_info = unsafe { &mut *(multiboot2_info.cast::<Info>()) };
 
     // TODO: Save the useful information somewhere via copying before we start
     // writing to memory so we don't have to worry about overwriting the
@@ -60,7 +60,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 #[allow(dead_code)]
-fn add(left: usize, right: usize) -> usize {
+const fn add(left: usize, right: usize) -> usize {
     left + right
 }
 
