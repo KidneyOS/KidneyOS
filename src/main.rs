@@ -7,7 +7,10 @@ mod multiboot2;
 #[macro_use]
 mod video_memory;
 
-use core::{arch::asm, ffi::CStr};
+use core::{
+    arch::{asm, global_asm},
+    ffi::CStr,
+};
 use multiboot2::info::{Info, InfoTag};
 
 #[cfg(target_os = "none")]
@@ -17,19 +20,24 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-#[cfg_attr(target_os = "none", no_mangle)]
-pub extern "C" fn _start() -> ! {
-    let magic: usize;
-    unsafe { asm!("", out("eax") magic) };
+global_asm!(
+    "
+.globl _start
+_start:
+        push ebx
+        push eax
+        call {}",
+    sym start,
+);
+
+extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     assert!(
         magic == 0x36D76289,
         "invalid magic, expected 0x36D76289, got {:#X}",
         magic
     );
 
-    let multiboot2_info: *mut u32;
-    unsafe { asm!("mov {}, ebx", out(reg) multiboot2_info) };
-    let multiboot2_info = unsafe { &mut *(multiboot2_info.cast::<Info>()) };
+    let multiboot2_info = unsafe { &mut *(multiboot2_info) };
 
     // TODO: Save the useful information somewhere via copying before we start
     // writing to memory so we don't have to worry about overwriting the
