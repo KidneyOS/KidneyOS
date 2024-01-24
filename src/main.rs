@@ -42,10 +42,10 @@ pub extern "C" fn _start() -> ! {
                     Into::<&CStr>::into(commandline_tag).to_str()
                 )
             }
-            InfoTag::BootLoaderName(bootloadoer_name_tag) => {
+            InfoTag::BootLoaderName(boot_loader_name_tag) => {
                 println!(
                     "Found bootloader name: {:?}",
-                    Into::<&CStr>::into(bootloadoer_name_tag).to_str()
+                    Into::<&CStr>::into(boot_loader_name_tag).to_str()
                 )
             }
             InfoTag::BasicMemoryInfo(_) => println!("Found memory info."),
