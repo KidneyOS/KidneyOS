@@ -1,17 +1,28 @@
+-include local.mk
+
+# TODO: Fix release build.
+PROFILE ?= dev
+
+ifeq ($(PROFILE),dev)
+OUT_DIR_NAME := debug
+else ifeq ($(PROFILE),release)
+OUT_DIR_NAME := release
+else
+$(error Unhandled profile: $(PROFILE))
+endif
+
 kidneyos.iso: isofiles/boot/kernel.bin isofiles/boot/grub/grub.cfg
 	grub-mkrescue -o $@ isofiles
 
-isofiles/boot/kernel.bin: $(realpath .)/target/i686-unknown-kernel/debug/kidneyos
+isofiles/boot/kernel.bin: $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos
 	cp $< $@
 
-# TODO: Investigate and fix but with release profile, then set up stuff for
-# building in release mode in here.
-
--include target/i686-unknown-kernel/debug/kidneyos.d
-$(realpath .)/target/i686-unknown-kernel/debug/kidneyos: Cargo.toml Cargo.lock
+-include target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos.d
+$(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos: Cargo.toml Cargo.lock
 	cargo rustc \
 	  --bin kidneyos \
 	  --manifest-path Cargo.toml \
+	  --profile $(PROFILE) \
 	  --target targets/i686-unknown-kernel.json \
 	  -Z build-std=core \
 	  -Z build-std-features=compiler-builtins-mem \
