@@ -40,7 +40,7 @@ pub struct CommandlineTag {
 
 impl From<&CommandlineTag> for &CStr {
     fn from(val: &CommandlineTag) -> Self {
-        unsafe { CStr::from_ptr((from_ref(val).cast::<u32>()).offset(1).cast::<c_char>()) }
+        unsafe { CStr::from_ptr(from_ref(val).cast::<u32>().offset(1).cast::<c_char>()) }
     }
 }
 
@@ -52,7 +52,7 @@ pub struct BootLoaderNameTag {
 
 impl From<&BootLoaderNameTag> for &CStr {
     fn from(val: &BootLoaderNameTag) -> Self {
-        unsafe { CStr::from_ptr(((from_ref(val).cast::<u32>()).offset(1)).cast::<c_char>()) }
+        unsafe { CStr::from_ptr(from_ref(val).cast::<u32>().offset(1).cast::<c_char>()) }
     }
 }
 
@@ -86,7 +86,7 @@ pub struct InfoIterator<'a> {
 
 impl<'a> InfoIterator<'a> {
     pub const unsafe fn curr_ptr(&self) -> *const u8 {
-        (from_ref(self.info).cast::<u8>()).add(self.offset as usize)
+        from_ref(self.info).cast::<u8>().add(self.offset as usize)
     }
 
     const fn curr_headers(&self) -> &Headers {
@@ -97,7 +97,7 @@ impl<'a> InfoIterator<'a> {
         // at least 64, which is greater than what is required by Headers.
         #[allow(clippy::cast_ptr_alignment)]
         unsafe {
-            &*(self.curr_ptr().cast::<Headers>())
+            &*self.curr_ptr().cast::<Headers>()
         }
     }
 }
@@ -111,7 +111,7 @@ impl<'a> Iterator for InfoIterator<'a> {
             END_TYPE => return None,
             COMMANDLINE_TYPE | BOOT_LOADER_NAME_TYPE | BASIC_MEMORY_INFO_TYPE => unsafe {
                 #[allow(clippy::cast_ptr_alignment)]
-                &*(self.curr_ptr().cast::<InfoTag>())
+                &*self.curr_ptr().cast::<InfoTag>()
             },
             _ => {
                 // It is UB to cast this to a variant since its discriminant is
