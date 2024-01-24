@@ -8,7 +8,7 @@ isofiles/boot/kernel.bin: $(realpath .)/target/i686-unknown-kernel/debug/kidneyo
 # building in release mode in here.
 
 -include target/i686-unknown-kernel/debug/kidneyos.d
-$(realpath .)/target/i686-unknown-kernel/debug/kidneyos:
+$(realpath .)/target/i686-unknown-kernel/debug/kidneyos: Cargo.toml Cargo.lock
 	cargo rustc \
 	  --bin kidneyos \
 	  --manifest-path Cargo.toml \
