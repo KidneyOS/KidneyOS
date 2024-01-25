@@ -7,10 +7,7 @@ mod multiboot2;
 #[macro_use]
 mod video_memory;
 
-use core::{
-    arch::{asm, global_asm},
-    ffi::CStr,
-};
+use core::{arch::global_asm, ffi::CStr};
 use multiboot2::info::{Info, InfoTag};
 
 #[cfg(target_os = "none")]
@@ -62,7 +59,6 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
 
     println!("Done checking info.");
 
-    unsafe { asm!("hlt") };
     #[allow(clippy::empty_loop)]
     loop {}
 }
