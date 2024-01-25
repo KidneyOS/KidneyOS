@@ -102,9 +102,12 @@ macro_rules! print {
 
 #[macro_export]
 macro_rules! println {
-    () => {
-        write!($crate::video_memory::VIDEO_MEMORY_WRITER, "\n");
-    };
+    () => {{
+        use core::fmt::Write;
+        unsafe {
+            write!($crate::video_memory::VIDEO_MEMORY_WRITER, "\n").unwrap();
+        }
+    }};
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         unsafe {
@@ -130,9 +133,12 @@ macro_rules! eprint {
 
 #[macro_export]
 macro_rules! eprintln {
-    () => {
-        write!($crate::video_memory::VIDEO_MEMORY_WRITER, "\n");
-    };
+    () => {{
+        use core::fmt::Write;
+        unsafe {
+            write!($crate::video_memory::VIDEO_MEMORY_WRITER, "\n").unwrap();
+        }
+    }};
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         use $crate::video_memory::*;
