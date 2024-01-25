@@ -2,9 +2,9 @@
 #![cfg_attr(not(test), no_main)]
 
 #[macro_use]
-mod debug;
+mod macros;
 mod multiboot2;
-#[macro_use]
+mod serial;
 mod video_memory;
 
 use core::{arch::global_asm, ffi::CStr};
@@ -28,10 +28,10 @@ _start:
 );
 
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
+    const EXPECTED_MAGIC: usize = 0x36D76289;
     assert!(
-        magic == 0x36D76289,
-        "invalid magic, expected 0x36D76289, got {:#X}",
-        magic
+        magic == EXPECTED_MAGIC,
+        "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
     );
 
     let multiboot2_info = unsafe { &mut *(multiboot2_info) };
