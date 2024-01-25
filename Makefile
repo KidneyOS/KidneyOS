@@ -1,6 +1,5 @@
 -include local.mk
 
-# TODO: Fix release build.
 PROFILE ?= dev
 
 ifeq ($(PROFILE),dev)
