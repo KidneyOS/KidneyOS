@@ -40,6 +40,8 @@ pub struct CommandlineTag {
 
 impl From<&CommandlineTag> for &CStr {
     fn from(val: &CommandlineTag) -> Self {
+        // SAFETY: multiboot guarantees that commandline tags will contain a
+        // valid C string.
         unsafe { CStr::from_ptr(from_ref(val).cast::<u32>().offset(1).cast::<c_char>()) }
     }
 }
@@ -52,6 +54,8 @@ pub struct BootLoaderNameTag {
 
 impl From<&BootLoaderNameTag> for &CStr {
     fn from(val: &BootLoaderNameTag) -> Self {
+        // SAFETY: multiboot guarantees that boot loader name tags will contain
+        // a valid C string.
         unsafe { CStr::from_ptr(from_ref(val).cast::<u32>().offset(1).cast::<c_char>()) }
     }
 }
@@ -90,11 +94,12 @@ impl<'a> InfoIterator<'a> {
     }
 
     const fn curr_headers(&self) -> &Headers {
-        // The return value of curr_ptr depends on Info, which is guaranteed by
-        // multiboot to have an alignment of 64, as well as on offset, which is
-        // guaranteed by both multiboot and by our checks to be a multiple of 8,
-        // meaning the result of curr_ptr is guaranteed to have an alignment of
-        // at least 64, which is greater than what is required by Headers.
+        // SAFETY: The return value of curr_ptr depends on Info, which is
+        // guaranteed by multiboot to have an alignment of 64, as well as on
+        // offset, which is guaranteed by both multiboot and by our checks to be
+        // a multiple of 8, meaning the result of curr_ptr is guaranteed to have
+        // an alignment of at least 64, which is greater than what is required
+        // by Headers.
         #[allow(clippy::cast_ptr_alignment)]
         unsafe {
             &*self.curr_ptr().cast::<Headers>()
@@ -109,10 +114,13 @@ impl<'a> Iterator for InfoIterator<'a> {
         let curr_headers = self.curr_headers();
         let curr = match curr_headers.r#type {
             END_TYPE => return None,
-            COMMANDLINE_TYPE | BOOT_LOADER_NAME_TYPE | BASIC_MEMORY_INFO_TYPE => unsafe {
-                #[allow(clippy::cast_ptr_alignment)]
-                &*self.curr_ptr().cast::<InfoTag>()
-            },
+            COMMANDLINE_TYPE | BOOT_LOADER_NAME_TYPE | BASIC_MEMORY_INFO_TYPE => {
+                // SAFETY: Same as curr_headers.
+                unsafe {
+                    #[allow(clippy::cast_ptr_alignment)]
+                    &*self.curr_ptr().cast::<InfoTag>()
+                }
+            }
             _ => {
                 // It is UB to cast this to a variant since its discriminant is
                 // not in the type definition for InfoTag, so we skip it.

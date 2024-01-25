@@ -29,6 +29,7 @@ impl SerialWriter {
             return;
         }
 
+        // SAFETY: Follows the correct proceedure for initializing serial ports.
         unsafe {
             // https://wiki.osdev.org/Serial_Ports#Initialization
 
@@ -66,8 +67,11 @@ impl fmt::Write for SerialWriter {
         self.ensure_initialized();
 
         for b in s.bytes() {
-            while unsafe { inb(LSR) } & 0x20 == 0 {}
-            unsafe { outb(THR, b) };
+            // SAFETY: Correctly waits before outputting byte to serial port.
+            unsafe {
+                while inb(LSR) & 0x20 == 0 {}
+                outb(THR, b);
+            }
         }
 
         Ok(())

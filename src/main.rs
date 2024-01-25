@@ -34,7 +34,12 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
     );
 
-    let multiboot2_info = unsafe { &mut *(multiboot2_info) };
+    // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
+    // in ebx when _start is called, and _start puts that on the stack as the
+    // second argument which will become the multiboot2_info parameter, so this
+    // dereference is safe since we've checked the magic and confirmed we've
+    // booted with multiboot.
+    let multiboot2_info = unsafe { &mut *multiboot2_info };
 
     // TODO: Save the useful information somewhere via copying before we start
     // writing to memory so we don't have to worry about overwriting the
