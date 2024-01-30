@@ -7,7 +7,7 @@ mod multiboot2;
 mod serial;
 mod video_memory;
 
-use core::{arch::global_asm, ffi::CStr};
+use core::ffi::CStr;
 use multiboot2::info::{Info, InfoTag};
 
 #[cfg(target_os = "none")]
@@ -17,7 +17,8 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-global_asm!(
+#[cfg(not(test))]
+core::arch::global_asm!(
     "
 .globl _start
 _start:
@@ -27,6 +28,7 @@ _start:
     sym start,
 );
 
+#[allow(dead_code)]
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     const EXPECTED_MAGIC: usize = 0x36D76289;
     assert!(
