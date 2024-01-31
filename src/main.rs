@@ -1,19 +1,22 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
-#[macro_use]
-mod macros;
 mod multiboot2;
-mod serial;
-mod video_memory;
 
+extern crate alloc;
+
+use alloc::vec;
 use core::ffi::CStr;
+use kidneyos::{constants::MB, mem::KernelAllocator, println};
 use multiboot2::info::{Info, InfoTag};
+
+#[cfg_attr(target_os = "none", global_allocator)]
+pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
-    eprintln!("{}", args);
+    kidneyos::eprintln!("{}", args);
     loop {}
 }
 
@@ -30,41 +33,62 @@ _start:
 
 #[allow(dead_code)]
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
+    // TODO: Stack setup.
+
     const EXPECTED_MAGIC: usize = 0x36D76289;
     assert!(
         magic == EXPECTED_MAGIC,
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
     );
 
-    // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
-    // in ebx when _start is called, and _start puts that on the stack as the
-    // second argument which will become the multiboot2_info parameter, so this
-    // dereference is safe since we've checked the magic and confirmed we've
-    // booted with multiboot.
-    let multiboot2_info = unsafe { &mut *multiboot2_info };
+    let mut mem_upper = None;
+    {
+        // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
+        // in ebx when _start is called, and _start puts that on the stack as the
+        // second argument which will become the multiboot2_info parameter, so this
+        // dereference is safe since we've checked the magic and confirmed we've
+        // booted with multiboot. Additionally, we drop it before we start writing
+        // to anywhere in memory that it might be.
+        let multiboot2_info = unsafe { &mut *multiboot2_info };
 
-    // TODO: Save the useful information somewhere via copying before we start
-    // writing to memory so we don't have to worry about overwriting the
-    // multiboot2 info.
-    for tag in multiboot2_info.iter() {
-        match tag {
-            InfoTag::Commandline(commandline_tag) => {
-                println!(
-                    "Found commandline: {:?}",
-                    Into::<&CStr>::into(commandline_tag).to_str()
-                )
+        for tag in multiboot2_info.iter() {
+            match tag {
+                InfoTag::Commandline(commandline_tag) => {
+                    println!(
+                        "Found commandline: {:?}",
+                        Into::<&CStr>::into(commandline_tag).to_str()
+                    )
+                }
+                InfoTag::BootLoaderName(boot_loader_name_tag) => {
+                    println!(
+                        "Found bootloader name: {:?}",
+                        Into::<&CStr>::into(boot_loader_name_tag).to_str()
+                    )
+                }
+                InfoTag::BasicMemoryInfo(basic_memory_info_tag) => {
+                    mem_upper = Some(basic_memory_info_tag.mem_upper);
+                }
             }
-            InfoTag::BootLoaderName(boot_loader_name_tag) => {
-                println!(
-                    "Found bootloader name: {:?}",
-                    Into::<&CStr>::into(boot_loader_name_tag).to_str()
-                )
-            }
-            InfoTag::BasicMemoryInfo(_) => println!("Found memory info."),
         }
     }
+    let Some(mem_upper) = mem_upper else {
+        panic!("Didn't find memory info!");
+    };
 
-    println!("Done checking info.");
+    // SAFETY: Single core, no interrupts.
+    unsafe {
+        // TODO: The choice of 64MB for kernel memory size should be
+        // re-evaluated later.
+        KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize);
+    }
+
+    println!("Allocating vector");
+    let mut v = vec![5, 6513, 51];
+    println!("Vector ptr: {:?}, capacity: {}", v.as_ptr(), v.capacity());
+    assert!(v.pop() == Some(51));
+    println!("Dropping vector");
+    drop(v);
+    println!("Vector dropped!");
 
     #[allow(clippy::empty_loop)]
     loop {}

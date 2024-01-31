@@ -23,7 +23,7 @@ $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos: Cargo.toml Ca
 	  --manifest-path Cargo.toml \
 	  --profile $(PROFILE) \
 	  --target targets/i686-unknown-kernel.json \
-	  -Z build-std=core \
+	  -Z build-std=core,alloc \
 	  -Z build-std-features=compiler-builtins-mem \
 	  -- \
 	  -C link-arg=-T -C link-arg=linkers/i686.ld \

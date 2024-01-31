@@ -8,6 +8,7 @@
 // make sure they don't get left in an inconsistent state if we get interrupted
 // in the middle of a print.
 
+#[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
@@ -19,6 +20,7 @@ macro_rules! print {
     }};
 }
 
+#[macro_export]
 macro_rules! println {
     () => {{
         use core::fmt::Write;
@@ -41,6 +43,7 @@ macro_rules! println {
     }};
 }
 
+#[macro_export]
 macro_rules! eprint {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
@@ -56,6 +59,7 @@ macro_rules! eprint {
     }};
 }
 
+#[macro_export]
 macro_rules! eprintln {
     () => {{
         use core::fmt::Write;
@@ -81,12 +85,13 @@ macro_rules! eprintln {
     }};
 }
 
+#[macro_export]
 macro_rules! bochs_break {
     () => {
+        #[cfg(debug_assertions)]
         // SAFETY: This is safe to use anywhere since it's a noop. The Bochs
         // emulator will break upon encountering it when magic_break: enabled=1
         // is enabled.
-        #[cfg(debug_assertions)]
         unsafe {
             core::arch::asm!("xchg bx, bx")
         }
