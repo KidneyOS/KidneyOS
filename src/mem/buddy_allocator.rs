@@ -9,6 +9,7 @@ use core::{
     ptr::NonNull,
 };
 
+/// BuddyAllocator is a simple implementation of a buddy allocator.
 #[derive(Clone, Copy)]
 pub struct BuddyAllocator {
     region: NonNull<[u8]>,
@@ -17,20 +18,28 @@ pub struct BuddyAllocator {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 enum State {
+    // This region is unused, and can be allocated or split as necessary.
     Free,
+    // This region has been handed out to a caller.
     Allocated,
+    // This region has been split in half.
     Split,
 }
 
 impl BuddyAllocator {
+    /// The minimum extra space within its region required by a buddy allocator
+    /// for internal bookkeeping.
     pub const OVERHEAD: usize = size_of::<State>();
 
+    /// Creates a new buddy allocator using the backing region.
     pub unsafe fn new(region: NonNull<[u8]>) -> Self {
         assert!(region.len() >= size_of::<State>());
         *region.as_ptr().cast::<State>() = State::Free;
         Self { region }
     }
 
+    /// Returns whether all allocations within the buddy allocator have been
+    /// freed.
     pub fn is_empty(&self) -> bool {
         // SAFETY: self.region must be at least big enough for the initial State
         // as per the assertion in new.
@@ -38,86 +47,99 @@ impl BuddyAllocator {
     }
 }
 
-impl BuddyAllocator {
-    unsafe fn split_region(region: NonNull<[u8]>) -> (NonNull<[u8]>, NonNull<[u8]>) {
-        let size = (region.len() - size_of::<State>()) / 2;
+// The length of the usable space within region (the space not already used for
+// bookkeeping).
+const fn usable_len(region: NonNull<[u8]>) -> usize {
+    region.len() - size_of::<State>()
+}
 
-        let left_start = region.as_ptr().cast::<u8>().add(size_of::<State>());
-        let left = NonNull::slice_from_raw_parts(NonNull::new_unchecked(left_start), size);
+// Divides the given region in half.
+unsafe fn split_region(region: NonNull<[u8]>) -> (NonNull<[u8]>, NonNull<[u8]>) {
+    let size = usable_len(region) / 2;
 
-        let right =
-            NonNull::slice_from_raw_parts(NonNull::new_unchecked(left_start.add(size)), size);
+    let left_start = region.as_ptr().cast::<u8>().add(size_of::<State>());
+    let left = NonNull::slice_from_raw_parts(NonNull::new_unchecked(left_start), size);
 
-        (left, right)
+    let right = NonNull::slice_from_raw_parts(NonNull::new_unchecked(left_start.add(size)), size);
+
+    (left, right)
+}
+
+// Searches for a free subregion within the passed region whose size is as close
+// as possible to but no smaller than target_size. If one is found, it will be
+// marked as allocated before being returned.
+unsafe fn find_free(region: NonNull<[u8]>, target_size: usize) -> Option<NonNull<[u8]>> {
+    if usable_len(region) < target_size {
+        return None;
     }
 
-    unsafe fn find_free(region: NonNull<[u8]>, target_size: usize) -> Option<NonNull<[u8]>> {
-        if region.len() - size_of::<State>() < target_size {
-            return None;
-        }
-
-        match *region.as_ptr().cast::<State>() {
-            State::Free => Some(Self::divide_free(region, target_size)),
-            State::Allocated => None,
-            State::Split => {
-                let (left, right) = Self::split_region(region);
-                Self::find_free(left, target_size).or_else(|| Self::find_free(right, target_size))
-            }
+    match *region.as_ptr().cast::<State>() {
+        State::Free => Some(split_free(region, target_size)),
+        State::Allocated => None,
+        State::Split => {
+            let (left, right) = split_region(region);
+            find_free(left, target_size).or_else(|| find_free(right, target_size))
         }
     }
+}
 
-    unsafe fn divide_free(region: NonNull<[u8]>, target_size: usize) -> NonNull<[u8]> {
-        let (left, right) = Self::split_region(region);
-        if left.len() - size_of::<State>() < target_size {
-            // If dividing would make the region too small, return this.
-            *region.as_ptr().cast::<State>() = State::Allocated;
-            return NonNull::slice_from_raw_parts(
-                NonNull::new_unchecked(region.as_ptr().cast::<u8>().add(1)),
-                region.len() - 1,
-            );
-        }
-
-        *region.as_ptr().cast::<State>() = State::Split;
-        *right.as_ptr().cast::<State>() = State::Free;
-        Self::divide_free(left, target_size)
+// Splits the passed region repeatedly, until any futher splits would make the
+// result smaller than target_size, then marks the leftmost subregion as
+// allocated and returns it.
+unsafe fn split_free(region: NonNull<[u8]>, target_size: usize) -> NonNull<[u8]> {
+    let (left, right) = split_region(region);
+    if usable_len(left) < target_size {
+        // If dividing would make the region too small, return it.
+        *region.as_ptr().cast::<State>() = State::Allocated;
+        return NonNull::slice_from_raw_parts(
+            NonNull::new_unchecked(region.as_ptr().cast::<u8>().add(1)),
+            usable_len(region),
+        );
     }
 
-    unsafe fn deallocate_rec(region: NonNull<[u8]>, ptr: NonNull<u8>) -> bool {
-        match *region.as_ptr().cast::<State>() {
-            // We should never be searching for the region of a ptr in a region
-            // that's already marked as free.
-            State::Free => panic!("internal inconsistency detected in buddy allocator"),
+    *region.as_ptr().cast::<State>() = State::Split;
+    *right.as_ptr().cast::<State>() = State::Free;
+    split_free(left, target_size)
+}
 
-            // We've found the region, mark it as free and return to indicate
-            // that we freed something.
-            State::Allocated => {
-                *region.as_ptr().cast::<State>() = State::Free;
-                true
+// Recurses within region until the subregion containing ptr is found. Returns
+// whether region itself was marked as free (either because it directly
+// contained ptr, or because enough buddies were also free that coalescing
+// allowed it to be freed).
+unsafe fn deallocate(region: NonNull<[u8]>, ptr: NonNull<u8>) -> bool {
+    let state_ptr = region.as_ptr().cast::<State>();
+    match *state_ptr {
+        // We should never be searching for the region of a ptr in a region
+        // that's already marked as free.
+        State::Free => panic!("internal inconsistency detected in buddy allocator"),
+
+        // We've found the region, mark it as free and return to indicate
+        // that we freed something.
+        State::Allocated => {
+            *state_ptr = State::Free;
+            true
+        }
+
+        // The ptr belongs to one of the two sides of the split.
+        State::Split => {
+            let (left, right) = split_region(region);
+
+            // Determine target to recurse within.
+            let (target, buddy) = if ptr.as_ptr() < right.as_ptr().cast::<u8>() {
+                (left, right)
+            } else {
+                (right, left)
+            };
+
+            // If the target was marked as free and our buddy is also
+            // already free, collapse the outer region and mark it as freed
+            // too.
+            if deallocate(target, ptr) && *buddy.as_ptr().cast::<State>() == State::Free {
+                *state_ptr = State::Free;
+                return true;
             }
 
-            // The ptr belongs to one of the two sides of the split.
-            State::Split => {
-                let (left, right) = Self::split_region(region);
-
-                // Determine target to recurse within.
-                let (target, buddy) = if ptr.as_ptr() < right.as_ptr().cast::<u8>() {
-                    (left, right)
-                } else {
-                    (right, left)
-                };
-
-                // If the target was marked as free and our buddy is also
-                // already free, collapse the outer region and mark it as freed
-                // too.
-                if Self::deallocate_rec(target, ptr)
-                    && *buddy.as_ptr().cast::<State>() == State::Free
-                {
-                    *region.as_ptr().cast::<State>() = State::Free;
-                    return true;
-                }
-
-                false
-            }
+            false
         }
     }
 }
@@ -139,7 +161,7 @@ unsafe impl Allocator for BuddyAllocator {
 
         // SAFETY: self.region belongs to this allocator, so find_free will
         // behave correctly.
-        match unsafe { Self::find_free(self.region, target_size) } {
+        match unsafe { find_free(self.region, target_size) } {
             Some(region) => Ok(NonNull::slice_from_raw_parts(
                 // SAFETY: We just got got the region as a NonNull from
                 // find_free so we know it's valid, and we requested that its
@@ -158,7 +180,7 @@ unsafe impl Allocator for BuddyAllocator {
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, _layout: Layout) {
-        Self::deallocate_rec(self.region, ptr);
+        deallocate(self.region, ptr);
     }
 }
 
