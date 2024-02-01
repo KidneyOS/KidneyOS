@@ -6,7 +6,6 @@ mod multiboot2;
 extern crate alloc;
 
 use alloc::vec;
-use core::ffi::CStr;
 use kidneyos::{constants::MB, mem::KernelAllocator, println};
 use multiboot2::info::{Info, InfoTag};
 
@@ -41,39 +40,19 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
     );
 
-    let mut mem_upper = None;
-    {
-        // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
-        // in ebx when _start is called, and _start puts that on the stack as the
-        // second argument which will become the multiboot2_info parameter, so this
-        // dereference is safe since we've checked the magic and confirmed we've
-        // booted with multiboot. Additionally, we drop it before we start writing
-        // to anywhere in memory that it might be.
-        let multiboot2_info = unsafe { &mut *multiboot2_info };
-
-        for tag in multiboot2_info.iter() {
-            match tag {
-                InfoTag::Commandline(commandline_tag) => {
-                    println!(
-                        "Found commandline: {:?}",
-                        Into::<&CStr>::into(commandline_tag).to_str()
-                    )
-                }
-                InfoTag::BootLoaderName(boot_loader_name_tag) => {
-                    println!(
-                        "Found bootloader name: {:?}",
-                        Into::<&CStr>::into(boot_loader_name_tag).to_str()
-                    )
-                }
-                InfoTag::BasicMemoryInfo(basic_memory_info_tag) => {
-                    mem_upper = Some(basic_memory_info_tag.mem_upper);
-                }
-            }
-        }
-    }
-    let Some(mem_upper) = mem_upper else {
-        panic!("Didn't find memory info!");
-    };
+    // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
+    // in ebx when _start is called, and _start puts that on the stack as the
+    // second argument which will become the multiboot2_info parameter, so this
+    // dereference is safe since we've checked the magic and confirmed we've
+    // booted with multiboot. Additionally, we drop it before we start writing
+    // to anywhere in memory that it might be.
+    let mem_upper = unsafe { &mut *multiboot2_info }
+        .iter()
+        .find_map(|tag| match tag {
+            InfoTag::BasicMemoryInfo(t) => Some(t.mem_upper),
+            _ => None,
+        })
+        .expect("Didn't find memory info!");
 
     // SAFETY: Single core, no interrupts.
     unsafe {
