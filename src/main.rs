@@ -7,7 +7,10 @@ extern crate alloc;
 
 use alloc::vec;
 use kidneyos::{constants::MB, mem::KernelAllocator, println};
-use multiboot2::info::{Info, InfoTag};
+use multiboot2::{
+    info::{Info, InfoTag},
+    EXPECTED_MAGIC,
+};
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -34,7 +37,6 @@ _start:
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     // TODO: Stack setup.
 
-    const EXPECTED_MAGIC: usize = 0x36D76289;
     assert!(
         magic == EXPECTED_MAGIC,
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
