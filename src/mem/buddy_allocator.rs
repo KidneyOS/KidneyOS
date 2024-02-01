@@ -3,6 +3,7 @@
 // We store each region's State in its first byte. This isn't a very smart way
 // to do things with respect to alignment, so this could definitely be improved.
 
+use crate::eprintln;
 use core::{
     alloc::{AllocError, Allocator, Layout},
     mem::size_of,
@@ -44,6 +45,32 @@ impl BuddyAllocator {
         // SAFETY: self.region must be at least big enough for the initial State
         // as per the assertion in new.
         unsafe { *self.region.cast::<State>().as_ptr() == State::Free }
+    }
+
+    // Prints log messages for leaks and returns whether there were any leaks.
+    pub fn detect_leaks(&self) -> bool {
+        unsafe fn detect_leaks(region: NonNull<[u8]>) -> bool {
+            match *region.as_ptr().cast::<State>() {
+                State::Free => false,
+                State::Allocated => {
+                    eprintln!(
+                        "address within buddy allocator region {:?} leaked!",
+                        region.as_ptr()
+                    );
+                    true
+                }
+                State::Split => {
+                    let (left, right) = split_region(region);
+                    let left_leaked = detect_leaks(left);
+                    let right_leaked = detect_leaks(right);
+                    left_leaked || right_leaked
+                }
+            }
+        }
+
+        // SAFETY: self.region belongs to this allocator so it should still be
+        // valid to traverse.
+        unsafe { detect_leaks(self.region) }
     }
 }
 

@@ -1,7 +1,10 @@
 mod buddy_allocator;
 mod frame_allocator;
 
-use crate::constants::{KB, MB};
+use crate::{
+    constants::{KB, MB},
+    println,
+};
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
 use core::{
@@ -67,13 +70,17 @@ impl KernelAllocator {
         }
     }
 
-    /// initialize the kernel allocator. size is the size of kernel memory to
+    /// Initialize the kernel allocator. size is the size of kernel memory to
     /// prepare in bytes. mem_upper is the size of upper memory in kilobytes.
     ///
     /// # Safety
     ///
-    /// This function must only be called once.
+    /// This function can only be called when the allocator is uninitialized.
     pub unsafe fn init(&mut self, size: usize, mem_upper: usize) {
+        let KernelAllocatorState::Uninitialized = self.state.get_mut() else {
+            panic!("init called while kernel allocator was already initialized");
+        };
+
         // "Upper memory" starts at 1MB.
         const UPPER_MEMORY_START: *mut u8 = MB as *mut u8;
         // TODO: We currently leave 8KB for the first_frames allocator. This
@@ -106,6 +113,38 @@ impl KernelAllocator {
             subblock_allocators: Vec::new_in(buddy_allocator),
         }
     }
+
+    /// Deinitialize the kernel allocator, printing information about any leaks
+    /// that have occurred. panics if any leaks are found.
+    ///
+    /// # Safety
+    ///
+    /// This function can only be called when the allocator is initialized.
+    pub unsafe fn deinit(&mut self) {
+        let KernelAllocatorState::Initialized {
+            subblock_allocators,
+            ..
+        } = self.state.get_mut()
+        else {
+            panic!("deinit called before initialization of kernel allocator");
+        };
+
+        let mut leaked = false;
+        for (subblock_allocator, _) in subblock_allocators.iter() {
+            leaked |= subblock_allocator.detect_leaks();
+        }
+
+        assert!(leaked || subblock_allocators.is_empty());
+
+        // We can't sucessfully deinitialize because there are still references
+        // to the memory that we would loose by deinitializing.
+        if leaked {
+            println!();
+            panic!("leaks detected");
+        }
+
+        *self.state.get_mut() = KernelAllocatorState::Uninitialized;
+    }
 }
 
 // halt is used for cases where we would panic in KernelAllocator, but can't
@@ -133,7 +172,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
             frame_allocator,
             frames_base,
             subblock_allocators,
-            ..
         } = &mut *self.state.get()
         else {
             halt!("alloc called before initialization of kernel allocator");
@@ -173,7 +211,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
             frame_allocator,
             frames_base,
             subblock_allocators,
-            ..
         } = &mut *self.state.get()
         else {
             halt!("dealloc called before initialization of kernel allocator");
