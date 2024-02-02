@@ -12,9 +12,6 @@ use multiboot2::{
     EXPECTED_MAGIC,
 };
 
-#[cfg_attr(target_os = "none", global_allocator)]
-pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
-
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
