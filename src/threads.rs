@@ -1,8 +1,9 @@
-use core::alloc::{Layout, GlobalAlloc};
+use core::alloc::{Layout, Allocator};
+use core::ptr::NonNull;
 
 use crate::constants::MB;
-use crate::mem::KERNEL_ALLOCATOR;
 use crate::println;
+use alloc::alloc::Global;
 
 type TID = u16;
 type ThreadFunction = fn() -> ();
@@ -25,7 +26,7 @@ pub struct ThreadControlBlock {
 
     tid: TID,
     status: ThreadStatus,
-    stack_pointer: *mut u8,
+    stack_pointer: NonNull<u8>,
 
 }
 
@@ -117,13 +118,14 @@ fn thread_create(entry_function: ThreadFunction) -> Option<TID> {
 
     // Allocate a stack for this thread.
     // In x86 stacks from downward, so we must pass in the top of this memory to the thread.
-    let stack_pointer_bottom: *mut u8;
-    let stack_pointer_top: *mut u8;
+    let stack_pointer_bottom;
+    let stack_pointer_top;
     let layout = Layout::from_size_align(THREAD_STACK_SIZE, 8).unwrap();
     unsafe {
-        stack_pointer_bottom = KERNEL_ALLOCATOR.alloc_zeroed(layout);
-        stack_pointer_top = stack_pointer_bottom.offset(THREAD_STACK_SIZE.try_into().unwrap());
+        stack_pointer_bottom = Global.allocate_zeroed(layout).expect("Could not allocate stack.");
+        stack_pointer_top = NonNull::new(stack_pointer_bottom.as_ptr().cast::<u8>().add(THREAD_STACK_SIZE)).expect("Could not determine end of stack.");
     }
+
 
     // Create our new TCB.
     let mut new_thread = ThreadControlBlock {
