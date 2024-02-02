@@ -6,6 +6,7 @@ pub mod constants;
 pub mod macros;
 pub mod mem;
 pub mod serial;
+pub mod threads;
 pub mod video_memory;
 
 extern crate alloc;
