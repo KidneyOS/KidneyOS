@@ -1,9 +1,9 @@
 use core::{fmt, slice};
 
-const VIDEO_MEMORY_BASE: usize = 0xb8000;
+pub const VIDEO_MEMORY_BASE: usize = 0xb8000;
 const VIDEO_MEMORY_COLS: usize = 80;
 const VIDEO_MEMORY_LINES: usize = 25;
-const VIDEO_MEMORY_SIZE: usize = VIDEO_MEMORY_COLS * VIDEO_MEMORY_LINES;
+pub const VIDEO_MEMORY_SIZE: usize = VIDEO_MEMORY_COLS * VIDEO_MEMORY_LINES;
 
 pub struct VideoMemoryWriter {
     // TODO: Actually move cursor visually.

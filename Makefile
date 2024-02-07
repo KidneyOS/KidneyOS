@@ -37,18 +37,20 @@ $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos: Cargo.toml Ca
 run-bochs: kidneyos.iso
 	bochs -q -f bochsrc.txt
 
+QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom kidneyos.iso
+
 .PHONY: run-qemu
 run-qemu: kidneyos.iso
-	qemu-system-i386 -no-reboot -no-shutdown -m 4G -cdrom kidneyos.iso
+	qemu-system-i386 $(QEMU_FLAGS)
 
 .PHONY: run-qemu-gdb
 run-qemu-gdb: kidneyos.iso kernel.sym
-	qemu-system-i386 -s -S -no-reboot -no-shutdown -m 4G -cdrom kidneyos.iso
+	qemu-system-i386 -s -S $(QEMU_FLAGS)
 
 .PHONY: run-qemu-ng
 run-qemu-ng: kidneyos.iso
 	# NOTE: You can quit with Ctrl-A X
-	qemu-system-i386 -nographic -no-reboot -no-shutdown -m 4G -cdrom kidneyos.iso
+	qemu-system-i386 -nographic $(QEMU_FLAGS)
 
 .PHONY: test
 test:

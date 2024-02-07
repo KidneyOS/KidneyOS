@@ -2,7 +2,7 @@
 ///
 /// |-------------------------------|
 /// | Kernel Virtual Memory (64MB)  |
-/// |-------------------------------| KernelAllocator::init::first_frames_base
+/// |-------------------------------| KERNEL_ALLOCATOR.init(...)
 /// | Unused                        |
 /// |-------------------------------| KERNEL_MAIN_STACK_TOP
 /// | Kernel Main Stack  (8KB)      |
@@ -24,7 +24,7 @@ use buddy_allocator::BuddyAllocator;
 use core::{
     alloc::{Allocator, GlobalAlloc, Layout},
     cell::UnsafeCell,
-    ops::Range,
+    ops::{Range, RangeInclusive},
     ptr::NonNull,
 };
 use frame_allocator::FrameAllocatorSolution;
@@ -33,10 +33,13 @@ use frame_allocator::FrameAllocatorSolution;
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 // NOTE: These first two must be kept synced with the values in linkers/i686.ld
-const KERNEL_OFFSET: usize = 0x100000;
-const KERNEL_MAX_SIZE: usize = 0x100000;
+pub const KERNEL_OFFSET: usize = 0x100000;
+pub const KERNEL_MAX_SIZE: usize = 0x100000;
 const KERNEL_STACK_SIZE: usize = 8 * KB;
 pub const KERNEL_MAIN_STACK_TOP: usize = KERNEL_OFFSET + KERNEL_MAX_SIZE + KERNEL_STACK_SIZE;
+
+// "Upper memory" (as opposed to "lower memory") starts at 1MB.
+const UPPER_MEMORY_START: *mut u8 = MB as *mut u8;
 
 // Page size is 4KB. This is a property of x86 processors.
 pub const PAGE_FRAME_SIZE: usize = 4 * KB;
@@ -95,17 +98,16 @@ impl KernelAllocator {
 
     /// Initialize the kernel allocator. size is the size of kernel memory to
     /// prepare in bytes. mem_upper is the size of upper memory in kilobytes.
+    /// Returns a pointer to the first
     ///
     /// # Safety
     ///
     /// This function can only be called when the allocator is uninitialized.
-    pub unsafe fn init(&mut self, size: usize, mem_upper: usize) {
+    pub unsafe fn init(&mut self, size: usize, mem_upper: usize) -> RangeInclusive<usize> {
         let KernelAllocatorState::Uninitialized = self.state.get_mut() else {
             panic!("init called while kernel allocator was already initialized");
         };
 
-        // "Upper memory" starts at 1MB.
-        const UPPER_MEMORY_START: *mut u8 = MB as *mut u8;
         // TODO: We currently leave 8KB for the first_frames allocator. This
         // should be re-evaluated later.
         const BUDDY_ALLOCATOR_SIZE: usize = 8 * KB;
@@ -135,7 +137,9 @@ impl KernelAllocator {
             frame_allocator: FrameAllocatorSolution::new_in(buddy_allocator, max_frames),
             frames_base,
             subblock_allocators: Vec::new_in(buddy_allocator),
-        }
+        };
+
+        (first_frames_base as usize)..=(frames_max as usize)
     }
 
     /// Deinitialize the kernel allocator, printing information about any leaks

@@ -17,3 +17,7 @@ transmute_ptr_to_ptr = "warn"
 transmute_undefined_repr = "warn"
 unwrap_used = "warn"
 wildcard_imports = "warn"
+
+[dependencies]
+arbitrary-int = "1.2.7"
+bitbybit = "1.3.0"

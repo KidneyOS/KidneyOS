@@ -1,12 +1,15 @@
+#![feature(naked_functions)]
 #![feature(asm_const)]
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
+mod global_descriptor_table;
+mod interrupt_descriptor_table;
 mod multiboot2;
+mod paging;
 
 extern crate alloc;
 
-use alloc::vec;
 use kidneyos::{
     constants::MB, mem::KERNEL_ALLOCATOR, println, threading::thread_system_initialization,
 };
@@ -60,20 +63,24 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     // TODO: The choice of 64MB for kernel memory size should be
     // re-evaluated later.
     // SAFETY: Single core, no interrupts.
-    unsafe { KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize) };
+    let kernel_memory_range = unsafe { KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize) };
 
-    println!("Allocating vector");
-    let mut v = vec![5, 6513, 51];
-    println!("Vector ptr: {:?}, capacity: {}", v.as_ptr(), v.capacity());
-    assert!(v.pop() == Some(51));
-    println!("Dropping vector");
-    drop(v);
-    println!("Vector dropped!");
+    println!("Setting up GDTR");
+    unsafe { global_descriptor_table::load() };
+    println!("GDTR set up!");
+
+    println!("Setting up IDTR");
+    unsafe { interrupt_descriptor_table::load() };
+    println!("IDTR set up!");
+
+    println!("Enabling paging");
+    unsafe { paging::enable(kernel_memory_range) };
+    println!("Paging enabled!");
 
     thread_system_initialization();
 
     // SAFETY: Single core, no interrupts.
-    unsafe { KERNEL_ALLOCATOR.deinit() };
+    // unsafe { KERNEL_ALLOCATOR.deinit() };
 
     #[allow(clippy::empty_loop)]
     loop {}
