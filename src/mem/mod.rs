@@ -1,3 +1,16 @@
+/// # Memory Layout
+///
+/// |-------------------------------|
+/// | Kernel Virtual Memory (64MB)  |
+/// |-------------------------------| KernelAllocator::init::first_frames_base
+/// | Unused                        |
+/// |-------------------------------| KERNEL_MAIN_STACK_TOP
+/// | Kernel Main Stack  (8KB)      |
+/// |-------------------------------| KERNEL_OFFSET + KERNEL_MAX_SIZE
+/// | Kernel Code (<=1MB)           |
+/// |-------------------------------| KERNEL_OFFSET
+/// | Lower Memory, Reserved/Unused |
+/// |-------------------------------| 0
 mod buddy_allocator;
 mod frame_allocator;
 mod pool_allocator;
@@ -18,6 +31,12 @@ use frame_allocator::FrameAllocatorSolution;
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
+
+// NOTE: These first two must be kept synced with the values in linkers/i686.ld
+const KERNEL_OFFSET: usize = 0x100000;
+const KERNEL_MAX_SIZE: usize = 0x100000;
+const KERNEL_STACK_SIZE: usize = 8 * KB;
+pub const KERNEL_MAIN_STACK_TOP: usize = KERNEL_OFFSET + KERNEL_MAX_SIZE + KERNEL_STACK_SIZE;
 
 // Page size is 4KB. This is a property of x86 processors.
 pub const PAGE_FRAME_SIZE: usize = 4 * KB;
@@ -104,6 +123,7 @@ impl KernelAllocator {
         // We start kernel virtual memory at the very end of upper memory, so
         // the start address is the max address minus the size.
         let first_frames_base = frames_max.sub(size);
+        assert!(first_frames_base as usize >= KERNEL_MAIN_STACK_TOP, "first frames base address {first_frames_base:?} was smaller than the top of the kernel stack {KERNEL_MAIN_STACK_TOP:#X}");
         let buddy_allocator = BuddyAllocator::new(NonNull::slice_from_raw_parts(
             NonNull::new_unchecked(first_frames_base),
             BUDDY_ALLOCATOR_SIZE,

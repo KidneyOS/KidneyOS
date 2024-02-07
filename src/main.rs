@@ -1,3 +1,4 @@
+#![feature(asm_const)]
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
@@ -26,16 +27,16 @@ core::arch::global_asm!(
     "
 .globl _start
 _start:
+        mov esp, {stack_start}
         push ebx
         push eax
         call {}",
     sym start,
+    stack_start = const kidneyos::mem::KERNEL_MAIN_STACK_TOP,
 );
 
 #[allow(dead_code)]
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
-    // TODO: Stack setup.
-
     assert!(
         magic == EXPECTED_MAGIC,
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"

@@ -1,7 +1,9 @@
 ENTRY(_start)
 OUTPUT_FORMAT(elf32-i386)
 
+/* NOTE: These values must be kept synced with the values in src/mem/mod.rs */
 KERNEL_OFFSET = 0x100000;
+KERNEL_MAX_SIZE = 0x100000;
 
 SECTIONS {
     . = KERNEL_OFFSET;
@@ -38,6 +40,8 @@ SECTIONS {
     }
 
     __end = .;
+
+    ASSERT(. <= KERNEL_OFFSET + KERNEL_MAX_SIZE, "kernel shouldn't be bigger than 1MB.")
 
     /DISCARD/ : {
         *(.comment*)
