@@ -5,3 +5,4 @@ mouse: enabled=0
 display_library: x, options="gui_debug"
 sound: driver=dummy
 magic_break: enabled=1
+memory: guest=4096, host=2048

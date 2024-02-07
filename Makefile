@@ -39,16 +39,16 @@ run-bochs: kidneyos.iso
 
 .PHONY: run-qemu
 run-qemu: kidneyos.iso
-	qemu-system-i386 -no-reboot -no-shutdown -cdrom kidneyos.iso
+	qemu-system-i386 -no-reboot -no-shutdown -m 4G -cdrom kidneyos.iso
 
 .PHONY: run-qemu-gdb
 run-qemu-gdb: kidneyos.iso kernel.sym
-	qemu-system-i386 -s -S -no-reboot -no-shutdown -cdrom kidneyos.iso
+	qemu-system-i386 -s -S -no-reboot -no-shutdown -m 4G -cdrom kidneyos.iso
 
 .PHONY: run-qemu-ng
 run-qemu-ng: kidneyos.iso
 	# NOTE: You can quit with Ctrl-A X
-	qemu-system-i386 -nographic -no-reboot -no-shutdown -cdrom kidneyos.iso
+	qemu-system-i386 -nographic -no-reboot -no-shutdown -m 4G -cdrom kidneyos.iso
 
 .PHONY: test
 test:
