@@ -6,3 +6,4 @@ result
 /kidneyos.iso
 /kidneyos-builder.tar.gz
 /local.mk
+*.core

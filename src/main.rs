@@ -1,19 +1,24 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
-#[macro_use]
-mod macros;
 mod multiboot2;
-mod serial;
-mod video_memory;
 
-use core::ffi::CStr;
-use multiboot2::info::{Info, InfoTag};
+extern crate alloc;
+
+use alloc::vec;
+use kidneyos::{constants::MB, mem::KernelAllocator, println};
+use multiboot2::{
+    info::{Info, InfoTag},
+    EXPECTED_MAGIC,
+};
+
+#[cfg_attr(target_os = "none", global_allocator)]
+pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
-    eprintln!("{}", args);
+    kidneyos::eprintln!("{}", args);
     loop {}
 }
 
@@ -30,7 +35,8 @@ _start:
 
 #[allow(dead_code)]
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
-    const EXPECTED_MAGIC: usize = 0x36D76289;
+    // TODO: Stack setup.
+
     assert!(
         magic == EXPECTED_MAGIC,
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
@@ -40,31 +46,32 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     // in ebx when _start is called, and _start puts that on the stack as the
     // second argument which will become the multiboot2_info parameter, so this
     // dereference is safe since we've checked the magic and confirmed we've
-    // booted with multiboot.
-    let multiboot2_info = unsafe { &mut *multiboot2_info };
+    // booted with multiboot. Additionally, we drop it before we start writing
+    // to anywhere in memory that it might be.
+    let mem_upper = unsafe { &mut *multiboot2_info }
+        .iter()
+        .find_map(|tag| match tag {
+            InfoTag::BasicMemoryInfo(t) => Some(t.mem_upper),
+            _ => None,
+        })
+        .expect("Didn't find memory info!");
 
-    // TODO: Save the useful information somewhere via copying before we start
-    // writing to memory so we don't have to worry about overwriting the
-    // multiboot2 info.
-    for tag in multiboot2_info.iter() {
-        match tag {
-            InfoTag::Commandline(commandline_tag) => {
-                println!(
-                    "Found commandline: {:?}",
-                    Into::<&CStr>::into(commandline_tag).to_str()
-                )
-            }
-            InfoTag::BootLoaderName(boot_loader_name_tag) => {
-                println!(
-                    "Found bootloader name: {:?}",
-                    Into::<&CStr>::into(boot_loader_name_tag).to_str()
-                )
-            }
-            InfoTag::BasicMemoryInfo(_) => println!("Found memory info."),
-        }
-    }
+    // BUG: Ensure the region won't overlap with the kernel code.
+    // TODO: The choice of 64MB for kernel memory size should be
+    // re-evaluated later.
+    // SAFETY: Single core, no interrupts.
+    unsafe { KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize) };
 
-    println!("Done checking info.");
+    println!("Allocating vector");
+    let mut v = vec![5, 6513, 51];
+    println!("Vector ptr: {:?}, capacity: {}", v.as_ptr(), v.capacity());
+    assert!(v.pop() == Some(51));
+    println!("Dropping vector");
+    drop(v);
+    println!("Vector dropped!");
+
+    // SAFETY: Single core, no interrupts.
+    unsafe { KERNEL_ALLOCATOR.deinit() };
 
     #[allow(clippy::empty_loop)]
     loop {}
