@@ -14,7 +14,10 @@ kidneyos.iso: isofiles/boot/kernel.bin isofiles/boot/grub/grub.cfg
 	grub-mkrescue -o $@ isofiles
 
 isofiles/boot/kernel.bin: $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos
-	cp $< $@
+	$(OBJCOPY) --strip-debug $< $@
+
+kernel.sym: $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos
+	$(OBJCOPY) --only-keep-debug $< $@
 
 -include target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos.d
 $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos: Cargo.toml Cargo.lock
@@ -28,7 +31,7 @@ $(realpath .)/target/i686-unknown-kernel/$(OUT_DIR_NAME)/kidneyos: Cargo.toml Ca
 	  -- \
 	  -C link-arg=-T -C link-arg=linkers/i686.ld \
 	  -C link-arg=-z -C link-arg=max-page-size=0x1000 \
-	  -C link-arg=-S -C link-arg=-n
+	  -C link-arg=-n
 
 .PHONY: run-bochs
 run-bochs: kidneyos.iso
@@ -39,7 +42,7 @@ run-qemu: kidneyos.iso
 	qemu-system-i386 -no-reboot -no-shutdown -cdrom kidneyos.iso
 
 .PHONY: run-qemu-gdb
-run-qemu-gdb: kidneyos.iso
+run-qemu-gdb: kidneyos.iso kernel.sym
 	qemu-system-i386 -s -S -no-reboot -no-shutdown -cdrom kidneyos.iso
 
 .PHONY: run-qemu-ng
@@ -54,4 +57,4 @@ test:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -f kidneyos.iso isofiles/boot/kernel.bin
+	rm -f kidneyos.iso isofiles/boot/kernel.bin kernel.sym

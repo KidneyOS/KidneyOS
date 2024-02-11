@@ -7,3 +7,4 @@ result
 /kidneyos-builder.tar.gz
 /local.mk
 *.core
+kernel.sym
