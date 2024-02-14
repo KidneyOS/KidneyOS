@@ -3,6 +3,7 @@ OUTPUT_FORMAT(elf32-i386)
 
 /* NOTE: These values must be kept synced with the values in src/mem/mod.rs */
 KERNEL_OFFSET = 0x100000;
+KERNEL_DATA_OFFSET = 0x180000;
 KERNEL_MAX_SIZE = 0x100000;
 
 SECTIONS {
@@ -27,6 +28,10 @@ SECTIONS {
         __rodata_start = .;
         *(.rodata*)
     }
+
+    ASSERT(. <= KERNEL_DATA_OFFSET, "kernel sections before data shouldn't be bigger than 512KB.")
+
+    . = KERNEL_DATA_OFFSET;
 
     .data ALIGN(4K) : {
         __rodata_end = .;

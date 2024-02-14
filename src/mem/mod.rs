@@ -1,16 +1,22 @@
 /// # Memory Layout
 ///
-/// |-------------------------------|
-/// | Kernel Virtual Memory (64MB)  |
-/// |-------------------------------| KERNEL_ALLOCATOR.init(...)
-/// | Unused                        |
-/// |-------------------------------| KERNEL_MAIN_STACK_TOP
-/// | Kernel Main Stack  (8KB)      |
-/// |-------------------------------| KERNEL_OFFSET + KERNEL_MAX_SIZE
-/// | Kernel Code (<=1MB)           |
-/// |-------------------------------| KERNEL_OFFSET
-/// | Lower Memory, Reserved/Unused |
-/// |-------------------------------| 0
+/// |--------------------------------|
+/// | Kernel Virtual Memory (64MB)   | KERNEL_ALLOCATOR.init(...)
+/// |--------------------------------|
+/// | Unused                         |
+/// |--------------------------------| KERNEL_MAIN_STACK_TOP
+/// | Kernel Main Stack (8KB)        |
+/// |--------------------------------| KERNEL_MAX
+/// | Unused                         |
+/// |--------------------------------|
+/// | Kernel Data (<=512KB)          |
+/// |--------------------------------| KERNEL_DATA_OFFSET
+/// | Unused                         |
+/// |--------------------------------|
+/// | Kernel Code + RODATA (<=512KB) |
+/// |--------------------------------| KERNEL_OFFSET
+/// | Lower Memory, Reserved/Unused  |
+/// |--------------------------------| 0
 mod buddy_allocator;
 mod frame_allocator;
 mod pool_allocator;
@@ -24,7 +30,7 @@ use buddy_allocator::BuddyAllocator;
 use core::{
     alloc::{Allocator, GlobalAlloc, Layout},
     cell::UnsafeCell,
-    ops::{Range, RangeInclusive},
+    ops::Range,
     ptr::NonNull,
 };
 use frame_allocator::FrameAllocatorSolution;
@@ -32,11 +38,14 @@ use frame_allocator::FrameAllocatorSolution;
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
-// NOTE: These first two must be kept synced with the values in linkers/i686.ld
+// NOTE: These values must be kept synced with the values in linkers/i686.ld
 pub const KERNEL_OFFSET: usize = 0x100000;
+pub const KERNEL_DATA_OFFSET: usize = 0x180000;
 pub const KERNEL_MAX_SIZE: usize = 0x100000;
-const KERNEL_STACK_SIZE: usize = 8 * KB;
-pub const KERNEL_MAIN_STACK_TOP: usize = KERNEL_OFFSET + KERNEL_MAX_SIZE + KERNEL_STACK_SIZE;
+
+pub const KERNEL_MAX: usize = KERNEL_OFFSET + KERNEL_MAX_SIZE; // exclusive
+const KERNEL_MAIN_STACK_SIZE: usize = 8 * KB;
+pub const KERNEL_MAIN_STACK_TOP: usize = KERNEL_MAX + KERNEL_MAIN_STACK_SIZE;
 
 // "Upper memory" (as opposed to "lower memory") starts at 1MB.
 const UPPER_MEMORY_START: *mut u8 = MB as *mut u8;
@@ -103,7 +112,7 @@ impl KernelAllocator {
     /// # Safety
     ///
     /// This function can only be called when the allocator is uninitialized.
-    pub unsafe fn init(&mut self, size: usize, mem_upper: usize) -> RangeInclusive<usize> {
+    pub unsafe fn init(&mut self, size: usize, mem_upper: usize) -> Range<usize> {
         let KernelAllocatorState::Uninitialized = self.state.get_mut() else {
             panic!("init called while kernel allocator was already initialized");
         };
@@ -139,7 +148,7 @@ impl KernelAllocator {
             subblock_allocators: Vec::new_in(buddy_allocator),
         };
 
-        (first_frames_base as usize)..=(frames_max as usize)
+        first_frames_base as usize..frames_max as usize
     }
 
     /// Deinitialize the kernel allocator, printing information about any leaks
