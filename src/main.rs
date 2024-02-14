@@ -59,7 +59,6 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
         })
         .expect("Didn't find memory info!");
 
-    // BUG: Ensure the region won't overlap with the kernel code.
     // TODO: The choice of 64MB for kernel memory size should be
     // re-evaluated later.
     // SAFETY: Single core, no interrupts.
