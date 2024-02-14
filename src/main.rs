@@ -59,31 +59,32 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
         })
         .expect("Didn't find memory info!");
 
-    // TODO: The choice of 64MB for kernel memory size should be
-    // re-evaluated later.
-    // SAFETY: Single core, no interrupts.
-    let kernel_memory_range = unsafe { KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize) };
+    // SAFETY: Single core, interrupts disabled.
+    unsafe {
+        // TODO: The choice of 64MB for kernel memory size should be
+        // re-evaluated later.
+        let kernel_memory_range = KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize);
 
-    println!("Setting up GDTR");
-    unsafe { global_descriptor_table::load() };
-    println!("GDTR set up!");
+        println!("Setting up GDTR");
+        global_descriptor_table::load();
+        println!("GDTR set up!");
 
-    println!("Setting up IDTR");
-    unsafe { interrupt_descriptor_table::load() };
-    println!("IDTR set up!");
+        println!("Setting up IDTR");
+        interrupt_descriptor_table::load();
+        println!("IDTR set up!");
 
-    println!("Enabling paging");
-    unsafe { paging::enable(kernel_memory_range) };
-    println!("Paging enabled!");
+        println!("Enabling paging");
+        paging::enable(kernel_memory_range);
+        println!("Paging enabled!");
 
-    thread_system_initialization();
+        thread_system_initialization();
 
-    println!("Disabling paging");
-    unsafe { paging::disable() };
-    println!("Paging disabled!");
+        println!("Disabling paging");
+        paging::disable();
+        println!("Paging disabled!");
 
-    // SAFETY: Single core, no interrupts.
-    unsafe { KERNEL_ALLOCATOR.deinit() };
+        KERNEL_ALLOCATOR.deinit();
+    }
 
     #[allow(clippy::empty_loop)]
     loop {}
