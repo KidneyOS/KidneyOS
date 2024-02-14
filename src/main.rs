@@ -79,8 +79,12 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
 
     thread_system_initialization();
 
+    println!("Disabling paging");
+    unsafe { paging::disable() };
+    println!("Paging disabled!");
+
     // SAFETY: Single core, no interrupts.
-    // unsafe { KERNEL_ALLOCATOR.deinit() };
+    unsafe { KERNEL_ALLOCATOR.deinit() };
 
     #[allow(clippy::empty_loop)]
     loop {}

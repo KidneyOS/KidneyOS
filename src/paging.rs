@@ -127,8 +127,8 @@ struct VirtualAddress {
 static mut TOP_LEVEL_PAGE_DIRECTORY: *mut PageDirectory = null_mut();
 
 pub unsafe fn enable(kernel_memory_range: Range<usize>) {
-    TOP_LEVEL_PAGE_DIRECTORY = Box::leak(Box::<PageDirectory>::default());
-    let page_directory = &mut *TOP_LEVEL_PAGE_DIRECTORY;
+    let page_directory = Box::leak(Box::<PageDirectory>::default());
+    TOP_LEVEL_PAGE_DIRECTORY = page_directory;
 
     struct PageRegion {
         address_range: Range<usize>,
@@ -206,4 +206,30 @@ pub unsafe fn enable(kernel_memory_range: Range<usize>) {
         in(reg) TOP_LEVEL_PAGE_DIRECTORY,
         out(reg) _,
     );
+}
+
+pub unsafe fn disable() {
+    asm!(
+        "
+        mov {0}, cr0
+        xor {0}, 0x80010000
+        mov cr0, {0}
+        mov {0}, 0
+        mov cr3, {0}
+        ",
+        out(reg) _,
+    );
+
+    for page_directory_entry in &mut (*TOP_LEVEL_PAGE_DIRECTORY).0 {
+        if !page_directory_entry.present() {
+            continue;
+        }
+
+        let page_table_address =
+            page_directory_entry.page_table_address().value() as usize * size_of::<PageTable>();
+        drop(Box::from_raw(page_table_address as *mut PageTable));
+    }
+
+    drop(Box::from_raw(TOP_LEVEL_PAGE_DIRECTORY));
+    TOP_LEVEL_PAGE_DIRECTORY = null_mut();
 }
