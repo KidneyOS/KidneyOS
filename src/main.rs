@@ -2,7 +2,8 @@
 #![cfg_attr(not(test), no_main)]
 
 mod multiboot2;
-
+mod pagedir;
+mod process;
 extern crate alloc;
 
 use alloc::vec;
