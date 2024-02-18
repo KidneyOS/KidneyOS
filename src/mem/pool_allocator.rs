@@ -1,29 +1,100 @@
 use core::{
-    alloc::{Layout, Allocator},
+    alloc::{Layout, Allocator, AllocError},
     ptr::NonNull,
 };
-use crate::constants::KB;
 
-#[derive(Clone, Copy)]
+use alloc::vec::Vec;
+use alloc::vec;
+
+#[derive(Clone)]
 pub struct PoolAllocator<const N: usize> {
     region: NonNull<[u8]>,
+    bitmap: Vec<u8>,
 }
 
 impl<const N: usize> PoolAllocator<N>{
-    /// Creates a new Pool Allocator that allocates a huge chunk of memory
+    /// PoolAllocator has the giant chunk of memory referred to in region
     pub fn new(region: NonNull<[u8]>) -> Self {
-        // Here, region is a Layout Pointer?
-        // So we can use region to obtain the giant chunk of memory?
-        todo!();
+        // Calculate the required bitmap size in bytes, because each stores an u8
+
+        // We will round down to ensure that it doesn't crash
+        // It will always use lesser than or equal to the region size
+        let bitmap_size = (region.len() / N) / 8;
+
+        // Initialize the bitmap vector with zeros
+        let bitmap = vec![0u8; bitmap_size];
+
+        Self { region, bitmap }
     }
 
 }
 
 unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-        // Tries to use the layout and self.region to find a potential next slot to allocate this region,
-        // and return the pointer to it.
-        todo!()
+        // Ensure the layout size is a multiple of N
+        if layout.size() % N != 0 {
+            return Err(AllocError);
+        }
+
+        // Calculate the number of blocks required
+        let blocks_required = layout.size() / N;
+
+        // Variables to track the search for a contiguous free region
+        let mut start_index = None;
+        let mut free_count = 0;
+
+        // Search for a contiguous sequence of free blocks
+        for (index, &bit) in self.bitmap.iter().enumerate() {
+            for bit_pos in 0..8 {
+                if bit & (1 << bit_pos) == 0 {
+                    free_count += 1;
+                    start_index.get_or_insert(index * 8 + bit_pos);
+                    if free_count >= blocks_required {
+                        // Found a suitable region
+                        break;
+                    }
+                } else {
+                    // Reset the counter and start index if a used block is found
+                    start_index = None;
+                    free_count = 0;
+                }
+            }
+        }
+
+        // Didn't find any suitable region
+        if start_index.is_none() {
+            return Err(AllocError);
+        }
+
+        let start_bit: usize = start_index.unwrap();
+
+        if free_count >= blocks_required {
+            // Calculate the start address
+            let start_addr = unsafe {
+                (self.region.as_ptr() as *const u8)
+                    .add(start_bit * N)
+            };
+
+            // Update the bitmap to mark the blocks as used
+            // TODO: Not sure why this doesn't compile
+            // It doesnt allow me to modify self.bitmap
+            for i in 0..blocks_required {
+                let byte_index = (start_bit + i) / 8;
+                let bit_pos = (start_bit + i) % 8;
+                self.bitmap[byte_index] |= 1 << bit_pos;
+            }
+
+            // Construct and return the pointer to the allocated memory
+            let slice_ptr = NonNull::slice_from_raw_parts(
+                NonNull::new(start_addr as *mut u8).unwrap(),
+                layout.size());
+
+            let nonnull_slice = NonNull::new(slice_ptr.as_ptr() as *mut [u8]).unwrap();
+
+            Ok(nonnull_slice)
+        } else {
+            Err(AllocError)
+        }
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
