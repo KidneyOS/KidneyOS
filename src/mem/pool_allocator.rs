@@ -101,9 +101,37 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-        // Marks some pointer region as unused, might need more thinking before writing it up,
-        // otherwise might need to also allow each pointer location to store a "used/unused" information
-        todo!()
+        // Using the bitmap to check if the ptr is aligned with our allocation state
+        let region_slice = unsafe {
+            &*self.region.as_ptr()
+        };
+
+        let start_addr = region_slice.as_ptr() as usize; // Start address of the region
+
+        // Checks the bitmap and see if that bit is flipped
+        let bitmap = self.bitmap.get().as_mut().unwrap();
+
+        let start_bit = (ptr.as_ptr() as usize - start_addr) / N;
+
+        // Check if the bit is already flipped
+        let byte_index = start_bit / 8;
+        let bit_pos = start_bit % 8;
+
+        // Sanity check: We should have layout.size() / N blocks starting from start_bit
+        for i in 0..layout.size() / N {
+            let byte_index = (start_bit + i) / 8;
+            let bit_pos = (start_bit + i) % 8;
+            if bitmap[byte_index] & (1 << bit_pos) == 0 {
+                panic!("Double free detected");
+            }
+        }
+
+        // Mark the blocks as free
+        for i in 0..layout.size() / N {
+            let byte_index = (start_bit + i) / 8;
+            let bit_pos = (start_bit + i) % 8;
+            bitmap[byte_index] &= !(1 << bit_pos);
+        }
     }
 }
 
