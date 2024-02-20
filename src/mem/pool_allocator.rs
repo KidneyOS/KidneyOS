@@ -1,15 +1,15 @@
 use core::{
     alloc::{Layout, Allocator, AllocError},
     ptr::NonNull,
+    cell::UnsafeCell,
 };
 
 use alloc::vec::Vec;
 use alloc::vec;
 
-#[derive(Clone)]
 pub struct PoolAllocator<const N: usize> {
     region: NonNull<[u8]>,
-    bitmap: Vec<u8>,
+    bitmap: UnsafeCell<Vec<u8>>,
 }
 
 impl<const N: usize> PoolAllocator<N>{
@@ -22,7 +22,7 @@ impl<const N: usize> PoolAllocator<N>{
         let bitmap_size = (region.len() / N) / 8;
 
         // Initialize the bitmap vector with zeros
-        let bitmap = vec![0u8; bitmap_size];
+        let bitmap = UnsafeCell::new(vec![0u8; bitmap_size]);
 
         Self { region, bitmap }
     }
@@ -43,8 +43,10 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         let mut start_index = None;
         let mut free_count = 0;
 
+        let bitmap = unsafe { self.bitmap.get().as_mut() }.unwrap();
+
         // Search for a contiguous sequence of free blocks
-        for (index, &bit) in self.bitmap.iter().enumerate() {
+        for (index, &bit) in bitmap.iter().enumerate(){
             for bit_pos in 0..8 {
                 if bit & (1 << bit_pos) == 0 {
                     free_count += 1;
@@ -76,12 +78,13 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
             };
 
             // Update the bitmap to mark the blocks as used
-            // TODO: Not sure why this doesn't compile
-            // It doesnt allow me to modify self.bitmap
-            for i in 0..blocks_required {
-                let byte_index = (start_bit + i) / 8;
-                let bit_pos = (start_bit + i) % 8;
-                self.bitmap[byte_index] |= 1 << bit_pos;
+            unsafe {
+                let bitmap_ptr = self.bitmap.get().as_mut().unwrap(); // Get a mutable reference to the bitmap
+                for i in 0..blocks_required {
+                    let byte_index = (start_bit + i) / 8;
+                    let bit_pos = (start_bit + i) % 8;
+                    (*bitmap_ptr)[byte_index] |= 1 << bit_pos;
+                }
             }
 
             // Construct and return the pointer to the allocated memory
