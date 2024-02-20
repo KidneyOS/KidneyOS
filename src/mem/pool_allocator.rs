@@ -113,10 +113,6 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 
         let start_bit = (ptr.as_ptr() as usize - start_addr) / N;
 
-        // Check if the bit is already flipped
-        let byte_index = start_bit / 8;
-        let bit_pos = start_bit % 8;
-
         // Sanity check: We should have layout.size() / N blocks starting from start_bit
         for i in 0..layout.size() / N {
             let byte_index = (start_bit + i) / 8;
