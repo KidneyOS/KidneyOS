@@ -10,57 +10,149 @@ use core::ptr;
 use std::ffi::CString;
 use std::os::raw::c_void;
 use core::arch::asm;
+use core::{
+    alloc::{AllocError, Allocator, Layout},
+    mem::size_of,
+    ptr::NonNull,
+};
 pub struct Process;
 const PGSIZE: usize = 4096;
+const TID_ERROR: i32 = -1;
 // Assuming we have a module `thread` that provides similar functionalities
 // and `Tid` is a type alias for thread ID, with `TID_ERROR` being a constant for an error state.
-// `palloc_get_page` and `strlcpy` would need to be safe Rust functions or wrapped in unsafe blocks if they directly interface with C functions or system calls.
 // `start_process` needs to be a function pointer or a closure that matches the expected signature.
+
+fn push_argument(esp: &mut usize, argc: usize, argv: &[usize]) {
+    unsafe {
+        // Align the stack pointer to a 4-byte boundary.
+        *esp = *esp & 0xffff_fffc;
+
+        // Push a null sentinel (end of arguments marker).
+        // TODO: type usize cannot be dereferenced, need to fix this.
+        *esp = *esp.wrapping_sub(4);
+        *(esp as *mut usize as *mut u32) = 0;
+
+        // Push argv pointers in reverse order.
+        for &arg in argv.iter().rev() {
+            *esp = *esp.wrapping_sub(4);
+            *(esp as *mut usize as *mut usize) = arg;
+        }
+
+        // Push the address of argv[0].
+        *esp = *esp.wrapping_sub(4);
+        *(esp as *mut usize as *mut usize) = *esp.wrapping_add(4);
+
+        // Push argc.
+        *esp = *esp.wrapping_sub(4);
+        *(esp as *mut usize as *mut usize) = argc;
+
+        // Push a fake return address.
+        *esp = *esp.wrapping_sub(4);
+        *(esp as *mut usize as *mut u32) = 0;
+    }
+}
 
 pub fn process_execute(file_name: &str) -> Tid {
     // Allocate memory for the filename copy.
     // In Rust, we don't generally deal with raw pointers for memory allocation, instead we use Vec<u8> or String.
     let mut fn_copy = vec![0u8; PGSIZE];
 
-    // Rust strings already ensure null-termination, so we simply copy the bytes.
-    // We need to handle potential UTF-8 encoding issues since Rust strings are UTF-8.
-    let bytes_to_copy = file_name.as_bytes().len().min(PGSIZE - 1); // Leave space for null-terminator
-    fn_copy[..bytes_to_copy].copy_from_slice(file_name.as_bytes());
-    fn_copy[bytes_to_copy] = 0; // Null-terminate the string
+    // allocate and copy string
+    let mut fn_copy = file_name.to_owned();
+    let mut fn_copy2 = file_name.to_owned();
 
-    // In Rust, we would pass a closure that captures `fn_copy` to the new thread.
-    // `thread_create` should be a safe wrapper around the actual thread creation.
-    let tid = thread_create(move || start_process(&fn_copy));
+
+    let first_word = fn_copy2.split_whitespace().next().unwrap_or_default().to_string();// Null-terminate the string
+
+    let tid = thread_create(&first_word, PRI_DEFAULT, start_process, &fn_copy);
 
     if tid == TID_ERROR {
         // In Rust, the memory would be automatically freed once `fn_copy` goes out of scope.
+        return TID_ERROR;
+    }
+
+    // Simulate waiting on a semaphore with a hypothetical `sema_down` function
+    // Assume `thread_current()` is replaced with a Rust equivalent that accesses the current thread context
+    sema_down(&thread_current().sema);
+    if !thread_current().success {
+        return TID_ERROR;
     }
 
     tid
 }
 
 pub unsafe fn start_process(file_name_: *mut u8) -> ! {
-    let file_name = file_name_;
+    let mut success = false;
 
-    // TODO: need to implement interrupt frame
-    let mut if_: IntrFrame = std::mem::zeroed();
-    if_.gs = SEL_UDSEG;
-    if_.fs = SEL_UDSEG;
-    if_.es = SEL_UDSEG;
-    if_.ds = SEL_UDSEG;
-    if_.ss = SEL_UDSEG;
-    if_.cs = SEL_UCSEG;
-    if_.eflags = FLAG_IF | FLAG_MBS;
+    // In Rust, instead of using `malloc` and `strlcpy`, you can clone the string directly.
+    let fn_copy = file_name_.to_owned();
 
-    let success = load(file_name, &mut if_.eip, &mut if_.esp);
+    // Initialize interrupt frame, TODO: we still need to implement the interrupt frame
+    let mut if_ = IntrFrame {
+        gs: SEL_UDSEG,
+        fs: SEL_UDSEG,
+        es: SEL_UDSEG,
+        ds: SEL_UDSEG,
+        ss: SEL_UDSEG,
+        cs: SEL_UCSEG,
+        eflags: FLAG_IF | FLAG_MBS,
+        eip: 0,
+        esp: 0,
+    };
 
-    // If load failed, free the allocated page and exit the thread.
-    // TODO: need to implement palloc
-    palloc_free_page(file_name);
-    if !success {
-        thread_exit();
+    // Simulate extracting the first token from the string (similar to `strtok_r` in C).
+    let file_name = file_name_.split_whitespace().next().unwrap_or_default();
+
+    // TODO: implement load in process.rs
+    success = load(file_name, &mut if_.eip, &mut if_.esp);
+
+    if success {
+        // Our implementation for Task 1:
+        // Calculate the number of parameters and the specification of parameters.
+        let mut argc = 0;
+        let mut argv = [0usize; 50]; // Use usize for pointers/addressing.
+        let mut esp = if_.esp;
+
+        // Split `fn_copy` into tokens, equivalent to the strtok_r loop in C.
+        for token in fn_copy.split_whitespace() {
+            let token_len = token.len() + 1; // +1 for null terminator, assuming we need to simulate C-style strings.
+            esp -= token_len;
+
+            // Assuming we have a way to copy the token directly to the simulated stack at `esp`.
+            // This would require unsafe pointer manipulation in Rust.
+            unsafe {
+                core::ptr::copy_nonoverlapping(token.as_ptr(), esp as *mut u8, token_len);
+            }
+
+            argv[argc] = esp;
+            argc += 1;
+
+            if argc >= 50 { break; } // Ensuring we don't exceed the argv array bounds.
+        }
+
+        // Simulate pushing arguments onto the stack.
+        push_argument(&mut esp, argc, &argv);
+
+        // Adjust the interrupt frame's stack pointer.
+        if_.esp = esp;
+
+        // Record the exec_status of the parent thread's success and sema up parent's semaphore.
+        // Assuming `thread_current` and `sema_up` are available or appropriately simulated.
+        let current_thread = thread_current();
+        current_thread.parent.success = true;
+        sema_up(&current_thread.parent.sema);
     }
 
+    // If load failed
+    if !success {
+        // Record the exec_status of the parent thread's success and sema up parent's semaphore.
+        let current_thread = thread_current();
+        current_thread.parent.success = false;
+        sema_up(&current_thread.parent.sema);
+    
+        // Assuming `thread_exit` is a function that terminates the current thread.
+        thread_exit();
+    }
     // Start the user process by jumping to the interrupt exit code.
     // This is highly architecture and OS specific, and typically wouldn't be done in Rust.
     asm!("movl $0, %esp; jmp intr_exit" : : "g"(&if_) : "memory");
