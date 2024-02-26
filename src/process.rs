@@ -25,33 +25,32 @@ const TID_ERROR: i32 = -1;
 fn push_argument(esp: &mut usize, argc: usize, argv: &[usize]) {
     unsafe {
         // Align the stack pointer to a 4-byte boundary.
-        *esp = *esp & 0xffff_fffc;
+        *esp &= 0xFFFF_FFFC;
 
         // Push a null sentinel (end of arguments marker).
-        // TODO: type usize cannot be dereferenced, need to fix this.
-        *esp = *esp.wrapping_sub(4);
-        *(esp as *mut usize as *mut u32) = 0;
+        *esp = (*esp).wrapping_sub(4);
+        *((*esp) as *mut u32) = 0;
 
         // Push argv pointers in reverse order.
         for &arg in argv.iter().rev() {
-            *esp = *esp.wrapping_sub(4);
-            *(esp as *mut usize as *mut usize) = arg;
+            *esp = (*esp).wrapping_sub(4);
+            *((*esp) as *mut usize) = arg;
         }
 
-        // Push the address of argv[0].
-        *esp = *esp.wrapping_sub(4);
-        *(esp as *mut usize as *mut usize) = *esp.wrapping_add(4);
+        // Push the address of argv[0]. This is tricky in Rust due to ownership rules,
+        // but since we're dealing with raw pointers here, we simulate it:
+        *esp = (*esp).wrapping_sub(4);
+        *((*esp) as *mut usize) = *esp + 4;
 
         // Push argc.
-        *esp = *esp.wrapping_sub(4);
-        *(esp as *mut usize as *mut usize) = argc;
+        *esp = (*esp).wrapping_sub(4);
+        *((*esp) as *mut usize) = argc;
 
         // Push a fake return address.
-        *esp = *esp.wrapping_sub(4);
-        *(esp as *mut usize as *mut u32) = 0;
+        *esp = (*esp).wrapping_sub(4);
+        *((*esp) as *mut u32) = 0;
     }
 }
-
 pub fn process_execute(file_name: &str) -> Tid {
     // Allocate memory for the filename copy.
     // In Rust, we don't generally deal with raw pointers for memory allocation, instead we use Vec<u8> or String.
@@ -107,7 +106,6 @@ pub unsafe fn start_process(file_name_: *mut u8) -> ! {
     success = load(file_name, &mut if_.eip, &mut if_.esp);
 
     if success {
-        // Our implementation for Task 1:
         // Calculate the number of parameters and the specification of parameters.
         let mut argc = 0;
         let mut argv = [0usize; 50]; // Use usize for pointers/addressing.
@@ -189,9 +187,9 @@ fn process_activate() {
 
         // Activate the thread's page tables.
         // The `pagedir` field is assumed to be a pointer to the page directory, so we dereference it here.
-        pagedir_activate(t.pagedir);
+        pagedir_activate(t.pagedir); //this function loads page directory PD into the CPU's page directory base register.
 
-        // Update the TSS with the thread's kernel stack.
+        // Update the TSS with the thread's kernel stack. Sets the ring 0 stack pointer in the TSS to point to the end of the thread stack. 
         tss_update();
     }
 }
