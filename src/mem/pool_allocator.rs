@@ -36,6 +36,11 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
             return Err(AllocError);
         }
 
+        // Check alignment of layout
+        if layout.align() % N != 0 {
+            return Err(AllocError);
+        }
+
         // Calculate the number of blocks required
         let blocks_required = layout.size() / N;
 
@@ -64,40 +69,37 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         }
 
         // Didn't find any suitable region
-        if start_index.is_none() {
+        let start_bit = start_index.ok_or(AllocError)?;
+
+        // Not enough free blocks possible
+        if free_count < blocks_required {
             return Err(AllocError);
         }
 
-        let start_bit: usize = start_index.unwrap();
+        // Calculate the start address
+        let start_addr = unsafe {
+            (self.region.as_ptr() as *const u8)
+                .add(start_bit * N)
+        };
 
-        if free_count >= blocks_required {
-            // Calculate the start address
-            let start_addr = unsafe {
-                (self.region.as_ptr() as *const u8)
-                    .add(start_bit * N)
-            };
-
-            // Update the bitmap to mark the blocks as used
-            unsafe {
-                let bitmap_ptr = self.bitmap.get().as_mut().unwrap(); // Get a mutable reference to the bitmap
-                for i in 0..blocks_required {
-                    let byte_index = (start_bit + i) / 8;
-                    let bit_pos = (start_bit + i) % 8;
-                    (*bitmap_ptr)[byte_index] |= 1 << bit_pos;
-                }
+        // Update the bitmap to mark the blocks as used
+        unsafe {
+            let bitmap_ptr = self.bitmap.get().as_mut().unwrap(); // Get a mutable reference to the bitmap
+            for i in 0..blocks_required {
+                let byte_index = (start_bit + i) / 8;
+                let bit_pos = (start_bit + i) % 8;
+                (*bitmap_ptr)[byte_index] |= 1 << bit_pos;
             }
-
-            // Construct and return the pointer to the allocated memory
-            let slice_ptr = NonNull::slice_from_raw_parts(
-                NonNull::new(start_addr as *mut u8).unwrap(),
-                layout.size());
-
-            let nonnull_slice = NonNull::new(slice_ptr.as_ptr() as *mut [u8]).unwrap();
-
-            Ok(nonnull_slice)
-        } else {
-            Err(AllocError)
         }
+
+        // Construct and return the pointer to the allocated memory
+        let slice_ptr = NonNull::slice_from_raw_parts(
+            NonNull::new(start_addr as *mut u8).unwrap(),
+            layout.size());
+
+        let nonnull_slice = NonNull::new(slice_ptr.as_ptr() as *mut [u8]).unwrap();
+
+        Ok(nonnull_slice)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
