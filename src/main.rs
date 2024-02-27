@@ -3,10 +3,9 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
-mod global_descriptor_table;
-mod interrupt_descriptor_table;
 mod multiboot2;
 mod paging;
+mod x86;
 
 extern crate alloc;
 
@@ -17,6 +16,7 @@ use multiboot2::{
     info::{Info, InfoTag},
     EXPECTED_MAGIC,
 };
+use x86::{global_descriptor_table, interrupt_descriptor_table};
 
 #[cfg(target_os = "none")]
 #[panic_handler]
