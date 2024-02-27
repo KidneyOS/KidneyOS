@@ -4,12 +4,12 @@ use core::{
     cell::UnsafeCell,
 };
 
-use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::vec;
 
 pub struct PoolAllocator<const N: usize> {
     region: NonNull<[u8]>,
-    bitmap: UnsafeCell<Vec<u8>>,
+    bitmap: UnsafeCell<Box<[u8]>>,
 }
 
 impl<const N: usize> PoolAllocator<N>{
@@ -22,7 +22,7 @@ impl<const N: usize> PoolAllocator<N>{
         let bitmap_size = (region.len() / N) / 8;
 
         // Initialize the bitmap vector with zeros
-        let bitmap = UnsafeCell::new(vec![0u8; bitmap_size]);
+        let bitmap = UnsafeCell::new(vec![0u8; bitmap_size].into_boxed_slice());
 
         Self { region, bitmap }
     }
