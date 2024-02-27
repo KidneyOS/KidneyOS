@@ -6,7 +6,7 @@ use core::ptr::NonNull;
 use alloc::alloc::Global;
 
 use crate::constants::KB;
-use crate::threading::context_switch::StackFrame;
+use crate::threading::context_switch::Context;
 
 pub type TID = u16;
 pub type ThreadFunction = fn() -> ();
@@ -29,7 +29,8 @@ pub struct ThreadControlBlock {
     pub tid: TID,
     pub status: ThreadStatus,
     pub stack_pointer: NonNull<u8>,
-    stack_pointer_bottom: NonNull<[u8]>, // Kept to avoid dropping the stack and to detect overflows.
+    _stack_pointer_bottom: NonNull<[u8]>, // Kept to avoid dropping the stack and to detect overflows.
+    pub context: Context, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
 
 }
 
@@ -67,26 +68,21 @@ impl ThreadControlBlock {
             tid,
             status: ThreadStatus::Invalid,
             stack_pointer: stack_pointer_top,
-            stack_pointer_bottom: stack_pointer_bottom
+            _stack_pointer_bottom: stack_pointer_bottom,
+            context: Context::empty_context()
         };
 
         // Place the function to execute at the top of the stack.
         // TODO: Other frames for switching code? Minimum, thread_thunk.
         let thunk_stack_frame = new_thread.allocate_frame();
         unsafe {
-            *thunk_stack_frame.as_ptr() = StackFrame {
-                eax: 0,
-                ebx: 0,
-                ecx: 0,
-                edx: 0,
-                esi: 0,
+            // *thunk_stack_frame.as_ptr() = Context::empty_context();
+            *thunk_stack_frame.as_ptr() = Context {
                 edi: 0,
+                esi: 0,
+                ebx: 0,
                 ebp: 0,
                 eip: entry_function as usize,
-                cs: 0x8,
-                eflags: 0x202,
-                esp: 0,
-                ss: 0
             };
         }
 
@@ -95,9 +91,9 @@ impl ThreadControlBlock {
         return new_thread;
     }
 
-    pub fn allocate_frame(&mut self) -> NonNull<StackFrame> {
+    pub fn allocate_frame(&mut self) -> NonNull<Context> {
 
-        return self.shift_stack_pointer_down(size_of::<StackFrame>()).cast::<StackFrame>();
+        return self.shift_stack_pointer_down(size_of::<Context>()).cast::<Context>();
 
     }
 
@@ -109,14 +105,5 @@ impl ThreadControlBlock {
             return self.stack_pointer;
         }
     }
-
-}
-
-#[cfg(test)]
-mod tests {
-    super::*;
-
-    #[test]
-    fn
 
 }
