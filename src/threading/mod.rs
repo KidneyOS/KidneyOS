@@ -7,6 +7,7 @@ use alloc::alloc::Global;
 pub mod context_switch;
 pub mod scheduling;
 pub mod thread_control_block;
+pub mod thread_functions;
 
 use crate::threading::thread_control_block::*;
 use crate::threading::context_switch::*;

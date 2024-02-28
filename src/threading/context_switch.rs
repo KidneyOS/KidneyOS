@@ -1,6 +1,9 @@
 
 use crate::threading::ThreadControlBlock;
 
+/**
+ * The context for a use within context_switch.
+ */
 #[repr(C, packed)]
 pub struct Context {
 
@@ -98,7 +101,7 @@ macro_rules! restore_registers {
  * The usize here represents the pointer to the struct itself.
  * That is, it's value is an address.
  * Effectively the signature:
- *      fn context_switch(context **prev, context *new);
+ *      fn context_switch(context **previous, context *next);
  *
  * Must save the Callee's registers and restore the next's registers.
  */

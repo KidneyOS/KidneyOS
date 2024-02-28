@@ -7,9 +7,9 @@ use alloc::alloc::Global;
 
 use crate::constants::KB;
 use crate::threading::context_switch::Context;
+use crate::threading::thread_functions::{ThreadFunction, PrepareThreadContext, RunThreadContext, run_thread, prepare_thread};
 
 pub type TID = u16;
-pub type ThreadFunction = fn() -> ();
 
 // Current value marks the next avaliable TID value to use.
 static mut NEXT_UNRESERVED_TID: TID = 0;
@@ -72,23 +72,50 @@ impl ThreadControlBlock {
             context: Context::empty_context()
         };
 
-        // Place the function to execute at the top of the stack.
-        // TODO: Other frames for switching code? Minimum, thread_thunk.
-        let thunk_stack_frame = new_thread.allocate_frame();
+        // Now, we must build the stack frames for our new thread.
+        // In order (of creation), we have:
+        //  * run_thread frame
+        //  * prepare_thread frame
+        //  * switch_threads frame
+
+        // TODO: Farm this out to a few functions.
+        // TODO: Generalize the allocation function.
+
+        let run_thread_stack_frame = new_thread.allocate_stack_space(core::mem::size_of::<RunThreadContext>());
         unsafe {
-            // *thunk_stack_frame.as_ptr() = Context::empty_context();
-            *thunk_stack_frame.as_ptr() = Context {
+            *run_thread_stack_frame.as_ptr().cast::<RunThreadContext>() = RunThreadContext {
+                eip: 0,
+                entry_function_pointer: entry_function as usize
+            };
+        }
+
+        let prepare_thread_stack_frame = new_thread.allocate_stack_space(core::mem::size_of::<PrepareThreadContext>());
+        unsafe {
+            *prepare_thread_stack_frame.as_ptr().cast::<PrepareThreadContext>() = PrepareThreadContext {
+                eip: run_thread as usize
+            };
+        }
+
+        let switch_threads_stack_frame = new_thread.allocate_frame();
+        unsafe {
+            *switch_threads_stack_frame.as_ptr() = Context {
                 edi: 0,
                 esi: 0,
                 ebx: 0,
                 ebp: 0,
-                eip: entry_function as usize,
+                eip: prepare_thread as usize,
             };
         }
 
         // Hand off to the schedulers.
         new_thread.status = ThreadStatus::Ready;
         return new_thread;
+    }
+
+    pub fn allocate_stack_space(&mut self, bytes: usize) -> NonNull<u8> {
+
+        return self.shift_stack_pointer_down(bytes);
+
     }
 
     pub fn allocate_frame(&mut self) -> NonNull<Context> {
