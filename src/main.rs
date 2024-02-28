@@ -30,13 +30,16 @@ core::arch::global_asm!(
     "
 .globl _start
 _start:
-        mov esp, {stack_start}
+        lea esp, __kernel_end
+        add esp, {stack_size}
         push ebx
         push eax
         call {}",
     sym start,
-    stack_start = const kidneyos::mem::KERNEL_MAIN_STACK_TOP,
+    stack_size = const kidneyos::mem::KERNEL_MAIN_STACK_SIZE
 );
+
+// TODO: Figure out how to detect kernel stack overflows.
 
 #[allow(dead_code)]
 extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {

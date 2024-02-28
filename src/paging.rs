@@ -16,7 +16,7 @@ use core::{
     ptr::null_mut,
 };
 use kidneyos::{
-    mem::{KERNEL_DATA_OFFSET, KERNEL_MAIN_STACK_TOP, KERNEL_MAX, KERNEL_OFFSET, PAGE_FRAME_SIZE},
+    mem::{kernel_data_start, kernel_end, kernel_main_stack_top, kernel_start, PAGE_FRAME_SIZE},
     video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
 };
 
@@ -140,15 +140,15 @@ pub unsafe fn enable(kernel_memory_range: Range<usize>) {
             read_write: true,
         },
         PageRegion {
-            address_range: KERNEL_OFFSET..KERNEL_DATA_OFFSET,
+            address_range: kernel_start()..kernel_data_start(),
             read_write: false,
         },
         PageRegion {
-            address_range: KERNEL_DATA_OFFSET..KERNEL_MAX,
+            address_range: kernel_data_start()..kernel_end(),
             read_write: true,
         },
         PageRegion {
-            address_range: KERNEL_MAX..KERNEL_MAIN_STACK_TOP,
+            address_range: kernel_end()..kernel_main_stack_top(),
             read_write: true,
         },
         PageRegion {

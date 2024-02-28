@@ -1,20 +1,16 @@
-/// # Memory Layout
+/// # Physical Memory Layout
 ///
 /// |--------------------------------|
 /// | Kernel Virtual Memory (64MB)   | KERNEL_ALLOCATOR.init(...)
 /// |--------------------------------|
 /// | Unused                         |
-/// |--------------------------------| KERNEL_MAIN_STACK_TOP
-/// | Kernel Main Stack (8KB)        |
-/// |--------------------------------| KERNEL_MAX
-/// | Unused                         |
-/// |--------------------------------|
-/// | Kernel Data (<=512KB)          |
-/// |--------------------------------| KERNEL_DATA_OFFSET
-/// | Unused                         |
-/// |--------------------------------|
-/// | Kernel Code + RODATA (<=512KB) |
-/// |--------------------------------| KERNEL_OFFSET
+/// |--------------------------------| kernel_main_stack_top()
+/// | Kernel Main Stack (8MB)        |
+/// |--------------------------------| kernel_end()
+/// | Kernel Data                    |
+/// |--------------------------------| kernel_data_start()
+/// | Kernel Code + RODATA           |
+/// |--------------------------------| kernel_start()
 /// | Lower Memory, Reserved/Unused  |
 /// |--------------------------------| 0
 mod buddy_allocator;
@@ -31,21 +27,49 @@ use core::{
     alloc::{Allocator, GlobalAlloc, Layout},
     cell::UnsafeCell,
     ops::Range,
-    ptr::NonNull,
+    ptr::{addr_of, NonNull},
 };
 use frame_allocator::FrameAllocatorSolution;
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
-// NOTE: These values must be kept synced with the values in linkers/i686.ld
-pub const KERNEL_OFFSET: usize = 0x100000;
-pub const KERNEL_DATA_OFFSET: usize = 0x180000;
-pub const KERNEL_MAX_SIZE: usize = 0x100000;
+#[inline]
+pub fn kernel_start() -> usize {
+    extern "C" {
+        static __kernel_start: u8;
+    }
 
-pub const KERNEL_MAX: usize = KERNEL_OFFSET + KERNEL_MAX_SIZE; // exclusive
-const KERNEL_MAIN_STACK_SIZE: usize = 8 * KB;
-pub const KERNEL_MAIN_STACK_TOP: usize = KERNEL_MAX + KERNEL_MAIN_STACK_SIZE;
+    // SAFETY: The linker script will give this the correct address.
+    unsafe { addr_of!(__kernel_start) as usize }
+}
+
+#[inline]
+pub fn kernel_data_start() -> usize {
+    extern "C" {
+        static __kernel_data_start: u8;
+    }
+
+    // SAFETY: The linker script will give this the correct address.
+    unsafe { addr_of!(__kernel_data_start) as usize }
+}
+
+#[inline]
+pub fn kernel_end() -> usize {
+    extern "C" {
+        static __kernel_end: u8;
+    }
+
+    // SAFETY: The linker script will give this the correct address.
+    unsafe { addr_of!(__kernel_end) as usize }
+}
+
+pub const KERNEL_MAIN_STACK_SIZE: usize = 8 * MB;
+
+#[inline]
+pub fn kernel_main_stack_top() -> usize {
+    kernel_end() + KERNEL_MAIN_STACK_SIZE
+}
 
 // "Upper memory" (as opposed to "lower memory") starts at 1MB.
 const UPPER_MEMORY_START: *mut u8 = MB as *mut u8;
@@ -134,7 +158,7 @@ impl KernelAllocator {
         // We start kernel virtual memory at the very end of upper memory, so
         // the start address is the max address minus the size.
         let first_frames_base = frames_max.sub(size);
-        assert!(first_frames_base as usize >= KERNEL_MAIN_STACK_TOP, "first frames base address {first_frames_base:?} was smaller than the top of the kernel stack {KERNEL_MAIN_STACK_TOP:#X}");
+        assert!(first_frames_base as usize >= kernel_main_stack_top(), "first frames base address {first_frames_base:?} was smaller than the top of the kernel stack {:#X}", kernel_main_stack_top());
         let buddy_allocator = BuddyAllocator::new(NonNull::slice_from_raw_parts(
             NonNull::new_unchecked(first_frames_base),
             BUDDY_ALLOCATOR_SIZE,
