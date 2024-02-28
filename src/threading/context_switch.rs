@@ -2,48 +2,26 @@
 use crate::threading::ThreadControlBlock;
 
 /**
- * The context for a use within context_switch.
+ * Public facing method to perform a context switch between two threads.
  */
-#[repr(C, packed)]
-pub struct Context {
+pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlBlock) {
 
-    pub edi: usize, // Destination index.
-    pub esi: usize, // Source index.
-    pub ebx: usize, // Base (for memory access).
-    pub ebp: usize, // Stack base pointer.
-    pub eip: usize  // Index pointer.
-
-}
-
-impl Context {
-
-    pub fn empty_context() -> Self {
-        return Self {
-            edi: 0,
-            esi: 0,
-            ebx: 0,
-            ebp: 0,
-            eip: 0
-        };
-    }
-
-}
-
-
-pub fn thread_switch(switch_from: ThreadControlBlock, switch_to: ThreadControlBlock) {
-
-    // TEMP.
-    // switch_from should not need to be passed in
+    // TODO:
+    // switch_from should not need to be passed in (will get covered by scheduling)
     // Safety checks needed.
 
     unsafe {
         context_switch(
-        switch_from.stack_pointer.as_ptr().cast::<usize>(),
-        switch_to.stack_pointer.as_ptr() as usize
+            switch_from.stack_pointer.as_ptr() as *mut usize,
+            switch_to.stack_pointer.as_ptr() as usize
         );
     }
 
 }
+
+/**
+ * See: `SwitchThreadsContext` for ordering details.
+ */
 
 #[macro_export]
 macro_rules! load_arguments {

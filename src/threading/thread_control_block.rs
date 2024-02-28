@@ -6,8 +6,7 @@ use core::ptr::NonNull;
 use alloc::alloc::Global;
 
 use crate::constants::KB;
-use crate::threading::context_switch::Context;
-use crate::threading::thread_functions::{ThreadFunction, PrepareThreadContext, RunThreadContext, run_thread, prepare_thread};
+use crate::threading::thread_functions::{ThreadFunction, PrepareThreadContext, RunThreadContext, SwitchThreadsContext};
 
 pub type TID = u16;
 
@@ -30,7 +29,7 @@ pub struct ThreadControlBlock {
     pub status: ThreadStatus,
     pub stack_pointer: NonNull<u8>,
     _stack_pointer_bottom: NonNull<[u8]>, // Kept to avoid dropping the stack and to detect overflows.
-    pub context: Context, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
+    pub context: SwitchThreadsContext, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
 
 }
 
@@ -69,7 +68,7 @@ impl ThreadControlBlock {
             status: ThreadStatus::Invalid,
             stack_pointer: stack_pointer_top,
             _stack_pointer_bottom: stack_pointer_bottom,
-            context: Context::empty_context()
+            context: SwitchThreadsContext::empty_context()
         };
 
         // Now, we must build the stack frames for our new thread.
@@ -78,33 +77,19 @@ impl ThreadControlBlock {
         //  * prepare_thread frame
         //  * switch_threads frame
 
-        // TODO: Farm this out to a few functions.
-        // TODO: Generalize the allocation function.
-
-        let run_thread_stack_frame = new_thread.allocate_stack_space(core::mem::size_of::<RunThreadContext>());
+        let run_thread_context = new_thread.allocate_stack_space(core::mem::size_of::<RunThreadContext>());
         unsafe {
-            *run_thread_stack_frame.as_ptr().cast::<RunThreadContext>() = RunThreadContext {
-                eip: 0,
-                entry_function_pointer: entry_function as usize
-            };
+            *run_thread_context.as_ptr().cast::<RunThreadContext>() = RunThreadContext::create(entry_function);
         }
 
-        let prepare_thread_stack_frame = new_thread.allocate_stack_space(core::mem::size_of::<PrepareThreadContext>());
+        let prepare_thread_context = new_thread.allocate_stack_space(core::mem::size_of::<PrepareThreadContext>());
         unsafe {
-            *prepare_thread_stack_frame.as_ptr().cast::<PrepareThreadContext>() = PrepareThreadContext {
-                eip: run_thread as usize
-            };
+            *prepare_thread_context.as_ptr().cast::<PrepareThreadContext>() = PrepareThreadContext::create();
         }
 
-        let switch_threads_stack_frame = new_thread.allocate_frame();
+        let switch_threads_context = new_thread.allocate_frame();
         unsafe {
-            *switch_threads_stack_frame.as_ptr() = Context {
-                edi: 0,
-                esi: 0,
-                ebx: 0,
-                ebp: 0,
-                eip: prepare_thread as usize,
-            };
+            *switch_threads_context.as_ptr() = SwitchThreadsContext::create();
         }
 
         // Hand off to the schedulers.
@@ -118,9 +103,9 @@ impl ThreadControlBlock {
 
     }
 
-    pub fn allocate_frame(&mut self) -> NonNull<Context> {
+    pub fn allocate_frame(&mut self) -> NonNull<SwitchThreadsContext> {
 
-        return self.shift_stack_pointer_down(size_of::<Context>()).cast::<Context>();
+        return self.shift_stack_pointer_down(size_of::<SwitchThreadsContext>()).cast::<SwitchThreadsContext>();
 
     }
 

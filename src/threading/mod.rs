@@ -1,9 +1,4 @@
 
-use core::alloc::{Layout, Allocator};
-use core::ptr::NonNull;
-
-use alloc::alloc::Global;
-
 pub mod context_switch;
 pub mod scheduling;
 pub mod thread_control_block;
@@ -36,9 +31,10 @@ pub fn thread_system_initialization() -> () {
 
     println!("Initializing Thread Sub-System...");
 
+    // TEMP.
     let tcb_1 = ThreadControlBlock::create(test_halt);
     let tcb_2 = ThreadControlBlock::create(test_func);
-    thread_switch(tcb_1, tcb_2);
+    switch_threads(tcb_1, tcb_2);
 
     println!("Finished Thread initialization.");
 
