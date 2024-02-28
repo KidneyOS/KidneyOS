@@ -17,9 +17,8 @@ impl<const N: usize> PoolAllocator<N>{
     pub fn new(region: NonNull<[u8]>) -> Self {
         // Calculate the required bitmap size in bytes, because each stores an u8
 
-        // We will round down to ensure that it doesn't crash
-        // It will always use lesser than or equal to the region size
-        let bitmap_size = (region.len() / N) / 8;
+        // Round up the division to the nearest whole number
+        let bitmap_size = (region.len() / N).div_ceil(8);
 
         // Initialize the bitmap vector with zeros
         let bitmap = UnsafeCell::new(vec![0u8; bitmap_size].into_boxed_slice());
