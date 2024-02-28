@@ -15,6 +15,10 @@ pub struct PoolAllocator<const N: usize> {
 impl<const N: usize> PoolAllocator<N>{
     /// PoolAllocator has the giant chunk of memory referred to in region
     pub fn new(region: NonNull<[u8]>) -> Self {
+        // Ensure the region is large enough to store at least N bytes,
+        // because we're handing out N-byte blocks
+        assert!(region.len() >= N);
+
         // Calculate the required bitmap size in bytes, because each stores an u8
 
         // Round up the division to the nearest whole number
@@ -30,13 +34,13 @@ impl<const N: usize> PoolAllocator<N>{
 
 unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-        // Ensure the layout size is a multiple of N
-        if layout.size() % N != 0 {
+        // Can only allocate exactly of size N
+        if layout.size() != N {
             return Err(AllocError);
         }
 
         // Check alignment of layout
-        if layout.align() % N != 0 {
+        if layout.align() <= N {
             return Err(AllocError);
         }
 
