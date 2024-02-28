@@ -1,5 +1,6 @@
 #![feature(allocator_api)]
 #![feature(naked_functions)]
+#![feature(non_null_convenience)]
 #![cfg_attr(test, feature(btreemap_alloc))]
 #![cfg_attr(target_os = "none", no_std)]
 

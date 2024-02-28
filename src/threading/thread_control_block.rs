@@ -28,7 +28,7 @@ pub struct ThreadControlBlock {
     pub tid: TID,
     pub status: ThreadStatus,
     pub stack_pointer: NonNull<u8>,
-    _stack_pointer_bottom: NonNull<[u8]>, // Kept to avoid dropping the stack and to detect overflows.
+    stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
     pub context: SwitchThreadsContext, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
 
 }
@@ -67,7 +67,7 @@ impl ThreadControlBlock {
             tid,
             status: ThreadStatus::Invalid,
             stack_pointer: stack_pointer_top,
-            _stack_pointer_bottom: stack_pointer_bottom,
+            stack_pointer_bottom: NonNull::new(stack_pointer_bottom.as_ptr().cast::<u8>()).expect("Error converting stack."),
             context: SwitchThreadsContext::empty_context()
         };
 
@@ -77,38 +77,49 @@ impl ThreadControlBlock {
         //  * prepare_thread frame
         //  * switch_threads frame
 
-        let run_thread_context = new_thread.allocate_stack_space(core::mem::size_of::<RunThreadContext>());
+        let run_thread_context = new_thread.allocate_stack_space(size_of::<RunThreadContext>()).expect("No Stack Space!");
+        let prepare_thread_context = new_thread.allocate_stack_space(size_of::<PrepareThreadContext>()).expect("No Stack Space!");
+        let switch_threads_context = new_thread.allocate_stack_space(size_of::<SwitchThreadsContext>()).expect("No Stack Space!");
+
         unsafe {
             *run_thread_context.as_ptr().cast::<RunThreadContext>() = RunThreadContext::create(entry_function);
-        }
-
-        let prepare_thread_context = new_thread.allocate_stack_space(core::mem::size_of::<PrepareThreadContext>());
-        unsafe {
             *prepare_thread_context.as_ptr().cast::<PrepareThreadContext>() = PrepareThreadContext::create();
+            *switch_threads_context.as_ptr().cast::<SwitchThreadsContext>() = SwitchThreadsContext::create();
         }
 
-        let switch_threads_context = new_thread.allocate_frame();
-        unsafe {
-            *switch_threads_context.as_ptr() = SwitchThreadsContext::create();
-        }
-
-        // Hand off to the schedulers.
+        // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
         return new_thread;
-    }
-
-    pub fn allocate_stack_space(&mut self, bytes: usize) -> NonNull<u8> {
-
-        return self.shift_stack_pointer_down(bytes);
 
     }
 
-    pub fn allocate_frame(&mut self) -> NonNull<SwitchThreadsContext> {
+    /**
+     * If possible without stack-smashing, moves the stack pointer down and returns the new value.
+     */
+    pub fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
 
-        return self.shift_stack_pointer_down(size_of::<SwitchThreadsContext>()).cast::<SwitchThreadsContext>();
+        if !self.has_stack_space(bytes) {
+            return None;
+        }
+
+        return Some(self.shift_stack_pointer_down(bytes));
 
     }
 
+    /**
+     * Check if `bytes` bytes will fit on the stack.
+     */
+    pub fn has_stack_space(&self, bytes: usize) -> bool {
+
+        let avaliable_space = unsafe { self.stack_pointer.offset_from(self.stack_pointer_bottom) as usize };
+
+        return avaliable_space >= bytes;
+
+    }
+
+    /**
+     * Moves the stack pointer down and returns the new position.
+     */
     pub fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
         unsafe{
             let raw_pointer = self.stack_pointer.as_ptr().cast::<u8>();
