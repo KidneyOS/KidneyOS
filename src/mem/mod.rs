@@ -1,81 +1,21 @@
-/// # Physical Memory Layout
-///
-/// |--------------------------------|
-/// | Kernel Virtual Memory (64MB)   | KERNEL_ALLOCATOR.init(...)
-/// |--------------------------------|
-/// | Unused                         |
-/// |--------------------------------| kernel_main_stack_top()
-/// | Kernel Main Stack (8MB)        |
-/// |--------------------------------| kernel_end()
-/// | Kernel Data                    |
-/// |--------------------------------| kernel_data_start()
-/// | Kernel Code + RODATA           |
-/// |--------------------------------| kernel_start()
-/// | Lower Memory, Reserved/Unused  |
-/// |--------------------------------| 0
 mod buddy_allocator;
 mod frame_allocator;
 mod pool_allocator;
 
-use crate::{
-    constants::{KB, MB},
-    println,
-};
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
 use core::{
     alloc::{Allocator, GlobalAlloc, Layout},
     cell::UnsafeCell,
     ops::Range,
-    ptr::{addr_of, NonNull},
+    ptr::NonNull,
 };
 use frame_allocator::FrameAllocatorSolution;
-
-#[cfg_attr(target_os = "none", global_allocator)]
-pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
-
-#[inline]
-pub fn kernel_start() -> usize {
-    extern "C" {
-        static __kernel_start: u8;
-    }
-
-    // SAFETY: The linker script will give this the correct address.
-    unsafe { addr_of!(__kernel_start) as usize }
-}
-
-#[inline]
-pub fn kernel_data_start() -> usize {
-    extern "C" {
-        static __kernel_data_start: u8;
-    }
-
-    // SAFETY: The linker script will give this the correct address.
-    unsafe { addr_of!(__kernel_data_start) as usize }
-}
-
-#[inline]
-pub fn kernel_end() -> usize {
-    extern "C" {
-        static __kernel_end: u8;
-    }
-
-    // SAFETY: The linker script will give this the correct address.
-    unsafe { addr_of!(__kernel_end) as usize }
-}
-
-pub const KERNEL_MAIN_STACK_SIZE: usize = 8 * MB;
-
-#[inline]
-pub fn kernel_main_stack_top() -> usize {
-    kernel_end() + KERNEL_MAIN_STACK_SIZE
-}
-
-// "Upper memory" (as opposed to "lower memory") starts at 1MB.
-const UPPER_MEMORY_START: *mut u8 = MB as *mut u8;
-
-// Page size is 4KB. This is a property of x86 processors.
-pub const PAGE_FRAME_SIZE: usize = 4 * KB;
+use kidneyos_core::{
+    mem::{virt::trampoline_heap_top, OFFSET, PAGE_FRAME_SIZE},
+    println,
+    sizes::{KB, MB},
+};
 
 // Confirm that FrameAllocatorSolution has ::new_in and its result implements
 // FrameAllocator.
@@ -136,43 +76,40 @@ impl KernelAllocator {
     /// # Safety
     ///
     /// This function can only be called when the allocator is uninitialized.
-    pub unsafe fn init(&mut self, size: usize, mem_upper: usize) -> Range<usize> {
+    pub unsafe fn init(&mut self, mem_upper: usize) {
         let KernelAllocatorState::Uninitialized = self.state.get_mut() else {
             panic!("init called while kernel allocator was already initialized");
         };
 
-        // TODO: We currently leave 8KB for the first_frames allocator. This
+        // TODO: Check bounds with assertions.
+
+        // TODO: We currently leave 8KB for the bootstrap allocator. This
         // should be re-evaluated later.
         const BUDDY_ALLOCATOR_SIZE: usize = 8 * KB;
 
-        assert!(
-            mem_upper * KB >= size,
-            "upper memory of size {mem_upper}KB was too small for the requested size of {size}B"
-        );
-        assert!(size >= BUDDY_ALLOCATOR_SIZE);
+        // "Upper memory" (as opposed to "lower memory") starts at 1MB.
+        const UPPER_MEMORY_START: usize = MB + OFFSET;
 
         // The exclusive max address is given by multiplying the number of bytes
         // in a KB by mem_upper, and adding this to UPPER_MEMORY_START.
-        let frames_max = UPPER_MEMORY_START.add(mem_upper * KB);
+        let frames_max = UPPER_MEMORY_START.saturating_add(mem_upper * KB);
 
         // We start kernel virtual memory at the very end of upper memory, so
         // the start address is the max address minus the size.
-        let first_frames_base = frames_max.sub(size);
-        assert!(first_frames_base as usize >= kernel_main_stack_top(), "first frames base address {first_frames_base:?} was smaller than the top of the kernel stack {:#X}", kernel_main_stack_top());
-        let buddy_allocator = BuddyAllocator::new(NonNull::slice_from_raw_parts(
-            NonNull::new_unchecked(first_frames_base),
+        let bootstrap_base = trampoline_heap_top() as *mut u8;
+
+        let bootstrap_allocator = BuddyAllocator::new(NonNull::slice_from_raw_parts(
+            NonNull::new_unchecked(bootstrap_base),
             BUDDY_ALLOCATOR_SIZE,
         ));
 
-        let frames_base = first_frames_base.add(BUDDY_ALLOCATOR_SIZE);
-        let max_frames = (frames_max as usize - frames_base as usize) / PAGE_FRAME_SIZE;
+        let frames_base = bootstrap_base.add(BUDDY_ALLOCATOR_SIZE);
+        let max_frames = (frames_max - frames_base as usize) / PAGE_FRAME_SIZE;
         *self.state.get_mut() = KernelAllocatorState::Initialized {
-            frame_allocator: FrameAllocatorSolution::new_in(buddy_allocator, max_frames),
+            frame_allocator: FrameAllocatorSolution::new_in(bootstrap_allocator, max_frames),
             frames_base,
-            subblock_allocators: Vec::new_in(buddy_allocator),
+            subblock_allocators: Vec::new_in(bootstrap_allocator),
         };
-
-        first_frames_base as usize..frames_max as usize
     }
 
     /// Deinitialize the kernel allocator, printing information about any leaks
@@ -217,7 +154,7 @@ macro_rules! halt {
         loop {}
     }};
     ($($arg:tt)*) => {{
-        super::eprintln!($($arg)*);
+        kidneyos_core::eprintln!($($arg)*);
         loop {}
     }};
 }

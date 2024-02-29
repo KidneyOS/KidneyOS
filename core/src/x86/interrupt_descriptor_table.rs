@@ -1,5 +1,6 @@
 // https://wiki.osdev.org/Interrupt_Descriptor_Table
 // https://wiki.osdev.org/Interrupts_tutorial
+// https://wiki.osdev.org/Exceptions
 
 use arbitrary_int::{u2, u4};
 use bitbybit::bitfield;
@@ -30,7 +31,8 @@ struct IDTDescriptor {
 const IDT_LEN: usize = 256;
 static mut IDT: [GateDescriptor; IDT_LEN] = [GateDescriptor::DEFAULT; IDT_LEN];
 
-// TODO: These handlers' usage of the stack might not be safe...
+// TODO: Set up stack on entry to handlers, the current behaviour is horribly
+// dangerous...
 
 #[naked]
 unsafe extern "C" fn unhandled_handler() -> ! {
@@ -66,6 +68,10 @@ static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
     offset: 0, // Will fetch pointer and set at runtime below.
 };
 
+/// # Safety
+///
+/// Can only be executed within code that expects the interrupt handlers to be
+/// defined as they are above.
 pub unsafe fn load() {
     // u32 is wide enough since we're writing 32-bit code.
     #![allow(clippy::fn_to_numeric_cast_with_truncation)]
@@ -80,7 +86,7 @@ pub unsafe fn load() {
             .with_descriptor_privilege_level(u2::new(3))
             .with_present(true);
     }
-    IDT[0x13] = IDT[0x13].with_offset(page_fault_handler as u32);
+    IDT[0xE] = IDT[0xE].with_offset(page_fault_handler as u32);
 
     asm!("lidt [{}]", sym IDT_DESCRIPTOR);
 }

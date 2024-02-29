@@ -91,6 +91,10 @@ static mut GDT_DESCRIPTOR: GDTDescriptor = GDTDescriptor {
     offset: 0, // Will fetch pointer and set at runtime below.
 };
 
+/// # Safety
+///
+/// Can only be executed within code that expects to have segments defined as
+/// they are above in GDT.
 pub unsafe fn load() {
     GDT_DESCRIPTOR.offset = GDT.as_ptr() as u32;
 

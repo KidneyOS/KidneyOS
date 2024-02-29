@@ -26,6 +26,23 @@ version = "0.1.0"
 dependencies = [
  "arbitrary-int",
  "bitbybit",
+ "kidneyos-core",
+]
+
+[[package]]
+name = "kidneyos-core"
+version = "0.1.0"
+dependencies = [
+ "arbitrary-int",
+ "bitbybit",
+]
+
+[[package]]
+name = "kidneyos-trampoline"
+version = "0.1.0"
+dependencies = [
+ "arbitrary-int",
+ "kidneyos-core",
 ]
 
 [[package]]

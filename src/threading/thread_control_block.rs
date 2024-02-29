@@ -4,10 +4,10 @@ use core::ptr::NonNull;
 
 use alloc::alloc::Global;
 
-use crate::constants::KB;
 use crate::threading::thread_functions::{
     PrepareThreadContext, RunThreadContext, SwitchThreadsContext, ThreadFunction,
 };
+use kidneyos_core::sizes::KB;
 
 pub type TID = u16;
 

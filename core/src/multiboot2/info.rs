@@ -89,7 +89,7 @@ pub struct InfoIterator<'a> {
 }
 
 impl<'a> InfoIterator<'a> {
-    pub const unsafe fn curr_ptr(&self) -> *const u8 {
+    const unsafe fn curr_ptr(&self) -> *const u8 {
         from_ref(self.info).cast::<u8>().add(self.offset as usize)
     }
 

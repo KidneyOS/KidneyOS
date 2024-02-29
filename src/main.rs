@@ -1,110 +1,49 @@
+#![feature(allocator_api)]
+#![feature(btreemap_alloc)]
 #![feature(naked_functions)]
-#![feature(asm_const)]
+#![feature(non_null_convenience)]
+#![feature(slice_ptr_get)]
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
-mod multiboot2;
+mod mem;
 mod paging;
-mod x86;
+#[allow(unused)]
+mod threading;
 
 extern crate alloc;
 
-use kidneyos::{
-    constants::MB, mem::KERNEL_ALLOCATOR, println, threading::thread_system_initialization,
-};
-use multiboot2::{
-    info::{Info, InfoTag},
-    EXPECTED_MAGIC,
-};
-use x86::{global_descriptor_table, interrupt_descriptor_table};
+use crate::threading::thread_system_initialization;
+use kidneyos_core::{println, video_memory::VIDEO_MEMORY_WRITER};
+use mem::KernelAllocator;
+
+#[cfg_attr(target_os = "none", global_allocator)]
+pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
-    kidneyos::eprintln!("{}", args);
+    kidneyos_core::eprintln!("{}", args);
     loop {}
 }
 
-#[cfg(not(test))]
-core::arch::global_asm!(
-    "
-.globl _start
-_start:
-        lea esp, __kernel_end
-        add esp, {stack_size}
-        push ebx
-        push eax
-        call {}",
-    sym start,
-    stack_size = const kidneyos::mem::KERNEL_MAIN_STACK_SIZE
-);
-
-// TODO: Figure out how to detect kernel stack overflows.
-
-#[allow(dead_code)]
-extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
-    assert!(
-        magic == EXPECTED_MAGIC,
-        "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
-    );
-
-    // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
-    // in ebx when _start is called, and _start puts that on the stack as the
-    // second argument which will become the multiboot2_info parameter, so this
-    // dereference is safe since we've checked the magic and confirmed we've
-    // booted with multiboot. Additionally, we drop it before we start writing
-    // to anywhere in memory that it might be.
-    let mem_upper = unsafe { &mut *multiboot2_info }
-        .iter()
-        .find_map(|tag| match tag {
-            InfoTag::BasicMemoryInfo(t) => Some(t.mem_upper),
-            _ => None,
-        })
-        .expect("Didn't find memory info!");
+#[cfg_attr(not(test), no_mangle)]
+extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
+    unsafe {
+        VIDEO_MEMORY_WRITER.skip_lines(video_memory_skip_lines);
+    }
 
     // SAFETY: Single core, interrupts disabled.
     unsafe {
-        // TODO: The choice of 64MB for kernel memory size should be
-        // re-evaluated later.
-        let kernel_memory_range = KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize);
-
-        println!("Setting up GDTR");
-        global_descriptor_table::load();
-        println!("GDTR set up!");
-
-        println!("Setting up IDTR");
-        interrupt_descriptor_table::load();
-        println!("IDTR set up!");
+        KERNEL_ALLOCATOR.init(mem_upper);
 
         println!("Enabling paging");
-        paging::enable(kernel_memory_range);
+        paging::enable();
         println!("Paging enabled!");
 
         thread_system_initialization();
-
-        println!("Disabling paging");
-        paging::disable();
-        println!("Paging disabled!");
-
-        KERNEL_ALLOCATOR.deinit();
     }
 
     #[allow(clippy::empty_loop)]
     loop {}
-}
-
-#[allow(dead_code)]
-const fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
 }
