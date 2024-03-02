@@ -22,6 +22,9 @@ TRAMPOLINE_DIR := build/trampoline
 TRAMPOLINE := $(TRAMPOLINE_DIR)/libkidneyos_trampoline.a
 ISO := build/kidneyos.iso
 
+.PHONY: default
+default: $(ISO)
+
 # Rust Builds
 
 -include $(ARTIFACT_DIR)/kidneyos.d
@@ -44,7 +47,8 @@ $(RAW_TRAMPOLINE): Cargo.toml Cargo.lock
 	  --manifest-path trampoline/Cargo.toml \
 	  --profile $(PROFILE) \
 	  --target build-support/i686-unknown-kernel.json \
-	  -Z build-std=core
+	  -Z build-std=core \
+	  -Z build-std-features=compiler-builtins-mem
 
 # Trampoline Post-Build
 

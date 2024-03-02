@@ -148,10 +148,10 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
         }
     };
 
-    static mut PAGE_DIRECTORY: PageDirectory = PageDirectory::DEFAULT;
-    let page_directory: &mut PageDirectory = &mut PAGE_DIRECTORY;
+    let page_directory = &mut *(next_addr() as *mut PageDirectory);
+    *page_directory = PageDirectory::default();
 
-    for Region { phys, virt, write } in &regions {
+    for Region { phys, virt, write } in regions {
         for phys_addr in phys.clone().step_by(PAGE_FRAME_SIZE) {
             let virt_addr = phys_addr - phys.start + virt;
             let virt_addr = VirtualAddress::new_with_raw_value(virt_addr as u32);
@@ -161,7 +161,7 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
                 let page_table = &mut *next_addr();
                 page_directory[page_directory_index] = PageDirectoryEntry::default()
                     .with_present(true)
-                    .with_read_write(*write)
+                    .with_read_write(write)
                     .with_page_table_address(u20::new(
                         page_table as *mut PageTable as u32 / size_of::<PageTable>() as u32,
                     ));
@@ -172,7 +172,7 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
                     .value() as usize
                     * size_of::<PageTable>())
                     as *mut PageTable);
-                if *write && !page_directory[page_directory_index].read_write() {
+                if write && !page_directory[page_directory_index].read_write() {
                     page_directory[page_directory_index] =
                         page_directory[page_directory_index].with_read_write(true);
                 }
@@ -182,7 +182,7 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
             let page_table_index: usize = virt_addr.page_table_index().value().into();
             page_table[page_table_index] = PageTableEntry::default()
                 .with_present(true)
-                .with_read_write(*write)
+                .with_read_write(write)
                 .with_page_frame_address(u20::new(phys_addr as u32 / PAGE_FRAME_SIZE as u32));
         }
     }

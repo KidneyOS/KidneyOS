@@ -5,3 +5,4 @@ result
 bx_enh_dbg.ini
 *.core
 /local.mk
+rustc-ice-*.txt

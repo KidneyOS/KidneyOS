@@ -17,6 +17,9 @@ SECTIONS {
     .multiboot.text ALIGN(4K) : {
         trampoline_start = .;
         *libkidneyos_trampoline.o(.text*)
+    }
+
+    .multiboot.rodata ALIGN(4K) : {
         *libkidneyos_trampoline.o(.rodata*)
     }
 
@@ -37,6 +40,9 @@ SECTIONS {
     .text ALIGN(4K) : AT(ADDR(.text) - OFFSET) {
         kernel_start = .;
         *(EXCLUDE_FILE(*libkidneyos_trampoline.o) .text*)
+    }
+
+    .rodata ALIGN(4K) : AT(ADDR(.rodata) - OFFSET) {
         *(EXCLUDE_FILE(*libkidneyos_trampoline.o) .rodata*)
     }
 
