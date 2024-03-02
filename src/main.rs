@@ -6,6 +6,7 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
+mod interrupt_descriptor_table;
 mod mem;
 mod paging;
 #[allow(unused)]
@@ -36,6 +37,10 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
     // SAFETY: Single core, interrupts disabled.
     unsafe {
         KERNEL_ALLOCATOR.init(mem_upper);
+
+        println!("Setting up IDTR");
+        interrupt_descriptor_table::load();
+        println!("IDTR set up!");
 
         println!("Enabling paging");
         paging::enable();

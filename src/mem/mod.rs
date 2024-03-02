@@ -83,9 +83,9 @@ impl KernelAllocator {
 
         // TODO: Check bounds with assertions.
 
-        // TODO: We currently leave 8KB for the bootstrap allocator. This
+        // TODO: We currently leave 8MB for the bootstrap allocator. This
         // should be re-evaluated later.
-        const BUDDY_ALLOCATOR_SIZE: usize = 8 * KB;
+        const BUDDY_ALLOCATOR_SIZE: usize = 8 * MB;
 
         // "Upper memory" (as opposed to "lower memory") starts at 1MB.
         const UPPER_MEMORY_START: usize = MB + OFFSET;

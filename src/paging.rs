@@ -63,15 +63,16 @@ pub unsafe fn enable() {
                     .with_present(true)
                     .with_read_write(write)
                     .with_page_table_address(u20::new(
-                        page_table as *mut PageTable as u32 / size_of::<PageTable>() as u32,
+                        (page_table as *mut PageTable as u32 - OFFSET as u32)
+                            / size_of::<PageTable>() as u32,
                     ));
                 page_table
             } else {
                 let page_table = &mut *((page_directory[page_directory_index]
                     .page_table_address()
                     .value() as usize
-                    * size_of::<PageTable>())
-                    as *mut PageTable);
+                    * size_of::<PageTable>()
+                    + OFFSET) as *mut PageTable);
                 if write && !page_directory[page_directory_index].read_write() {
                     page_directory[page_directory_index] =
                         page_directory[page_directory_index].with_read_write(true);
@@ -94,7 +95,7 @@ pub unsafe fn enable() {
         or {1}, 0x80010000
         mov cr0, {1}
         ",
-        in(reg) page_directory as *mut PageDirectory,
+        in(reg) page_directory as *mut PageDirectory as usize - OFFSET,
         out(reg) _,
     );
 }

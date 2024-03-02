@@ -6,6 +6,7 @@
 use arbitrary_int::u20;
 use core::{arch::asm, mem::size_of, ops::Range};
 use kidneyos_core::{
+    global_descriptor_table,
     mem::{
         phys::{
             kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_data_start,
@@ -20,7 +21,6 @@ use kidneyos_core::{
     paging::{PageDirectory, PageDirectoryEntry, PageTable, PageTableEntry, VirtualAddress},
     println,
     video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_COLS, VIDEO_MEMORY_SIZE, VIDEO_MEMORY_WRITER},
-    x86::{global_descriptor_table, interrupt_descriptor_table},
 };
 
 #[cfg(target_os = "none")]
@@ -71,10 +71,6 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
     println!("Setting up GDTR");
     global_descriptor_table::load();
     println!("GDTR set up!");
-
-    println!("Setting up IDTR");
-    interrupt_descriptor_table::load();
-    println!("IDTR set up!");
 
     println!("Enabling paging");
 
