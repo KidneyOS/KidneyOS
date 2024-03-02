@@ -68,8 +68,6 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
         })
         .expect("Didn't find memory info!");
 
-    println!("hi from trampoline {mem_upper}");
-
     println!("Setting up GDTR");
     global_descriptor_table::load();
     println!("GDTR set up!");
@@ -117,6 +115,11 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
             write: true,
         },
         Region {
+            phys: kernel_end()..main_stack_top(),
+            virt: virt::kernel_end(),
+            write: true,
+        },
+        Region {
             phys: main_stack_top()..trampoline_heap_top(),
             virt: main_stack_top(),
             write: true,
@@ -133,13 +136,10 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
         .map(|Region { phys, .. }| phys.start)
         .all(|i| i % PAGE_FRAME_SIZE == 0));
 
-    println!("{:?}", kernel_end()..main_stack_top());
-
     // TODO: Swap this out with a pool allocator.
     let mut next_addr = {
         let mut next_addr = main_stack_top() as *mut PageTable;
         assert!(next_addr as usize % PAGE_FRAME_SIZE == 0);
-        println!("page directory will be at: {}", next_addr as usize);
         move || {
             let res = next_addr;
             assert!((res as usize) < trampoline_heap_top());
@@ -202,14 +202,21 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
 
     println!("Starting kernel...");
 
-    // TODO: Figure out how to change esp to an upper, virtual address before
-    // jumping.
-
     extern "C" {
         fn main(mem_upper: usize, video_memory_skip_lines: usize) -> !;
     }
-    main(
-        mem_upper as usize,
-        VIDEO_MEMORY_WRITER.cursor.div_ceil(VIDEO_MEMORY_COLS),
+
+    asm!(
+        "
+        add esp, {offset} // make stack a kernel virtual address
+        push {}
+        push {}
+        call {}
+        ",
+        in(reg) VIDEO_MEMORY_WRITER.cursor.div_ceil(VIDEO_MEMORY_COLS),
+        in(reg) mem_upper as usize,
+        sym main,
+        offset = const OFFSET,
+        options(noreturn)
     );
 }
