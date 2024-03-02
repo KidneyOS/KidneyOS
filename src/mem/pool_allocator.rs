@@ -18,6 +18,7 @@ impl<const N: usize> PoolAllocator<N>{
         // Ensure the region is large enough to store at least N bytes,
         // because we're handing out N-byte blocks
         assert!(region.len() >= N);
+        assert!(N.is_power_of_two()); // N must be a power of 2
 
         // Calculate the required bitmap size in bytes, because each stores an u8
 
