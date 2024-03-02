@@ -3,6 +3,8 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 
+mod multiboot2;
+
 use arbitrary_int::u20;
 use core::{arch::asm, mem::size_of, ops::Range};
 use kidneyos_core::{
@@ -14,13 +16,13 @@ use kidneyos_core::{
         },
         virt, OFFSET, PAGE_FRAME_SIZE,
     },
-    multiboot2::{
-        info::{Info, InfoTag},
-        EXPECTED_MAGIC,
-    },
     paging::{PageDirectory, PageDirectoryEntry, PageTable, PageTableEntry, VirtualAddress},
     println,
     video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_COLS, VIDEO_MEMORY_SIZE, VIDEO_MEMORY_WRITER},
+};
+use multiboot2::{
+    info::{Info, InfoTag},
+    EXPECTED_MAGIC,
 };
 
 #[cfg(target_os = "none")]

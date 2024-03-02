@@ -4,7 +4,6 @@
 pub mod global_descriptor_table;
 pub mod macros;
 pub mod mem;
-pub mod multiboot2;
 pub mod paging;
 pub mod serial;
 pub mod sizes;
