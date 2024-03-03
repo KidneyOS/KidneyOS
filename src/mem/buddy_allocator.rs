@@ -222,7 +222,8 @@ mod tests {
 
     #[test]
     fn buddy_allocator_simple() -> Result<(), Box<dyn Error>> {
-        let region = Global.allocate(Layout::from_size_align(2 * KB, 2)?)?;
+        let layout = Layout::from_size_align(2 * KB, 2)?;
+        let region = Global.allocate(layout)?;
         let alloc = unsafe { BuddyAllocator::new(region) };
 
         assert!(alloc.is_empty());
@@ -258,6 +259,8 @@ mod tests {
         drop(m);
 
         assert!(alloc.is_empty());
+
+        unsafe { Global.deallocate(region.as_non_null_ptr(), layout) };
 
         Ok(())
     }
