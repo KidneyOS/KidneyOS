@@ -40,7 +40,7 @@ impl<const N: usize> PoolAllocator<N>{
         unsafe {
             let region_ptr = region.as_ptr();
 
-            // The first block is used to store how large the bitmap is
+            // The first block is used to store how large the bitmap is, in units of bytes
             ptr::write(region_ptr as *mut usize, bitmap_size);
 
             // Initialize the bitmap area to zero, which is 1 block away from the start
@@ -66,7 +66,7 @@ impl<const N: usize> PoolAllocator<N>{
 }
 
 unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
-    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+    fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         // Can only allocate exactly of size N
         if layout.size() != N {
             return Err(AllocError);
@@ -147,7 +147,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
             NonNull::new(start_addr as *mut u8).unwrap(),
             layout.size());
 
-        let nonnull_slice = NonNull::new(slice_ptr.as_ptr() as *mut [u8]).unwrap();
+        let nonnull_slice = NonNull::new(slice_ptr.as_ptr()).unwrap();
 
         Ok(nonnull_slice)
     }
