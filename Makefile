@@ -42,9 +42,9 @@ $(RAW_KERNEL): build-support/i686.ld Cargo.toml Cargo.lock $(TRAMPOLINE)
 	  -C link-arg=-n
 
 -include $(ARTIFACT_DIR)/libkidneyos_trampoline.d
-$(RAW_TRAMPOLINE): Cargo.toml Cargo.lock
+$(RAW_TRAMPOLINE): trampoline/Cargo.toml Cargo.lock
 	cargo build \
-	  --manifest-path trampoline/Cargo.toml \
+	  --manifest-path $< \
 	  --profile $(PROFILE) \
 	  --target build-support/i686-unknown-kernel.json \
 	  -Z build-std=core \
