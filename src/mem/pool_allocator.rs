@@ -1,18 +1,17 @@
 use core::{
-    alloc::{Layout, Allocator, AllocError},
-    ptr::NonNull,
+    alloc::{AllocError, Allocator, Layout},
     mem::size_of,
-    slice,
     ptr,
+    ptr::NonNull,
+    slice,
 };
-
 
 pub struct PoolAllocator<const N: usize> {
     region: NonNull<[u8]>,
     // bitmap: UnsafeCell<Box<[u8]>>,
 }
 
-impl<const N: usize> PoolAllocator<N>{
+impl<const N: usize> PoolAllocator<N> {
     /// PoolAllocator has the giant chunk of memory referred to in region
     pub fn new(region: NonNull<[u8]>) -> Self {
         // Ensure the region is large enough to store at least N bytes,
@@ -47,7 +46,8 @@ impl<const N: usize> PoolAllocator<N>{
             ptr::write_bytes((region_ptr as *mut u8).add(N), 0, bitmap_size);
 
             // Get a mutable slice of the region where the bitmap is stored
-            let bitmap_slice = slice::from_raw_parts_mut((region_ptr as *mut u8).add(N), bitmap_size);
+            let bitmap_slice =
+                slice::from_raw_parts_mut((region_ptr as *mut u8).add(N), bitmap_size);
 
             // Mark the blocks used by the bitmap as used in the bitmap
             for i in 0..bitmap_blocks {
@@ -62,7 +62,6 @@ impl<const N: usize> PoolAllocator<N>{
 
         Self { region }
     }
-
 }
 
 unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
@@ -86,14 +85,10 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 
         // Obtain the bitmap from the region
         // Size of the bitmap is in the first block
-        let bitmap_size = unsafe {
-            *(self.region.as_ptr() as *const usize)
-        };
+        let bitmap_size = unsafe { *(self.region.as_ptr() as *const usize) };
 
         // Get a pointer to the start of the bitmap, the bitmap starts 1 block away from the start
-        let bitmap_ptr = unsafe {
-            (self.region.as_ptr() as *const u8).add(N)
-        };
+        let bitmap_ptr = unsafe { (self.region.as_ptr() as *const u8).add(N) };
 
         // Search for a contiguous sequence of free blocks
         for i in 0..bitmap_size {
@@ -125,10 +120,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         }
 
         // Calculate the start address
-        let start_addr = unsafe {
-            (self.region.as_ptr() as *const u8)
-                .add(start_bit * N)
-        };
+        let start_addr = unsafe { (self.region.as_ptr() as *const u8).add(start_bit * N) };
 
         // Update the bitmap to mark the blocks as used
         unsafe {
@@ -138,14 +130,17 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
             for i in 0..blocks_required {
                 let byte_index = (start_bit + i) / 8;
                 let bit_pos = (start_bit + i) % 8;
-                bitmap_ptr.add(byte_index).write(bitmap_ptr.add(byte_index).read() | (1 << bit_pos));
+                bitmap_ptr
+                    .add(byte_index)
+                    .write(bitmap_ptr.add(byte_index).read() | (1 << bit_pos));
             }
         }
 
         // Construct and return the pointer to the allocated memory
         let slice_ptr = NonNull::slice_from_raw_parts(
             NonNull::new(start_addr as *mut u8).unwrap(),
-            layout.size());
+            layout.size(),
+        );
 
         let nonnull_slice = NonNull::new(slice_ptr.as_ptr()).unwrap();
 
@@ -154,9 +149,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         // Using the bitmap to check if the ptr is aligned with our allocation state
-        let region_slice = unsafe {
-            &*self.region.as_ptr()
-        };
+        let region_slice = unsafe { &*self.region.as_ptr() };
 
         let start_addr = region_slice.as_ptr() as usize; // Start address of the region
 
@@ -179,7 +172,9 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         for i in 0..layout.size().div_ceil(N) {
             let byte_index = (start_bit + i) / 8;
             let bit_pos = (start_bit + i) % 8;
-            bitmap_ptr.add(byte_index).write(bitmap_ptr.add(byte_index).read() & !(1 << bit_pos));
+            bitmap_ptr
+                .add(byte_index)
+                .write(bitmap_ptr.add(byte_index).read() & !(1 << bit_pos));
         }
     }
 }
