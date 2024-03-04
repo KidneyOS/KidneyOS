@@ -8,7 +8,6 @@ use core::{
 
 pub struct PoolAllocator<const N: usize> {
     region: NonNull<[u8]>,
-    // bitmap: UnsafeCell<Box<[u8]>>,
 }
 
 impl<const N: usize> PoolAllocator<N> {
