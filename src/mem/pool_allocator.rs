@@ -40,14 +40,14 @@ impl<const N: usize> PoolAllocator<N> {
             let region_ptr = region.as_ptr();
 
             // The first block is used to store how large the bitmap is, in units of bytes
-            ptr::write(region_ptr as *mut usize, bitmap_size);
+            ptr::write(region_ptr.cast::<usize>(), bitmap_size);
 
             // Initialize the bitmap area to zero, which is 1 block away from the start
-            ptr::write_bytes((region_ptr as *mut u8).add(N), 0, bitmap_size);
+            ptr::write_bytes(region_ptr.cast::<u8>().add(N), 0, bitmap_size);
 
             // Get a mutable slice of the region where the bitmap is stored
             let bitmap_slice =
-                slice::from_raw_parts_mut((region_ptr as *mut u8).add(N), bitmap_size);
+                slice::from_raw_parts_mut(region_ptr.cast::<u8>().add(N), bitmap_size);
 
             // Mark the blocks used by the bitmap as used in the bitmap
             for i in 0..bitmap_blocks {
@@ -125,7 +125,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         // Update the bitmap to mark the blocks as used
         unsafe {
             // Get the bitmap pointer
-            let bitmap_ptr = (self.region.as_ptr() as *mut u8).add(N);
+            let bitmap_ptr = self.region.as_ptr().cast::<u8>().add(N);
 
             for i in 0..blocks_required {
                 let byte_index = (start_bit + i) / 8;
@@ -154,7 +154,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         let start_addr = region_slice.as_ptr() as usize; // Start address of the region
 
         // Get a pointer to the start of the bitmap, the bitmap starts 1 block away from the start
-        let bitmap_ptr = (self.region.as_ptr() as *mut u8).add(N);
+        let bitmap_ptr = self.region.as_ptr().cast::<u8>().add(N);
 
         // Find out which block it belongs to
         let start_bit = (ptr.as_ptr() as usize - start_addr) / N;
