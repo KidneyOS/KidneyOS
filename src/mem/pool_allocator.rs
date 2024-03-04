@@ -12,7 +12,7 @@ pub struct PoolAllocator<const N: usize> {
 
 impl<const N: usize> PoolAllocator<N> {
     /// PoolAllocator has the giant chunk of memory referred to in region
-    pub fn new(region: NonNull<[u8]>) -> Self {
+    pub unsafe fn new(region: NonNull<[u8]>) -> Self {
         // Ensure the region is large enough to store at least N bytes,
         // because we're handing out N-byte blocks
         assert!(region.len() >= N);
@@ -35,27 +35,24 @@ impl<const N: usize> PoolAllocator<N> {
         // + at least 1 extra block is available
         assert!(total_blocks >= bitmap_blocks + 1 + 1);
 
-        unsafe {
-            let region_ptr = region.as_ptr();
+        let region_ptr = region.as_ptr();
 
-            // The first block is used to store how large the bitmap is, in units of bytes
-            ptr::write(region_ptr.cast::<usize>(), bitmap_size);
+        // The first block is used to store how large the bitmap is, in units of bytes
+        ptr::write(region_ptr.cast::<usize>(), bitmap_size);
 
-            // Initialize the bitmap area to zero, which is 1 block away from the start
-            ptr::write_bytes(region_ptr.cast::<u8>().add(N), 0, bitmap_size);
+        // Initialize the bitmap area to zero, which is 1 block away from the start
+        ptr::write_bytes(region_ptr.cast::<u8>().add(N), 0, bitmap_size);
 
-            // Get a mutable slice of the region where the bitmap is stored
-            let bitmap_slice =
-                slice::from_raw_parts_mut(region_ptr.cast::<u8>().add(N), bitmap_size);
+        // Get a mutable slice of the region where the bitmap is stored
+        let bitmap_slice = slice::from_raw_parts_mut(region_ptr.cast::<u8>().add(N), bitmap_size);
 
-            // Mark the blocks used by the bitmap as used in the bitmap
-            for i in 0..bitmap_blocks {
-                let byte_index = i / 8;
-                let bit_index = i % 8;
-                if byte_index < bitmap_size {
-                    // Set the bit to mark the block as used
-                    bitmap_slice[byte_index] |= 1 << bit_index;
-                }
+        // Mark the blocks used by the bitmap as used in the bitmap
+        for i in 0..bitmap_blocks {
+            let byte_index = i / 8;
+            let bit_index = i % 8;
+            if byte_index < bitmap_size {
+                // Set the bit to mark the block as used
+                bitmap_slice[byte_index] |= 1 << bit_index;
             }
         }
 
