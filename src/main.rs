@@ -6,14 +6,13 @@ mod multiboot2;
 extern crate alloc;
 
 use alloc::vec;
-use kidneyos::{constants::MB, mem::KernelAllocator, println};
+use kidneyos::{
+    constants::MB, mem::KERNEL_ALLOCATOR, println, threading::thread_system_initialization,
+};
 use multiboot2::{
     info::{Info, InfoTag},
     EXPECTED_MAGIC,
 };
-
-#[cfg_attr(target_os = "none", global_allocator)]
-pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 #[cfg(target_os = "none")]
 #[panic_handler]
@@ -69,6 +68,8 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     println!("Dropping vector");
     drop(v);
     println!("Vector dropped!");
+
+    thread_system_initialization();
 
     // SAFETY: Single core, no interrupts.
     unsafe { KERNEL_ALLOCATOR.deinit() };

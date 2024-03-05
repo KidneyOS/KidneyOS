@@ -15,6 +15,9 @@ use core::{
 };
 use frame_allocator::FrameAllocatorSolution;
 
+#[cfg_attr(target_os = "none", global_allocator)]
+pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
+
 // Page size is 4KB. This is a property of x86 processors.
 pub const PAGE_FRAME_SIZE: usize = 4 * KB;
 
