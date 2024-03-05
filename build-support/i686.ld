@@ -14,6 +14,8 @@ SECTIONS {
         KEEP(*(.multiboot2_header))
     }
 
+    ASSERT(. < PHYS + 32768, "multiboot2 header must be within the first 32768 bytes.")
+
     .multiboot.text ALIGN(4K) : {
         trampoline_start = .;
         *libkidneyos_trampoline.o(.text*)
