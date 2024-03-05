@@ -52,7 +52,7 @@ run-qemu-ng: kidneyos.iso
 
 .PHONY: test
 test:
-	cargo test --target i686-unknown-linux-gnu
+	cargo test --target i686-unknown-linux-gnu --workspace
 
 .PHONY: clean
 clean:
