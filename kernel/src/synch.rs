@@ -28,7 +28,11 @@ impl<T> SpinLock<T> {
 
     // Acquires the spinlock, spinning until the lock is obtained.
     pub fn lock(&self) -> SpinLockGuard<T> {
-        while self.lock.compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        while self
+            .lock
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             // Spin without locking, to reduce the overhead.
             // This is a simple busy-wait loop.
             while self.lock.load(Ordering::Relaxed) {
