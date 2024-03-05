@@ -68,7 +68,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
         }
 
         // Check alignment of layout
-        if layout.align() <= N {
+        if layout.align() > N {
             return Err(AllocError);
         }
 
@@ -179,13 +179,25 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
-    use std::error::Error;
+    use super::*;
 
-    // Importing pool allocator for testing
-    use crate::mem::pool_allocator::PoolAllocator;
+    use crate::constants::KB;
+    use alloc::alloc::Global;
+    use core::alloc::{Allocator, Layout};
+    use std::error::Error;
 
     #[test]
     fn pool_allocator_simple() -> Result<(), Box<dyn Error>> {
-        todo!();
+        let region = Global.allocate(Layout::from_size_align(2 * KB, 2)?)?;
+        let alloc: PoolAllocator<{ size_of::<usize>() }> = unsafe { PoolAllocator::new(region) };
+
+        let mut boxes = Vec::new();
+        for i in 0..30 {
+            boxes.push(Box::new_in(i, &alloc));
+        }
+
+        assert!(boxes.into_iter().enumerate().all(|(i, x)| i == *x));
+
+        Ok(())
     }
 }
