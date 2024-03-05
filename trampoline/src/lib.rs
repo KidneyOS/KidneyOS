@@ -56,13 +56,7 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
         "invalid magic, expected {EXPECTED_MAGIC:#X}, got {magic:#X}"
     );
 
-    // SAFETY: multiboot guarantees that a valid multiboot info pointer will be
-    // in ebx when _start is called, and _start puts that on the stack as the
-    // second argument which will become the multiboot2_info parameter, so this
-    // dereference is safe since we've checked the magic and confirmed we've
-    // booted with multiboot. Additionally, we drop it before we start writing
-    // to anywhere in memory that it might be.
-    let mem_upper = unsafe { &mut *multiboot2_info }
+    let mem_upper = (*multiboot2_info)
         .iter()
         .find_map(|tag| match tag {
             InfoTag::BasicMemoryInfo(t) => Some(t.mem_upper),
