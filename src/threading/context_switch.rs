@@ -7,7 +7,6 @@ use crate::threading::ThreadControlBlock;
 pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlBlock) {
 
     // TODO:
-    // switch_from should not need to be passed in (will get covered by scheduling)
     // Safety checks needed.
 
     unsafe {

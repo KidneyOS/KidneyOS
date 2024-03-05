@@ -8,21 +8,6 @@ use crate::threading::thread_control_block::*;
 use crate::threading::context_switch::*;
 use crate::println;
 
-//TEMP
-pub fn test_func() {
-
-    println!("Hello threads!");
-    loop {};
-
-}
-
-pub fn test_halt() {
-
-    println!("Goodbye threads!");
-    loop {};
-
-}
-
 /**
  * To be called before any other thread functions.
  * To be called with interrupts disabled.
@@ -39,11 +24,6 @@ pub fn thread_system_initialization() -> () {
     // Initialize the scheduler.
 
     // Create Idle thread.
-
-    // TEMP.
-    let tcb_1 = ThreadControlBlock::create(test_halt);
-    let tcb_2 = ThreadControlBlock::create(test_func);
-    switch_threads(tcb_1, tcb_2);
 
     unsafe { THREAD_SYSTEM_INITIALIZED = true; }
     println!("Finished Thread System initialization. Ready to start threading.");
