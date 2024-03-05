@@ -4,15 +4,14 @@ pub mod thread_control_block;
 pub mod thread_functions;
 
 use crate::println;
-use crate::threading::context_switch::*;
-use crate::threading::thread_control_block::*;
+use crate::threading::thread_control_block::{ThreadControlBlock, TID};
 
 /**
  * To be called before any other thread functions.
  * To be called with interrupts disabled.
  */
 static mut THREAD_SYSTEM_INITIALIZED: bool = false;
-pub fn thread_system_initialization() -> () {
+pub fn thread_system_initialization() {
     println!("Initializing Thread System...");
 
     // TODO: Ensure interrupts are off.
@@ -33,7 +32,7 @@ pub fn thread_system_initialization() -> () {
  * Enables preemptive scheduling.
  * Thread system must have been previously enabled.
  */
-pub fn thread_system_start() -> () {
+pub fn thread_system_start() {
     if unsafe { !THREAD_SYSTEM_INITIALIZED } {
         panic!("Cannot start threading without initializing the threading system.");
     }

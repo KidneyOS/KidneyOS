@@ -13,6 +13,7 @@ fn exit_thread() {
 
     // Relinquish CPU to another thread.
     // TODO:
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 
@@ -24,10 +25,10 @@ pub struct RunThreadContext {
 
 impl RunThreadContext {
     pub fn create(entry_function: ThreadFunction) -> Self {
-        return Self {
+        Self {
             eip: 0,
             entry_function_pointer: entry_function as usize,
-        };
+        }
     }
 }
 
@@ -55,9 +56,9 @@ pub struct PrepareThreadContext {
 
 impl PrepareThreadContext {
     pub fn create() -> Self {
-        return Self {
+        Self {
             eip: run_thread as usize,
-        };
+        }
     }
 }
 
@@ -65,7 +66,7 @@ impl PrepareThreadContext {
  * This function is used to clean up a thread's arguments and call into `run_thread`.
  */
 #[naked]
-unsafe fn prepare_thread() {
+unsafe extern "C" fn prepare_thread() {
     // This is going to be uncessary (potentially) until we add an argument for the thread's entry function.
     core::arch::asm!(
         r#"
@@ -89,22 +90,22 @@ pub struct SwitchThreadsContext {
 
 impl SwitchThreadsContext {
     pub fn empty_context() -> Self {
-        return Self {
+        Self {
             edi: 0,
             esi: 0,
             ebx: 0,
             ebp: 0,
             eip: 0,
-        };
+        }
     }
 
     pub fn create() -> Self {
-        return Self {
+        Self {
             edi: 0,
             esi: 0,
             ebx: 0,
             ebp: 0,
             eip: prepare_thread as usize,
-        };
+        }
     }
 }

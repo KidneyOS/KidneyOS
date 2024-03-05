@@ -39,7 +39,7 @@ pub fn allocate_tid() -> TID {
         // TODO: Lock.
         NEXT_UNRESERVED_TID += 1;
 
-        return new_tid;
+        new_tid
     }
 }
 
@@ -51,7 +51,7 @@ impl ThreadControlBlock {
         // In x86 stacks from downward, so we must pass in the top of this memory to the thread.
         let stack_pointer_bottom;
         let stack_pointer_top;
-        let layout = Layout::from_size_align(THREAD_STACK_SIZE, 8).unwrap();
+        let layout = Layout::from_size_align(THREAD_STACK_SIZE, 8).expect("layout creation failed");
         unsafe {
             stack_pointer_bottom = Global
                 .allocate_zeroed(layout)
@@ -104,7 +104,7 @@ impl ThreadControlBlock {
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
-        return new_thread;
+        new_thread
     }
 
     /**
@@ -115,7 +115,7 @@ impl ThreadControlBlock {
             return None;
         }
 
-        return Some(self.shift_stack_pointer_down(bytes));
+        Some(self.shift_stack_pointer_down(bytes))
     }
 
     /**
@@ -125,7 +125,7 @@ impl ThreadControlBlock {
         let avaliable_space =
             unsafe { self.stack_pointer.offset_from(self.stack_pointer_bottom) as usize };
 
-        return avaliable_space >= bytes;
+        avaliable_space >= bytes
     }
 
     /**
@@ -137,7 +137,7 @@ impl ThreadControlBlock {
             let new_pointer =
                 NonNull::new(raw_pointer.sub(amount)).expect("Error shifting stack pointer.");
             self.stack_pointer = new_pointer;
-            return self.stack_pointer;
+            self.stack_pointer
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::threading::ThreadControlBlock;
+use core::mem::align_of;
 
 /**
  * Public facing method to perform a context switch between two threads.
@@ -7,9 +8,12 @@ pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlB
     // TODO:
     // Safety checks needed.
 
+    assert!(switch_from.stack_pointer.as_ptr() as usize % align_of::<usize>() == 0);
+
     unsafe {
         context_switch(
-            switch_from.stack_pointer.as_ptr() as *mut usize,
+            #[allow(clippy::cast_ptr_alignment)]
+            switch_from.stack_pointer.as_ptr().cast::<usize>(),
             switch_to.stack_pointer.as_ptr() as usize,
         );
     }
@@ -80,7 +84,10 @@ macro_rules! restore_registers {
  * Must save the Callee's registers and restore the next's registers.
  */
 #[naked]
-unsafe fn context_switch(_previous_stack_pointer: *mut usize, _next_stack_pointer: usize) {
+unsafe extern "C" fn context_switch(
+    _previous_stack_pointer: *mut usize,
+    _next_stack_pointer: usize,
+) {
     // Our function arguments are placed on the stack Right to Left.
     core::arch::asm!(
         load_arguments!(), // Required manually since this is a naked function.
