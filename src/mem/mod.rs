@@ -1,5 +1,6 @@
 mod buddy_allocator;
 mod frame_allocator;
+mod pool_allocator;
 
 use crate::{
     constants::{KB, MB},
