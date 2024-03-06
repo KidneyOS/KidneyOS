@@ -52,7 +52,7 @@ impl BuddyAllocator {
             match *region.as_ptr().cast::<State>() {
                 State::Free => false,
                 State::Allocated => {
-                    kidneyos_core::eprintln!(
+                    kidneyos_shared::eprintln!(
                         "address within buddy allocator region {:?} leaked!",
                         region.as_ptr()
                     );
@@ -216,7 +216,7 @@ mod tests {
 
     use super::*;
 
-    use kidneyos_core::sizes::KB;
+    use kidneyos_shared::sizes::KB;
     use std::{alloc::Global, collections::BTreeMap, error::Error};
 
     #[test]

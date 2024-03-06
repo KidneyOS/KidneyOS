@@ -188,9 +188,9 @@ mod tests {
 
     use super::*;
 
-    use crate::constants::KB;
     use alloc::alloc::Global;
     use core::alloc::{Allocator, Layout};
+    use kidneyos_shared::sizes::KB;
     use std::error::Error;
 
     #[test]

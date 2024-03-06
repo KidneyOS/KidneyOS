@@ -1,7 +1,7 @@
 # Variable Setup
 
 PROJECT_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
-CARGO_TARGET_DIR := build/target
+CARGO_TARGET_DIR := $(PROJECT_DIR)/build/target
 PROFILE := dev
 
 -include local.mk
@@ -9,9 +9,9 @@ PROFILE := dev
 export CARGO_TARGET_DIR
 
 ifeq ($(PROFILE),dev)
-ARTIFACT_DIR := $(PROJECT_DIR)$(CARGO_TARGET_DIR)/i686-unknown-kernel/debug
+ARTIFACT_DIR := $(CARGO_TARGET_DIR)/i686-unknown-kernel/debug
 else ifeq ($(PROFILE),release)
-ARTIFACT_DIR := $(PROJECT_DIR)$(CARGO_TARGET_DIR)/i686-unknown-kernel/release
+ARTIFACT_DIR := $(CARGO_TARGET_DIR)/i686-unknown-kernel/release
 else
 $(error Unhandled profile: $(PROFILE))
 endif
@@ -28,16 +28,16 @@ default: $(ISO)
 # Rust Builds
 
 -include $(ARTIFACT_DIR)/kidneyos.d
-$(RAW_KERNEL): build-support/i686.ld Cargo.toml Cargo.lock $(TRAMPOLINE)
+$(RAW_KERNEL): kernel/Cargo.toml Cargo.lock build-support/i686.ld $(TRAMPOLINE)
 	cargo rustc \
 	  --bin kidneyos \
-	  --manifest-path Cargo.toml \
+	  --manifest-path $< \
 	  --profile $(PROFILE) \
 	  --target build-support/i686-unknown-kernel.json \
 	  -Z build-std=core,alloc \
 	  -Z build-std-features=compiler-builtins-mem \
 	  -- \
-	  -C link-arg=-T -C link-arg=$< \
+	  -C link-arg=-T -C link-arg=build-support/i686.ld \
 	  -C link-arg=-z -C link-arg=max-page-size=0x1000 \
 	  -C link-arg=-n
 

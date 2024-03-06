@@ -7,7 +7,7 @@ use alloc::alloc::Global;
 use crate::threading::thread_functions::{
     PrepareThreadContext, RunThreadContext, SwitchThreadsContext, ThreadFunction,
 };
-use kidneyos_core::sizes::KB;
+use kidneyos_shared::sizes::KB;
 
 pub type TID = u16;
 

@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use arbitrary_int::u20;
 use core::{arch::asm, mem::size_of, ops::Range};
-use kidneyos_core::{
+use kidneyos_shared::{
     mem::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, OFFSET, PAGE_FRAME_SIZE,

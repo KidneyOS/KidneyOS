@@ -7,7 +7,7 @@ mod multiboot2;
 
 use arbitrary_int::u20;
 use core::{arch::asm, mem::size_of, ops::Range};
-use kidneyos_core::{
+use kidneyos_shared::{
     global_descriptor_table,
     mem::{
         phys::{
@@ -28,7 +28,7 @@ use multiboot2::{
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
-    kidneyos_core::eprintln!("{}", args);
+    kidneyos_shared::eprintln!("{}", args);
     loop {}
 }
 
@@ -44,7 +44,7 @@ unsafe extern "C" fn _start() {
         call {}
         ",
         sym trampoline,
-        stack_size = const kidneyos_core::mem::OFFSET - kidneyos_core::mem::MAIN_STACK_SIZE,
+        stack_size = const kidneyos_shared::mem::OFFSET - kidneyos_shared::mem::MAIN_STACK_SIZE,
         options(noreturn),
     )
 }

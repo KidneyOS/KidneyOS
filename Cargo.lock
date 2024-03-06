@@ -26,11 +26,11 @@ version = "0.1.0"
 dependencies = [
  "arbitrary-int",
  "bitbybit",
- "kidneyos-core",
+ "kidneyos-shared",
 ]
 
 [[package]]
-name = "kidneyos-core"
+name = "kidneyos-shared"
 version = "0.1.0"
 dependencies = [
  "arbitrary-int",
@@ -42,7 +42,7 @@ name = "kidneyos-trampoline"
 version = "0.1.0"
 dependencies = [
  "arbitrary-int",
- "kidneyos-core",
+ "kidneyos-shared",
 ]
 
 [[package]]

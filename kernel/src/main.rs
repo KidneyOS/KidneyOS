@@ -15,7 +15,7 @@ mod threading;
 extern crate alloc;
 
 use crate::threading::thread_system_initialization;
-use kidneyos_core::{println, video_memory::VIDEO_MEMORY_WRITER};
+use kidneyos_shared::{println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 
 #[cfg_attr(target_os = "none", global_allocator)]
@@ -24,7 +24,7 @@ pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 #[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
-    kidneyos_core::eprintln!("{}", args);
+    kidneyos_shared::eprintln!("{}", args);
     loop {}
 }
 

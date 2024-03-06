@@ -11,7 +11,7 @@ use core::{
     ptr::NonNull,
 };
 use frame_allocator::FrameAllocatorSolution;
-use kidneyos_core::{
+use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
@@ -154,7 +154,7 @@ macro_rules! halt {
         loop {}
     }};
     ($($arg:tt)*) => {{
-        kidneyos_core::eprintln!($($arg)*);
+        kidneyos_shared::eprintln!($($arg)*);
         loop {}
     }};
 }

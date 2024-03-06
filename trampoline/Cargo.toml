@@ -9,4 +9,4 @@ test = false
 
 [dependencies]
 arbitrary-int = "1.2.7"
-kidneyos-core.path = "../core"
+kidneyos-shared.path = "../shared"

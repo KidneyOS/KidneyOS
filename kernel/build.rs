@@ -5,9 +5,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    println!("cargo:rustc-link-search=native=build/trampoline");
+    let target_dir = env::var("CARGO_TARGET_DIR")?;
+
+    println!("cargo:rustc-link-search=native={target_dir}/../trampoline");
     println!("cargo:rustc-link-lib=static=kidneyos_trampoline");
-    println!("cargo:rerun-if-changed=build/trampoline/libkidneyos_trampoline.a");
+    println!("cargo:rerun-if-changed={target_dir}/../trampoline/libkidneyos_trampoline.a");
 
     Ok(())
 }
