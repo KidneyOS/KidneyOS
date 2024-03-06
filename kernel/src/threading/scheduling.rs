@@ -1,5 +1,5 @@
 use super::ThreadControlBlock;
-use super::TID;
+use super::Tid;
 use alloc::collections::VecDeque;
 
 trait Scheduler {
@@ -9,7 +9,7 @@ trait Scheduler {
 
     fn push(&mut self, thread: ThreadControlBlock);
     fn pop(&mut self) -> Option<ThreadControlBlock>;
-    fn remove(&mut self, tid: TID) -> bool;
+    fn remove(&mut self, tid: Tid) -> bool;
 }
 
 struct FIFOScheduler {
@@ -31,7 +31,7 @@ impl Scheduler for FIFOScheduler {
         self.ready_queue.pop_front()
     }
 
-    fn remove(&mut self, _tid: TID) -> bool {
+    fn remove(&mut self, _tid: Tid) -> bool {
         false
     }
 }

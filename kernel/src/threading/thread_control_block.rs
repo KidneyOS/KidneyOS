@@ -9,10 +9,10 @@ use crate::threading::thread_functions::{
 };
 use kidneyos_shared::sizes::KB;
 
-pub type TID = u16;
+pub type Tid = u16;
 
 // Current value marks the next avaliable TID value to use.
-static mut NEXT_UNRESERVED_TID: TID = 0;
+static mut NEXT_UNRESERVED_TID: Tid = 0;
 
 pub const THREAD_STACK_SIZE: usize = KB * 4;
 
@@ -25,14 +25,14 @@ pub enum ThreadStatus {
 }
 
 pub struct ThreadControlBlock {
-    pub tid: TID,
+    pub tid: Tid,
     pub status: ThreadStatus,
     pub stack_pointer: NonNull<u8>,
     stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
     pub context: SwitchThreadsContext, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
 }
 
-pub fn allocate_tid() -> TID {
+pub fn allocate_tid() -> Tid {
     unsafe {
         let new_tid = NEXT_UNRESERVED_TID;
 
@@ -45,7 +45,7 @@ pub fn allocate_tid() -> TID {
 
 impl ThreadControlBlock {
     pub fn create(entry_function: ThreadFunction) -> Self {
-        let tid: TID = allocate_tid();
+        let tid: Tid = allocate_tid();
 
         // Allocate a stack for this thread.
         // In x86 stacks from downward, so we must pass in the top of this memory to the thread.

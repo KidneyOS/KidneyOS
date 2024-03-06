@@ -140,7 +140,8 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
         }
     };
 
-    let page_directory = &mut *(next_addr() as *mut PageDirectory);
+    let page_directory_addr = next_addr();
+    let page_directory = &mut *(page_directory_addr as *mut PageDirectory);
     *page_directory = PageDirectory::default();
 
     for Region { phys, virt, write } in regions {
