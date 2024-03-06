@@ -3,4 +3,4 @@
 set -euo pipefail
 
 cargo clippy --quiet -- -D warnings
-find src -name '*.rs' -print0 | xargs -0 cargo fmt -- --quiet --check
+find -name '*.rs' -print0 | xargs -0 cargo fmt -- --quiet --check
