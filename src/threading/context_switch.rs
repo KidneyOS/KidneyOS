@@ -17,6 +17,8 @@ pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlB
         );
     }
 
+    // Here is where we need to push to the scheduler and set the new running thread.
+
 }
 
 /**

@@ -1,24 +1,16 @@
 use alloc::collections::VecDeque;
-use super::ThreadControlBlock;
-use super::TID;
 
-trait Scheduler {
+use super::super::{TID, ThreadControlBlock};
 
-    fn new() -> Self
-    where
-        Self: Sized;
+use super::scheduler::Scheduler;
 
-    fn push(&mut self, thread: ThreadControlBlock) -> ();
-    fn pop(&mut self) -> Option<ThreadControlBlock>;
-    fn remove(&mut self, tid: TID) -> bool;
-
-}
-
-struct FIFOScheduler {
+pub struct FIFOScheduler {
 
     ready_queue: VecDeque<ThreadControlBlock>
 
 }
+
+unsafe impl Sync for FIFOScheduler {}
 
 impl Scheduler for FIFOScheduler {
 
