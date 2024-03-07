@@ -1,0 +1,10 @@
+[package]
+name = "kidneyos"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arbitrary-int = "1.2.7"
+bitbybit = "1.3.0"
+kidneyos-shared.path = "../shared"
+

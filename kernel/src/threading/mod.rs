@@ -4,7 +4,7 @@ pub mod thread_control_block;
 pub mod thread_functions;
 
 use crate::println;
-use crate::threading::thread_control_block::{ThreadControlBlock, TID};
+use crate::threading::thread_control_block::{ThreadControlBlock, Tid};
 
 /**
  * To be called before any other thread functions.

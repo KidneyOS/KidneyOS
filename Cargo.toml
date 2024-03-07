@@ -1,9 +1,8 @@
-[package]
-name = "kidneyos"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["kernel", "trampoline"]
+resolver = "2"
 
-[lints.clippy]
+[workspace.lints.clippy]
 borrow_as_ptr = "warn"
 cast_lossless = "warn"
 cast_possible_truncation = "warn"

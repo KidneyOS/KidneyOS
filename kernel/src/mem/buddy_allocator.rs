@@ -3,7 +3,6 @@
 // We store each region's State in its first byte. This isn't a very smart way
 // to do things with respect to alignment, so this could definitely be improved.
 
-use crate::eprintln;
 use core::{
     alloc::{AllocError, Allocator, Layout},
     mem::size_of,
@@ -53,7 +52,7 @@ impl BuddyAllocator {
             match *region.as_ptr().cast::<State>() {
                 State::Free => false,
                 State::Allocated => {
-                    eprintln!(
+                    kidneyos_shared::eprintln!(
                         "address within buddy allocator region {:?} leaked!",
                         region.as_ptr()
                     );
@@ -217,7 +216,7 @@ mod tests {
 
     use super::*;
 
-    use crate::constants::KB;
+    use kidneyos_shared::sizes::KB;
     use std::{alloc::Global, collections::BTreeMap, error::Error};
 
     #[test]

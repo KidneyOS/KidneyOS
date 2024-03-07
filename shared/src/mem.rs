@@ -1,0 +1,71 @@
+use crate::sizes::{KB, MB};
+
+// Page size is 4KB. This is a property of x86 processors.
+pub const PAGE_FRAME_SIZE: usize = 4 * KB;
+
+macro_rules! linker_offsets {
+    ($($name:ident),*) => {
+        $(
+        #[inline]
+        pub fn $name() -> usize {
+            extern "C" {
+                static $name: u8;
+            }
+
+            // SAFETY: The linker script will give this the correct address.
+            unsafe { core::ptr::addr_of!($name) as usize }
+        }
+        )*
+    }
+}
+
+pub mod phys {
+    linker_offsets!(trampoline_start, trampoline_data_start, trampoline_end);
+
+    macro_rules! to_phys {
+        ($($name:ident),*) => {
+            $(
+            #[inline]
+            pub fn $name() -> usize {
+                super::virt::$name() - super::OFFSET
+            }
+            )*
+        }
+    }
+
+    to_phys!(kernel_start, kernel_data_start, kernel_end);
+
+    #[inline]
+    pub fn main_stack_top() -> usize {
+        kernel_end() + super::MAIN_STACK_SIZE
+    }
+
+    #[inline]
+    pub fn trampoline_heap_top() -> usize {
+        main_stack_top() + super::TRAMPOLINE_HEAP_SIZE
+    }
+}
+
+pub mod virt {
+    linker_offsets!(kernel_start, kernel_data_start, kernel_end);
+
+    macro_rules! to_virt {
+        ($($name:ident),*) => {
+            $(
+            #[inline]
+            pub fn $name() -> usize {
+                super::phys::$name() + super::OFFSET
+            }
+            )*
+        }
+    }
+
+    to_virt!(trampoline_heap_top);
+}
+
+// Any virtual address at or above OFFSET is a kernel address.
+pub const OFFSET: usize = 0xC0000000;
+
+// TODO: Figure out how to detect kernel stack overflows.
+pub const MAIN_STACK_SIZE: usize = 32 * KB;
+pub const TRAMPOLINE_HEAP_SIZE: usize = 8 * MB;
