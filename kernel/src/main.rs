@@ -9,7 +9,7 @@
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
-mod synch;
+mod sync;
 #[allow(unused)]
 mod threading;
 
