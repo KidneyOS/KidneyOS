@@ -12,6 +12,7 @@ pub struct PoolAllocator<const N: usize> {
 
 impl<const N: usize> PoolAllocator<N> {
     /// PoolAllocator has the giant chunk of memory referred to in region
+    #[allow(unused)]
     pub unsafe fn new(region: NonNull<[u8]>) -> Self {
         // Ensure the region is large enough to store at least N bytes,
         // because we're handing out N-byte blocks
@@ -27,17 +28,24 @@ impl<const N: usize> PoolAllocator<N> {
         // To allow the first block to always store the size of bitmap
         assert!(N >= size_of::<usize>());
 
+        // To ensure things are aligned.
+        assert!(region.as_ptr().as_mut_ptr() as usize % N == 0);
+
         // Calculate how many blocks the bitmap occupies
         let bitmap_blocks = bitmap_size.div_ceil(N);
         let total_blocks = region.len().div_ceil(N);
 
         // Ensure the region is large enough for the size of bitmap + bitmap_blocks
         // + at least 1 extra block is available
-        assert!(total_blocks >= bitmap_blocks + 1 + 1);
+        #[allow(clippy::int_plus_one)]
+        {
+            assert!(total_blocks >= bitmap_blocks + 1 + 1);
+        }
 
         let region_ptr = region.as_ptr();
 
         // The first block is used to store how large the bitmap is, in units of bytes
+        #[allow(clippy::cast_ptr_alignment)]
         ptr::write(region_ptr.cast::<usize>(), bitmap_size);
 
         // Initialize the bitmap area to zero, which is 1 block away from the start
@@ -81,6 +89,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 
         // Obtain the bitmap from the region
         // Size of the bitmap is in the first block
+        #[allow(clippy::cast_ptr_alignment)]
         let bitmap_size = unsafe { *(self.region.as_ptr() as *const usize) };
 
         // Get a pointer to the start of the bitmap, the bitmap starts 1 block away from the start
@@ -134,13 +143,11 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 
         // Construct and return the pointer to the allocated memory
         let slice_ptr = NonNull::slice_from_raw_parts(
-            NonNull::new(start_addr as *mut u8).unwrap(),
+            NonNull::new(start_addr.cast_mut()).expect("start_addr shouldn't be null"),
             layout.size(),
         );
 
-        let nonnull_slice = NonNull::new(slice_ptr.as_ptr()).unwrap();
-
-        Ok(nonnull_slice)
+        Ok(slice_ptr)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
