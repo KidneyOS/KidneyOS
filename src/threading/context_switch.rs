@@ -1,24 +1,26 @@
-
 use crate::threading::ThreadControlBlock;
+
+use super::{scheduling::SCHEDULER, RUNNING_THREAD};
 
 /**
  * Public facing method to perform a context switch between two threads.
  */
-pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlBlock) {
+pub unsafe fn switch_threads(switch_to: ThreadControlBlock) {
+    let switch_from = RUNNING_THREAD.take().expect("Why is nothing running!?");
 
     // TODO:
-    // switch_from should not need to be passed in (will get covered by scheduling)
     // Safety checks needed.
+    context_switch(
+        switch_from.stack_pointer.as_ptr() as *mut usize,
+        switch_to.stack_pointer.as_ptr() as usize,
+    );
 
-    unsafe {
-        context_switch(
-            switch_from.stack_pointer.as_ptr() as *mut usize,
-            switch_to.stack_pointer.as_ptr() as usize
-        );
-    }
-
-    // Here is where we need to push to the scheduler and set the new running thread.
-
+    // After threads have switched, we must update the scheduler and running thread.
+    RUNNING_THREAD = Some(switch_to);
+    SCHEDULER
+        .as_mut()
+        .expect("Scheduler not set up!")
+        .push(switch_from);
 }
 
 /**
@@ -87,17 +89,15 @@ macro_rules! restore_registers {
  */
 #[naked]
 unsafe fn context_switch(_previous_stack_pointer: *mut usize, _next_stack_pointer: usize) {
-
     // Our function arguments are placed on the stack Right to Left.
     core::arch::asm!(
-        load_arguments!(),  // Required manually since this is a naked function.
+        load_arguments!(), // Required manually since this is a naked function.
         save_registers!(),
         switch_stacks!(),
         restore_registers!(),
         r#"
             ret
-        "#,                 // Required manually since this is a naked function.
+        "#, // Required manually since this is a naked function.
         options(noreturn)
     )
-
 }

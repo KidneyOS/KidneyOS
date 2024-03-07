@@ -6,7 +6,12 @@ mod multiboot2;
 extern crate alloc;
 
 use alloc::vec;
-use kidneyos::{constants::MB, mem::KERNEL_ALLOCATOR, println, threading::{thread_system_initialization, thread_system_start}};
+use kidneyos::{
+    constants::MB,
+    mem::KERNEL_ALLOCATOR,
+    println,
+    threading::{thread_system_initialization, thread_system_start},
+};
 use multiboot2::{
     info::{Info, InfoTag},
     EXPECTED_MAGIC,
