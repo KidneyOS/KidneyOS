@@ -8,11 +8,6 @@ pub struct SpinLock<T> {
     data: UnsafeCell<T>,
 }
 
-#[derive(Debug)]
-pub enum MutexError {
-    Poisoned,
-}
-
 // Safety: SpinLock can be safely sent across threads.
 unsafe impl<T> Sync for SpinLock<T> {}
 unsafe impl<T> Send for SpinLock<T> {}
