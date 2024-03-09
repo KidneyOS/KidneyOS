@@ -1,3 +1,5 @@
+pub mod pool_allocator;
+
 use crate::sizes::{KB, MB};
 
 // Page size is 4KB. This is a property of x86 processors.

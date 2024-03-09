@@ -205,11 +205,11 @@ mod tests {
 
     use super::*;
 
+    use crate::sizes::KB;
     use core::{
         alloc::{Allocator, Layout},
         mem::size_of,
     };
-    use kidneyos_shared::sizes::KB;
     use std::{alloc::Global, boxed::Box, error::Error, vec::Vec};
 
     #[test]
