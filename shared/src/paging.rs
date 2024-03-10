@@ -158,10 +158,11 @@ impl<A: Allocator> PageManager<A> {
             virt_start,
             len,
             write,
+            user,
         } in mapping_ranges
         {
             // SAFETY: res has not yet been loaded.
-            unsafe { res.map_range(phys_start, virt_start, len, write) };
+            unsafe { res.map_range(phys_start, virt_start, len, write, user) };
         }
 
         res
@@ -204,13 +205,7 @@ impl<A: Allocator> PageManager<A> {
     /// This is still unsafe despite the requirement to call `load` because if
     /// there's nothing in the TLB for the virtual addresses included in this
     /// mapping, the mapping may take effect without the call to `load`.
-    pub unsafe fn map(
-        &mut self,
-        phys_addr: usize,
-        virt_addr: usize,
-        write: bool,
-        // TODO: Add parameters protection, executibility, etc.
-    ) {
+    pub unsafe fn map(&mut self, phys_addr: usize, virt_addr: usize, write: bool, user: bool) {
         #[bitfield(u32)]
         struct VirtualAddress {
             #[bits(22..=31, r)]
@@ -239,6 +234,7 @@ impl<A: Allocator> PageManager<A> {
             page_directory[pdi] = PageDirectoryEntry::default()
                 .with_present(true)
                 .with_read_write(write)
+                .with_user_supervisor(user)
                 .with_page_table_frame(u20::new(page_table_frame as u32));
             page_table
         } else {
@@ -250,9 +246,13 @@ impl<A: Allocator> PageManager<A> {
 
             // NOTE: For a page to be considered writable, the read_write bit
             // must be set in both the page directory entry, and the page table
-            // entry, so it's safe for us to enable things here.
+            // entry, so it's safe for us to enable things here. Same goes for
+            // user_supervisor.
             if write && !page_directory[pdi].read_write() {
                 page_directory[pdi] = page_directory[pdi].with_read_write(write);
+            }
+            if user && !page_directory[pdi].user_supervisor() {
+                page_directory[pdi] = page_directory[pdi].with_user_supervisor(user);
             }
 
             page_table
@@ -290,6 +290,7 @@ impl<A: Allocator> PageManager<A> {
         virt_start: usize,
         len: usize,
         write: bool,
+        user: bool,
     ) {
         assert!(
             phys_start % PAGE_FRAME_SIZE == 0,
@@ -307,7 +308,7 @@ impl<A: Allocator> PageManager<A> {
         for offset in (0..len).step_by(PAGE_FRAME_SIZE) {
             let phys_addr = phys_start + offset;
             let virt_addr = virt_start + offset;
-            self.map(phys_addr, virt_addr, write);
+            self.map(phys_addr, virt_addr, write, user);
         }
     }
 
@@ -316,8 +317,14 @@ impl<A: Allocator> PageManager<A> {
     /// # Safety
     ///
     /// Same as `map`.
-    pub unsafe fn id_map_range(&mut self, start: usize, frames_len: usize, write: bool) {
-        self.map_range(start, start, frames_len, write);
+    pub unsafe fn id_map_range(
+        &mut self,
+        start: usize,
+        frames_len: usize,
+        write: bool,
+        user: bool,
+    ) {
+        self.map_range(start, start, frames_len, write, user);
     }
 }
 
@@ -382,6 +389,7 @@ pub struct MappingRange {
     pub virt_start: usize,
     pub len: usize,
     pub write: bool,
+    pub user: bool,
 }
 
 pub fn kernel_mapping_ranges() -> [MappingRange; 5] {
@@ -391,30 +399,35 @@ pub fn kernel_mapping_ranges() -> [MappingRange; 5] {
             virt_start: VIDEO_MEMORY_BASE,
             len: VIDEO_MEMORY_SIZE.next_multiple_of(PAGE_FRAME_SIZE),
             write: true,
+            user: false,
         },
         MappingRange {
             phys_start: kernel_start(),
             virt_start: virt::kernel_start(),
             len: kernel_data_start() - kernel_start(),
             write: false,
+            user: false,
         },
         MappingRange {
             phys_start: kernel_data_start(),
             virt_start: virt::kernel_data_start(),
             len: kernel_end() - kernel_data_start(),
             write: true,
+            user: false,
         },
         MappingRange {
             phys_start: kernel_end(),
             virt_start: virt::kernel_end(),
             len: main_stack_top() - kernel_end(),
             write: true,
+            user: false,
         },
         MappingRange {
             phys_start: trampoline_heap_top(),
             virt_start: virt::trampoline_heap_top(),
             len: (usize::MAX - OFFSET - trampoline_heap_top()).next_multiple_of(PAGE_FRAME_SIZE),
             write: true,
+            user: false,
         },
     ]
 }

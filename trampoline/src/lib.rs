@@ -82,17 +82,20 @@ unsafe extern "C" fn trampoline(magic: usize, multiboot2_info: *mut Info) {
         trampoline_start(),
         trampoline_data_start() - trampoline_start(),
         false,
+        false,
     );
     page_manager.id_map_range(
         trampoline_data_start(),
         trampoline_end() - trampoline_data_start(),
         true,
+        false,
     );
-    page_manager.id_map_range(kernel_end(), main_stack_top() - kernel_end(), true);
+    page_manager.id_map_range(kernel_end(), main_stack_top() - kernel_end(), true, false);
     page_manager.id_map_range(
         main_stack_top(),
         trampoline_heap_top() - main_stack_top(),
         true,
+        false,
     );
 
     page_manager.load();
