@@ -16,6 +16,7 @@ mod threading;
 extern crate alloc;
 
 use crate::threading::thread_system_initialization;
+use core::mem::forget;
 use kidneyos_shared::{println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 
@@ -44,10 +45,12 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("IDTR set up!");
 
         println!("Enabling paging");
-        paging::enable();
+        let page_manager = paging::enable();
         println!("Paging enabled!");
 
         thread_system_initialization();
+
+        forget(page_manager);
     }
 
     #[allow(clippy::empty_loop)]
