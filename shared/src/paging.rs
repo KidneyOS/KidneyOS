@@ -248,14 +248,9 @@ impl<A: Allocator> PageManager<A> {
                 as *mut PageTable;
             let page_table = &mut *page_table_addr;
 
-            // TODO: Investigate if this is necessary, how does precedence
-            // for read_write work between page directory entries and page
-            // table entries.
-            // assert!(
-            //     write == page_directory[pdi].read_write(),
-            //     "overlapping mappings with conflicting write permissions"
-            // );
-
+            // NOTE: For a page to be considered writable, the read_write bit
+            // must be set in both the page directory entry, and the page table
+            // entry, so it's safe for us to enable things here.
             if write && !page_directory[pdi].read_write() {
                 page_directory[pdi] = page_directory[pdi].with_read_write(write);
             }
