@@ -12,6 +12,10 @@ pub struct PoolAllocator<const N: usize> {
 
 impl<const N: usize> PoolAllocator<N> {
     /// PoolAllocator has the giant chunk of memory referred to in region
+    ///
+    /// # Safety
+    ///
+    /// region must be valid for the lifetime of this PoolAllocator.
     #[allow(unused)]
     pub unsafe fn new(region: NonNull<[u8]>) -> Self {
         // Ensure the region is large enough to store at least N bytes,
@@ -55,7 +59,18 @@ impl<const N: usize> PoolAllocator<N> {
         let bitmap_slice = slice::from_raw_parts_mut(region_ptr.cast::<u8>().add(N), bitmap_size);
 
         // Mark the blocks used by the bitmap as used in the bitmap
-        for i in 0..bitmap_blocks {
+        for i in 0..bitmap_blocks + 1 {
+            let byte_index = i / 8;
+            let bit_index = i % 8;
+            if byte_index < bitmap_size {
+                // Set the bit to mark the block as used
+                bitmap_slice[byte_index] |= 1 << bit_index;
+            }
+        }
+
+        // Mark the blocks that aren't actually in region at the end as used in
+        // the bitmap
+        for i in total_blocks..bitmap_size * 8 {
             let byte_index = i / 8;
             let bit_index = i % 8;
             if byte_index < bitmap_size {
@@ -103,7 +118,7 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
                     if bit == 0 {
                         free_count += 1;
                         if free_count == blocks_required {
-                            start_index = Some(i * 8 + j - free_count + 1);
+                            start_index = Some(i * 8 + j + 1 - free_count);
                             break;
                         }
                     } else {
@@ -186,12 +201,16 @@ unsafe impl<const N: usize> Allocator for PoolAllocator<N> {
 mod tests {
     #![allow(clippy::undocumented_unsafe_blocks)]
 
+    extern crate std;
+
     use super::*;
 
-    use alloc::alloc::Global;
-    use core::alloc::{Allocator, Layout};
+    use core::{
+        alloc::{Allocator, Layout},
+        mem::size_of,
+    };
     use kidneyos_shared::sizes::KB;
-    use std::error::Error;
+    use std::{alloc::Global, boxed::Box, error::Error, vec::Vec};
 
     #[test]
     fn pool_allocator_simple() -> Result<(), Box<dyn Error>> {
@@ -203,7 +222,13 @@ mod tests {
             boxes.push(Box::new_in(i, &alloc));
         }
 
-        assert!(boxes.into_iter().enumerate().all(|(i, x)| i == *x));
+        assert!(boxes.iter().enumerate().all(|(i, x)| i == **x));
+
+        for (i, b) in boxes.iter_mut().enumerate() {
+            **b = i * 2;
+        }
+
+        assert!(boxes.iter().enumerate().all(|(i, x)| i * 2 == **x));
 
         Ok(())
     }
