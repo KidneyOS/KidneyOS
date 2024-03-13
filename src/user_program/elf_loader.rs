@@ -35,6 +35,7 @@ struct Elf32Phdr {
 }
 
 const PT_LOAD: u32 = 1;
+const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 
 // Dummy function to simulate reading an ELF file from somewhere into a byte slice.
 // TODO: replace this with actual file reading logic once we have file system implemented.
