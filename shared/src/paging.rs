@@ -116,7 +116,7 @@ struct PageTableEntry {
 pub struct PageManager<A: Allocator> {
     root: NonNull<PageDirectory>,
     alloc: A,
-    alloc_addr_to_phys_offset: usize,
+    phys_to_alloc_addr_offset: usize,
 }
 
 const PAGE_DIRECTORY_LAYOUT: Layout = Layout::new::<PageDirectory>();
@@ -142,7 +142,7 @@ impl<A: Allocator> PageManager<A> {
         Self {
             root,
             alloc,
-            alloc_addr_to_phys_offset,
+            phys_to_alloc_addr_offset: alloc_addr_to_phys_offset,
         }
     }
 
@@ -177,15 +177,15 @@ impl<A: Allocator> PageManager<A> {
     /// Swapping from the previously loaded page tables to these must not cause
     /// any existing pointers to refer to anything they shouldn't.
     pub unsafe fn load(&self) {
-        let root_phys_addr = self.root.as_ptr() as usize - self.alloc_addr_to_phys_offset;
-        unsafe { asm!("mov cr3, {}", in(reg) root_phys_addr) };
+        let root_phys_addr = self.root.as_ptr() as usize - self.phys_to_alloc_addr_offset;
+        unsafe { asm!("mov cr3, {}", in(reg) root_phys_addr, options(nomem, nostack)) };
     }
 
     /// Returns whether these page tables are loaded.
     pub fn is_loaded(&self) -> bool {
-        let current_root: *mut PageDirectory;
-        unsafe { asm!("mov {}, cr3", out(reg) current_root) };
-        current_root != self.root.as_ptr()
+        let current_root: usize;
+        unsafe { asm!("mov {}, cr3", out(reg) current_root, options(nomem, nostack)) };
+        current_root != self.root.as_ptr() as usize - self.phys_to_alloc_addr_offset
     }
 
     /// Maps virtual addresses from `virt_addr..(virt_addr + PAGE_FRAME_SIZE)`
@@ -229,7 +229,7 @@ impl<A: Allocator> PageManager<A> {
             *page_table = PageTable::default();
 
             let page_table_phys_addr =
-                page_table_addr.cast::<u8>().as_ptr() as usize - self.alloc_addr_to_phys_offset;
+                page_table_addr.cast::<u8>().as_ptr() as usize - self.phys_to_alloc_addr_offset;
             let page_table_frame = page_table_phys_addr / size_of::<PageTable>();
             page_directory[pdi] = PageDirectoryEntry::default()
                 .with_present(true)
@@ -240,7 +240,7 @@ impl<A: Allocator> PageManager<A> {
         } else {
             let page_table_frame = page_directory[pdi].page_table_frame().value() as usize;
             let page_table_addr = ((page_table_frame * size_of::<PageTable>())
-                + self.alloc_addr_to_phys_offset)
+                + self.phys_to_alloc_addr_offset)
                 as *mut PageTable;
             let page_table = &mut *page_table_addr;
 
@@ -338,7 +338,7 @@ impl<A: Allocator> Drop for PageManager<A> {
             }
 
             let page_table_addr = pde.page_table_frame().value() as usize * size_of::<PageTable>()
-                + self.alloc_addr_to_phys_offset;
+                + self.phys_to_alloc_addr_offset;
             let Some(page_table_addr) = NonNull::new(page_table_addr as *mut u8) else {
                 panic!("present page directory entry contained null page table address");
             };
@@ -381,6 +381,7 @@ pub unsafe fn enable() {
         ",
         out(reg) _,
         mask = const MASK,
+        options(nomem, nostack),
     );
 }
 
