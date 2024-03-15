@@ -5,6 +5,7 @@ use super::{scheduling::SCHEDULER, RUNNING_THREAD};
 /**
  * Public facing method to perform a context switch between two threads.
  */
+// SAFETY: This function should only be called by methods within the Scheduler crate.
 pub unsafe fn switch_threads(switch_to: ThreadControlBlock) {
     let switch_from = RUNNING_THREAD.take().expect("Why is nothing running!?");
 

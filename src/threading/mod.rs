@@ -5,7 +5,7 @@ pub mod thread_functions;
 
 use crate::println;
 use crate::threading::scheduling::initialize_scheduler;
-use crate::threading::thread_control_block::*;
+use crate::threading::thread_control_block::{ThreadControlBlock, Tid};
 
 use self::scheduling::{scheduler_yield, SCHEDULER};
 
@@ -42,6 +42,7 @@ pub fn thread_system_initialization() {
 
     // Create Idle thread.
 
+    // SAFETY: Interrupts must be disabled.
     unsafe {
         THREAD_SYSTEM_INITIALIZED = true;
     }
@@ -53,6 +54,7 @@ pub fn thread_system_initialization() {
  * Thread system must have been previously enabled.
  */
 pub fn thread_system_start() {
+    // SAFETY: Interrupts must be disabled.
     if unsafe { !THREAD_SYSTEM_INITIALIZED } {
         panic!("Cannot start threading without initializing the threading system.");
     }
@@ -62,6 +64,8 @@ pub fn thread_system_start() {
     // TEMP.
     let tcb_1 = ThreadControlBlock::create(test_halt);
     let tcb_2 = ThreadControlBlock::create(test_func);
+
+    // SAFETY: Interrupts must be disabled.
     unsafe {
         RUNNING_THREAD = Some(tcb_1);
         SCHEDULER
