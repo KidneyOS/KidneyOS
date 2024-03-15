@@ -13,6 +13,8 @@ unsafe impl<T> Sync for SpinLock<T> {}
 unsafe impl<T> Send for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
+    #![allow(unused)]
+
     // Creates a new spinlock.
     pub const fn new(data: T) -> SpinLock<T> {
         SpinLock {
@@ -73,6 +75,8 @@ unsafe impl<T> Sync for InterruptLock<T> {}
 unsafe impl<T> Send for InterruptLock<T> {}
 
 impl<T> InterruptLock<T> {
+    #![allow(unused)]
+
     // Creates a new InterruptLock.
     pub const fn new(data: T) -> InterruptLock<T> {
         InterruptLock {
