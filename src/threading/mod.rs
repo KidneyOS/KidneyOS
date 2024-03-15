@@ -4,6 +4,8 @@ pub mod thread_control_block;
 pub mod thread_functions;
 
 use crate::println;
+use alloc::boxed::Box;
+
 use crate::threading::scheduling::initialize_scheduler;
 use crate::threading::thread_control_block::{ThreadControlBlock, Tid};
 
@@ -23,7 +25,7 @@ pub fn test_halt() {
     }
 }
 
-static mut RUNNING_THREAD: Option<ThreadControlBlock> = None;
+static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
 /**
  * To be called before any other thread functions.
@@ -65,9 +67,19 @@ pub fn thread_system_start() {
     let tcb_1 = ThreadControlBlock::create(test_halt);
     let tcb_2 = ThreadControlBlock::create(test_func);
 
+    println!(
+        "FROM {:?}, &SP {:?}, SP {:?}\nTO {:?}, &SP {:?}, SP {:?}\n",
+        core::ptr::addr_of!(tcb_1),
+        core::ptr::addr_of!(tcb_1.stack_pointer),
+        tcb_1.stack_pointer.as_ptr(),
+        core::ptr::addr_of!(tcb_2),
+        core::ptr::addr_of!(tcb_2.stack_pointer),
+        tcb_2.stack_pointer.as_ptr()
+    );
+
     // SAFETY: Interrupts must be disabled.
     unsafe {
-        RUNNING_THREAD = Some(tcb_1);
+        RUNNING_THREAD = Some(Box::new(tcb_1));
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")

@@ -1,3 +1,5 @@
+use super::thread_control_block::ThreadControlBlock;
+
 // TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 // No arguments allowed for now.
 /**
@@ -19,14 +21,18 @@ const fn exit_thread() {
 #[repr(C, packed)]
 pub struct RunThreadContext {
     eip: usize, // Should always be NULL.
-    entry_function_pointer: usize,
+    switched_from: *const ThreadControlBlock,
+    switched_to: *const ThreadControlBlock,
+    entry_function_pointer: *const ThreadFunction,
 }
 
 impl RunThreadContext {
     pub fn create(entry_function: ThreadFunction) -> Self {
         Self {
             eip: 0,
-            entry_function_pointer: entry_function as usize,
+            switched_from: core::ptr::null(),
+            switched_to: core::ptr::null(), // These will be provided values within `prepare_thread`.
+            entry_function_pointer: entry_function as *const ThreadFunction,
         }
     }
 }
@@ -34,7 +40,11 @@ impl RunThreadContext {
 /**
  * A wrapper function to execute a thread's true function.
  */
-fn run_thread(function: ThreadFunction) {
+fn run_thread(
+    switched_from: *const ThreadControlBlock,
+    switched_to: *const ThreadControlBlock,
+    function: ThreadFunction,
+) {
     // TODO: Safety checks.
 
     // Our scheduler will operate without interrupts.
@@ -50,13 +60,13 @@ fn run_thread(function: ThreadFunction) {
 
 #[repr(C, packed)]
 pub struct PrepareThreadContext {
-    eip: usize, // Should always be set to &run_thread.
+    eip: *const ThreadFunction, // Should always be set to &run_thread.
 }
 
 impl PrepareThreadContext {
     pub fn create() -> Self {
         Self {
-            eip: run_thread as usize,
+            eip: run_thread as *const ThreadFunction,
         }
     }
 }
@@ -66,9 +76,11 @@ impl PrepareThreadContext {
  */
 #[naked]
 unsafe fn prepare_thread() {
-    // This is going to be uncessary (potentially) until we add an argument for the thread's entry function.
+    // We must place the TCB pointers left from the context switch onto the stack for `run_thread`.
     core::arch::asm!(
         r#"
+            mov [esp + 0x8], edx
+            mov [esp + 0xb], eax
             ret
         "#,
         options(noreturn)

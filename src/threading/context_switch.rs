@@ -4,24 +4,25 @@ use super::{scheduling::SCHEDULER, RUNNING_THREAD};
 
 /**
  * Public facing method to perform a context switch between two threads.
+ *
+ * SAFETY: This function should only be called by methods within the Scheduler crate.
  */
-// SAFETY: This function should only be called by methods within the Scheduler crate.
-pub unsafe fn switch_threads(switch_to: ThreadControlBlock) {
-    let switch_from = RUNNING_THREAD.take().expect("Why is nothing running!?");
+pub unsafe fn switch_threads(mut switch_to: ThreadControlBlock) {
+    let mut switch_from = *RUNNING_THREAD.take().expect("Why is nothing running!?");
 
     // TODO:
     // Safety checks needed.
-    context_switch(
-        switch_from.stack_pointer.as_ptr() as *mut usize,
-        switch_to.stack_pointer.as_ptr() as usize,
+    let _previous = context_switch(
+        core::ptr::addr_of_mut!(switch_from),
+        core::ptr::addr_of_mut!(switch_to),
     );
 
     // After threads have switched, we must update the scheduler and running thread.
-    RUNNING_THREAD = Some(switch_to);
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(switch_from);
+    RUNNING_THREAD = Some(alloc::boxed::Box::new(switch_from));
+    // SCHEDULER
+    //     .as_mut()
+    //     .expect("Scheduler not set up!")
+    //     .push(previous);
 }
 
 /**
@@ -33,7 +34,13 @@ macro_rules! load_arguments {
     () => {
         // Loads two arguments from the stack into %eax and %edx.
         // Note, `call` should be used just before this.
-        // So, [%esp] is an instruction pointer, [%esp + 0x4] is our first argument, and [%esp + 0x8] is our second argument.
+        // So, at this point:
+        // * [%esp] is an instruction pointer.
+        // * [%esp + 0x4] is our first argument (switch_from).
+        // * [%esp + 0x8] is our second argument (switch_to).
+        // These arguments are pointers to the TCB / Stack pointers.
+        // These registers must be preserved as `prepare_thread` expects them to stay as such (and functions using it's return value).
+        // TODO: Move ESP (add esp, 0x8) to remove these arguments?
         r#"
             mov eax, [esp + 0x4]
             mov edx, [esp + 0x8]
@@ -58,11 +65,13 @@ macro_rules! save_registers {
 macro_rules! switch_stacks {
     () => {
         // Switches the current stack pointer.
-        // Requires that %eax hold a pointer to the current stack.
-        //          and that %edx holds the value of the next stack.
+        // Requires that %eax holds the pointer to the stack pointer of the previous thread
+        // and that %edx holds the pointer to the stack pointer of the new thread.
+        // We use %ecx to deal with this level of indirection.
         r#"
-            mov [eax], esp
-            mov esp, edx
+            mov ecx, [eax]
+            mov [ecx], esp
+            mov esp, [edx]
         "#
     };
 }
@@ -89,7 +98,10 @@ macro_rules! restore_registers {
  * Must save the Callee's registers and restore the next's registers.
  */
 #[naked]
-unsafe fn context_switch(_previous_stack_pointer: *mut usize, _next_stack_pointer: usize) {
+unsafe fn context_switch(
+    _switch_from: *mut ThreadControlBlock,
+    _switch_to: *mut ThreadControlBlock,
+) -> *mut ThreadControlBlock {
     // Our function arguments are placed on the stack Right to Left.
     core::arch::asm!(
         load_arguments!(), // Required manually since this is a naked function.

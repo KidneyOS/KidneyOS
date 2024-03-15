@@ -25,11 +25,14 @@ pub enum ThreadStatus {
     Dying,
 }
 
+#[repr(C, packed)]
 pub struct ThreadControlBlock {
+    pub stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
+    stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
+
     pub tid: Tid,
     pub status: ThreadStatus,
-    pub stack_pointer: NonNull<u8>,
-    stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
+
     pub context: SwitchThreadsContext, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
 }
 
