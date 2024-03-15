@@ -1,7 +1,6 @@
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // A simple spinlock.
 pub struct SpinLock<T> {
@@ -85,7 +84,9 @@ impl<T> InterruptLock<T> {
     // This function would ideally disable interrupts (using assembly or an external function call).
     pub fn lock(&self) -> InterruptLockGuard<T> {
         // Assembly or external function call to disable interrupts here.
-        unsafe { core::arch::asm!("cli", options(nomem, nostack));}
+        unsafe {
+            core::arch::asm!("cli", options(nomem, nostack));
+        }
         InterruptLockGuard { lock: self }
     }
 
@@ -93,7 +94,9 @@ impl<T> InterruptLock<T> {
     // It's separated for clarity and would be used by the `Drop` implementation of `InterruptLockGuard`.
     fn unlock(&self) {
         // Assembly or external function call to enable interrupts here.
-        unsafe { core::arch::asm!("sti", options(nomem, nostack));}
+        unsafe {
+            core::arch::asm!("sti", options(nomem, nostack));
+        }
     }
 }
 
