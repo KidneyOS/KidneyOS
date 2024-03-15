@@ -1,6 +1,8 @@
 extern crate core;
 
 use core::slice;
+use virtual_memory_area::VmFlags;
+use virtual_memory_area::VmAreaStruct;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -34,7 +36,19 @@ struct Elf32Phdr {
     p_align: u32,
 }
 
-const PT_LOAD: u32 = 1;
+#[repr(u32)]
+#[derive(Debug, PartialEq)]
+enum SegmentType {
+    PtNull = 0,        // Ignore.
+    PtLoad = 1,        // Loadable segment.
+    PtDynamic = 2,     // Dynamic linking info.
+    PtInterp = 3,      // Name of dynamic loader.
+    PtNote = 4,        // Auxiliary info.
+    PtShlib = 5,       // Reserved.
+    PtPhdr = 6,        // Program header table.
+    PtStack = 0x6474e551, // Stack segment.
+}
+
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 
 // Dummy function to simulate reading an ELF file from somewhere into a byte slice.
@@ -82,6 +96,7 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
 // Main function to load the ELF binary
 fn load_elf(elf_data: &[u8]) {
     let header = unsafe { &*(elf_data.as_ptr() as *const Elf32Ehdr) };
+    let mut vm_areas = Vec::new();
 
     // Verify ELF header
     verify_elf_header(header)?;
@@ -94,7 +109,17 @@ fn load_elf(elf_data: &[u8]) {
             &*(elf_data.as_ptr().offset((ph_offset + i * ph_size) as isize) as *const Elf32Phdr)
         };
 
-        if ph.p_type == PT_LOAD {
+        if ph.p_type == SegmentType::PtLoad {
+            let vm_start = ph.p_vaddr as usize;
+            let vm_end = vm_start + ph.p_memsz as usize;
+            let mut flags = VmFlags::new();
+
+            // Set flags based on program header flags, e.g., readable, writable, executable
+            flags.set_read(ph.p_flags & PF_R != 0);
+            flags.set_write(ph.p_flags & PF_W != 0);
+            flags.set_execute(ph.p_flags & PF_X != 0);
+
+            vm_areas.push(VmAreaStruct::new(vm_start, vm_end, flags));
             // Here we would load the segment into memory, copy from `elf_data[ph.p_offset as usize..]` to `ph.p_vaddr` address in memory
 
             core::intrinsics::breakpoint(); // Placeholder for breakpoint or log message
