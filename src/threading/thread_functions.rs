@@ -24,19 +24,21 @@ const fn exit_thread() {
 
 #[repr(C, packed)]
 pub struct RunThreadContext {
-    eip: usize, // Should always be NULL.
+    padding: [u8; 4], // Oddly, this seems required.
     switched_from: *const ThreadControlBlock,
     switched_to: *const ThreadControlBlock,
     entry_function_pointer: *const ThreadFunction,
+    eip: usize, // Should always be NULL.
 }
 
 impl RunThreadContext {
     pub fn create(entry_function: ThreadFunction) -> Self {
         Self {
-            eip: 0,
+            padding: [0, 0, 0, 0],
             switched_from: core::ptr::null(),
             switched_to: core::ptr::null(), // These will be provided values within `prepare_thread`.
             entry_function_pointer: entry_function as *const ThreadFunction,
+            eip: 0,
         }
     }
 }
@@ -47,7 +49,7 @@ impl RunThreadContext {
 unsafe fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
-    function: ThreadFunction,
+    entry_function: ThreadFunction,
 ) {
     // TODO: Safety checks.
 
@@ -61,7 +63,7 @@ unsafe fn run_thread(
     // interrupts_enable();
 
     // Run the thread.
-    function();
+    entry_function();
 
     // Safely exit the thread.
     exit_thread();
@@ -86,10 +88,12 @@ impl PrepareThreadContext {
 #[naked]
 unsafe fn prepare_thread() {
     // We must place the TCB pointers left from the context switch onto the stack for `run_thread`.
+    // The addresses that `run_thread` queries for it's functions seem to be 4 bytes higher
+    // than expected.
     core::arch::asm!(
         r#"
-            mov [esp + 0x8], edx
-            mov [esp + 0xb], eax
+            mov [esp + 0x8], eax
+            mov [esp + 0xc], edx
             ret
         "#,
         options(noreturn)

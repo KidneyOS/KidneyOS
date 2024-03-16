@@ -1,6 +1,7 @@
 use crate::threading::ThreadControlBlock;
 
 use crate::println;
+use alloc::boxed::Box;
 
 use super::{scheduling::SCHEDULER, RUNNING_THREAD, thread_control_block::ThreadStatus};
 
@@ -10,30 +11,28 @@ use super::{scheduling::SCHEDULER, RUNNING_THREAD, thread_control_block::ThreadS
  * SAFETY: This function should only be called by methods within the Scheduler crate.
  */
 pub unsafe fn switch_threads(mut switch_to: ThreadControlBlock) {
-    let mut switch_from = *RUNNING_THREAD.take().expect("Why is nothing running!?");
+    let switch_from_box = RUNNING_THREAD.take().expect("Why is nothing running!?");
+    let switch_from = Box::into_raw(switch_from_box);
     // switch_from.status = ThreadStatus::Ready;
 
     println!(
-        "FROM {:?}, &SP {:?}, SP {:?}\n  TO {:?}, &SP {:?}, SP {:?}\n",
-        core::ptr::addr_of_mut!(switch_from),
-        core::ptr::addr_of_mut!(switch_from.stack_pointer),
-        switch_from.stack_pointer.as_ptr(),
+        "FROM {:?}\n  TO {:?}\n",
+        switch_from,
         core::ptr::addr_of_mut!(switch_to),
-        core::ptr::addr_of_mut!(switch_to.stack_pointer),
-        switch_to.stack_pointer.as_ptr()
     );
 
     // TODO:
     // Safety checks needed.
     let previous = context_switch(
-        core::ptr::addr_of_mut!(switch_from),
+        // core::ptr::addr_of_mut!(switch_from),
+        switch_from,
         core::ptr::addr_of_mut!(switch_to),
     );
 
     // switch_from.status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    RUNNING_THREAD = Some(alloc::boxed::Box::new(switch_from));
+    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switch_from));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
