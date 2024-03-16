@@ -67,16 +67,6 @@ pub fn thread_system_start() {
     let tcb_1 = ThreadControlBlock::create(test_halt);
     let tcb_2 = ThreadControlBlock::create(test_func);
 
-    println!(
-        "FROM {:?}, &SP {:?}, SP {:?}\nTO {:?}, &SP {:?}, SP {:?}\n",
-        core::ptr::addr_of!(tcb_1),
-        core::ptr::addr_of!(tcb_1.stack_pointer),
-        tcb_1.stack_pointer.as_ptr(),
-        core::ptr::addr_of!(tcb_2),
-        core::ptr::addr_of!(tcb_2.stack_pointer),
-        tcb_2.stack_pointer.as_ptr()
-    );
-
     // SAFETY: Interrupts must be disabled.
     unsafe {
         RUNNING_THREAD = Some(Box::new(tcb_1));

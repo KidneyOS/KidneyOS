@@ -1,4 +1,8 @@
-use super::thread_control_block::ThreadControlBlock;
+use super::scheduling::SCHEDULER;
+use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
+use super::RUNNING_THREAD;
+
+use crate::println;
 
 // TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 // No arguments allowed for now.
@@ -40,12 +44,17 @@ impl RunThreadContext {
 /**
  * A wrapper function to execute a thread's true function.
  */
-fn run_thread(
-    switched_from: *const ThreadControlBlock,
-    switched_to: *const ThreadControlBlock,
+unsafe fn run_thread(
+    switched_from: *mut ThreadControlBlock,
+    switched_to: *mut ThreadControlBlock,
     function: ThreadFunction,
 ) {
     // TODO: Safety checks.
+
+    // Reschedule our threads.
+    // (*switched_to).status = ThreadStatus::Running;
+    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switched_to));
+    SCHEDULER.as_mut().expect("Scheduler not set up!").push(core::ptr::read(switched_from));
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.

@@ -74,3 +74,12 @@ As well, the new thread will be able to set itself as the running thread.
 In the case that a new thread is being started, it will not begin running in the middle of the `switch_threads` function.
 Instead, it will begin to run the `prepare_thread` and then `run_thread` functions.
 This gives the `run_thread` function the responsibility to enque our previously running thread in the scheduler and update the currently running thread.
+
+
+
+
+in run_thread:
+* ebp is pushed
+* esp is placed in ebp
+* eax is entry function, moved from ebp+0x10
+* The other two are moved from ebp +0xc and ebp+0x8, idk which is which yet
