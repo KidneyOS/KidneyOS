@@ -1,6 +1,8 @@
 use super::scheduling::SCHEDULER;
-use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
+use super::thread_control_block::ThreadControlBlock;
 use super::RUNNING_THREAD;
+
+use crate::alloc::boxed::Box;
 
 // TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 // No arguments allowed for now.
@@ -52,12 +54,11 @@ unsafe fn run_thread(
     // TODO: Safety checks.
 
     // Reschedule our threads.
-    (*switched_to).status = ThreadStatus::Running;
     RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switched_to));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
-        .push(core::ptr::read(switched_from));
+        .push(Box::from_raw(switched_from));
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.

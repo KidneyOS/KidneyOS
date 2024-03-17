@@ -3,40 +3,31 @@ use crate::threading::ThreadControlBlock;
 use crate::println;
 use alloc::boxed::Box;
 
-use super::{scheduling::SCHEDULER, thread_control_block::ThreadStatus, RUNNING_THREAD};
+use super::{scheduling::SCHEDULER, RUNNING_THREAD};
 
 /**
  * Public facing method to perform a context switch between two threads.
  *
  * SAFETY: This function should only be called by methods within the Scheduler crate.
  */
-pub unsafe fn switch_threads(mut switch_to: ThreadControlBlock) {
-    let switch_from_box = RUNNING_THREAD.take().expect("Why is nothing running!?");
-    let switch_from = Box::into_raw(switch_from_box);
-    (*switch_from).status = ThreadStatus::Ready;
+pub unsafe fn switch_threads(mut switch_to: Box<ThreadControlBlock>) {
+    let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
 
-    println!(
-        "FROM {:?}\n  TO {:?}\n",
-        switch_from,
-        core::ptr::addr_of_mut!(switch_to),
-    );
+    let switch_to = Box::into_raw(switch_to);
 
     // TODO:
-    // Safety checks needed.
-    let previous = context_switch(
-        // core::ptr::addr_of_mut!(switch_from),
-        switch_from,
-        core::ptr::addr_of_mut!(switch_to),
-    );
+    // Safety checks needed. Check that the from is not status::running and switch_to is ready.
+    // Changing status is not the responsibility here, as we do not know if the current thread is blocked or not.
+    println!("FROM {:?}\n  TO {:?}\n", switch_from, switch_to,);
 
-    (*switch_from).status = ThreadStatus::Running;
+    let previous = context_switch(switch_from, switch_to);
 
     // After threads have switched, we must update the scheduler and running thread.
     RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switch_from));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
-        .push(core::ptr::read(previous.cast_const()));
+        .push(Box::from_raw(previous));
 }
 
 /**

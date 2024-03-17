@@ -73,7 +73,7 @@ pub fn thread_system_start() {
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
-            .push(tcb_2);
+            .push(Box::new(tcb_2));
     }
     scheduler_yield();
 }

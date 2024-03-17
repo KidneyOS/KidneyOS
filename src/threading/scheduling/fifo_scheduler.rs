@@ -1,3 +1,4 @@
+use crate::alloc::boxed::Box;
 use alloc::collections::VecDeque;
 
 use super::super::{ThreadControlBlock, Tid};
@@ -5,7 +6,7 @@ use super::super::{ThreadControlBlock, Tid};
 use super::scheduler::Scheduler;
 
 pub struct FIFOScheduler {
-    ready_queue: VecDeque<ThreadControlBlock>,
+    ready_queue: VecDeque<Box<ThreadControlBlock>>,
 }
 
 // SAFETY: Schedulers should be run with interrupts disabled.
@@ -18,11 +19,11 @@ impl Scheduler for FIFOScheduler {
         }
     }
 
-    fn push(&mut self, thread: ThreadControlBlock) {
+    fn push(&mut self, thread: Box<ThreadControlBlock>) {
         self.ready_queue.push_back(thread);
     }
 
-    fn pop(&mut self) -> Option<ThreadControlBlock> {
+    fn pop(&mut self) -> Option<Box<ThreadControlBlock>> {
         self.ready_queue.pop_front()
     }
 
