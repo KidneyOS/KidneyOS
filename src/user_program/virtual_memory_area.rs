@@ -36,7 +36,7 @@ impl VmOperations for VMAOperations {
     }
 }
 
-struct VmAreaStruct {
+pub struct VmAreaStruct {
     vm_start: usize, // VMA start, inclusive
     vm_end: usize,   // VMA end, exclusive
     flags: VmFlags,
