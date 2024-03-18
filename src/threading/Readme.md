@@ -15,11 +15,8 @@ For developers, the details are here:
 
 ### Running a New Thread
 
-A brand new thread has three different stack frames allocated in the following order (bottom of stack to top):
+A brand new thread has two different stack frames allocated in the following order (bottom of stack to top):
 
-* `RunThreadContext`.
-    This stack frame will actually run the function that the thread is specified to run.
-    It also puts us in a safe place by enabling interrupts for the thread and safely exiting once a thread ends execution.
 * `PrepareThreadContext`.
     This is a stack frame that performs some cleanup of arguments to facilitate the next stack frame.
 * `SwitchThreadsContext`.
@@ -30,12 +27,7 @@ The full stack will look like:
 
 ```
 +-----------------------+ Bottom (High Address)
-| eip = 0               | RunThreadContext
-| &entry_function       |
-| &prev_tcb = 0         | // The thread that just stopped running (initially 0).
-| &curr_tcb = 0         | // The now running thread (initially 0).
-| --------------------- |
-| eip = &run_thread     | PrepareThreadContext
+| &run_thread           | PrepareThreadContext
 | --------------------- |
 | eip = &prepare_thread | SwitchThreadsContext
 | ebp = 0               |
@@ -77,7 +69,11 @@ This gives the `run_thread` function the responsibility to enque our previously 
 
 ## Context Switching
 
-### Calling Conventions
+The function `switch_threads` is the public method for switching to a given thread.
+The thread to switch to must be in the `Ready` state otherwise the kernel will panic.
+This function will ensure that whatever thread becomes the running thread is marked as being in the `Running` state.
+However, it is the responsibility of the callee to ensure that the thread that is currrently running before the context switch is no longer in the `Running` state.
+This is because the `switch_threads` function is agnostic to whether the thread is blocked, dead, or ready to run again.
 
-The actual `context_switch` is private within the threading module.
-This function a naked function, that is only our assembly.
+Typically, you do not interact with `switch_threads` directly.
+Rather, you use one of the scheduling functions provided in the mod file for the scheduling crate.

@@ -5,11 +5,9 @@ mod multiboot2;
 
 extern crate alloc;
 
-use alloc::vec;
 use kidneyos::{
     constants::MB,
     mem::KERNEL_ALLOCATOR,
-    println,
     threading::{thread_system_initialization, thread_system_start},
 };
 use multiboot2::{
@@ -64,23 +62,9 @@ extern "C" fn start(magic: usize, multiboot2_info: *mut Info) -> ! {
     // SAFETY: Single core, no interrupts.
     unsafe { KERNEL_ALLOCATOR.init(64 * MB, mem_upper as usize) };
 
-    println!("Allocating vector");
-    let mut v = vec![5, 6513, 51];
-    println!("Vector ptr: {:?}, capacity: {}", v.as_ptr(), v.capacity());
-    assert!(v.pop() == Some(51));
-    println!("Dropping vector");
-    drop(v);
-    println!("Vector dropped!");
-
     thread_system_initialization();
 
     thread_system_start();
-
-    // SAFETY: Single core, no interrupts.
-    unsafe { KERNEL_ALLOCATOR.deinit() };
-
-    #[allow(clippy::empty_loop)]
-    loop {}
 }
 
 #[allow(dead_code)]

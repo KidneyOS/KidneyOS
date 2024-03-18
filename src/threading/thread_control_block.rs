@@ -103,7 +103,8 @@ impl ThreadControlBlock {
     /**
      * Creates the 'kernel thread'.
      *
-     * SAFETY: Should only be used once while starting the threading system.
+     * # Safety
+     * Should only be used once while starting the threading system.
      */
     pub unsafe fn create_kernel_thread() -> Self {
         ThreadControlBlock {

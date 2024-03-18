@@ -1,5 +1,5 @@
 use super::scheduling::SCHEDULER;
-use super::thread_control_block::ThreadControlBlock;
+use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use super::RUNNING_THREAD;
 
 use crate::alloc::boxed::Box;
@@ -14,23 +14,26 @@ pub type ThreadFunction = fn() -> ();
 /**
  * A function to safely close a thread.
  */
-const fn exit_thread() {
+const fn exit_thread() -> ! {
     // TODO: Need to reap TCB, remove from scheduling.
 
     // Relinquish CPU to another thread.
     // TODO:
+    panic!("Thread exited incorrectly.");
 }
 
 /**
  * A wrapper function to execute a thread's true function.
  */
 #[no_mangle]
-unsafe extern "C" fn run_thread(
+unsafe fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
     entry_function: ThreadFunction,
-) {
-    // TODO: Safety checks.
+) -> ! {
+    // We assume that switched_from had it's status changed already.
+    // We must only mark this thread as running.
+    (*switched_to).status = ThreadStatus::Running;
 
     // Reschedule our threads.
     RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switched_to));
@@ -41,6 +44,7 @@ unsafe extern "C" fn run_thread(
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
+    // TODO:
     // interrupts_enable();
 
     // Run the thread.
@@ -48,9 +52,6 @@ unsafe extern "C" fn run_thread(
 
     // Safely exit the thread.
     exit_thread();
-
-    // This function should never return.
-    panic!("Thread exited incorrectly.");
 }
 
 #[repr(C, packed)]

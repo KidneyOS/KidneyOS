@@ -10,7 +10,6 @@ use crate::threading::scheduling::initialize_scheduler;
 use crate::threading::thread_control_block::{ThreadControlBlock, Tid};
 
 use self::scheduling::{scheduler_yield, SCHEDULER};
-use self::thread_control_block::{allocate_tid, ThreadStatus};
 
 pub fn test_func() {
     loop {
@@ -56,7 +55,7 @@ pub fn thread_system_initialization() {
  * Enables preemptive scheduling.
  * Thread system must have been previously enabled.
  */
-pub fn thread_system_start() {
+pub fn thread_system_start() -> ! {
     // SAFETY: Interrupts must be disabled.
     if unsafe { !THREAD_SYSTEM_INITIALIZED } {
         panic!("Cannot start threading without initializing the threading system.");
