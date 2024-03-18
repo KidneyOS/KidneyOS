@@ -19,35 +19,13 @@ const fn exit_thread() {
 
     // Relinquish CPU to another thread.
     // TODO:
-    panic!("Thread Exited incorrectly.");
-}
-
-#[repr(C, packed)]
-pub struct RunThreadContext {
-    padding: [u8; 4], // Oddly, this seems required.
-    switched_from: *const ThreadControlBlock,
-    switched_to: *const ThreadControlBlock,
-    entry_function_pointer: *const ThreadFunction,
-    eip: usize, // Should always be NULL.
-}
-
-impl RunThreadContext {
-    pub fn create(entry_function: ThreadFunction) -> Self {
-        Self {
-            padding: [0, 0, 0, 0],
-            switched_from: core::ptr::null(),
-            switched_to: core::ptr::null(), // These will be provided values within `prepare_thread`.
-            entry_function_pointer: entry_function as *const ThreadFunction,
-            eip: 0,
-        }
-    }
 }
 
 /**
  * A wrapper function to execute a thread's true function.
  */
 #[no_mangle]
-unsafe fn run_thread(
+unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
     entry_function: ThreadFunction,
@@ -70,17 +48,20 @@ unsafe fn run_thread(
 
     // Safely exit the thread.
     exit_thread();
+
+    // This function should never return.
+    panic!("Thread exited incorrectly.");
 }
 
 #[repr(C, packed)]
 pub struct PrepareThreadContext {
-    eip: *const ThreadFunction, // Should always be set to &run_thread.
+    entry_function: *const ThreadFunction,
 }
 
 impl PrepareThreadContext {
-    pub fn create() -> Self {
+    pub fn create(entry_function: ThreadFunction) -> Self {
         Self {
-            eip: run_thread as *const ThreadFunction,
+            entry_function: entry_function as *const ThreadFunction,
         }
     }
 }
@@ -91,18 +72,19 @@ impl PrepareThreadContext {
 #[naked]
 #[no_mangle]
 unsafe extern "C" fn prepare_thread() {
-    // We must place the TCB pointers left from the context switch onto the stack for `run_thread`.
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
-    // These are pushed onto the stack for `run_thread`.
-    // No `call` instruction is used to get here, only `ret`.
-    // So there should be one less instruction pointer value on our stack.
+    // Further, the entry function pointer is at a known position on the stack.
+    // We move this into a register and call the run thread function.
     core::arch::asm!(
         r#"
-            mov [esp + 0x4], eax
-            mov [esp + 0x8], edx
-            ret
+            # push [esp] # Already in place on stack.
+            push edx
+            push eax
+            call {}
+            hlt     # Never return to here.
         "#,
+        sym run_thread,
         options(noreturn)
     );
 }
@@ -116,7 +98,7 @@ pub struct SwitchThreadsContext {
     esi: usize,                 // Source index.
     ebx: usize,                 // Base (for memory access).
     ebp: usize,                 // Stack base pointer.
-    eip: *const ThreadFunction, // Instruction pointer.
+    eip: *const ThreadFunction, // Instruction pointer (determines where to jump after the context switch).
 }
 
 impl SwitchThreadsContext {

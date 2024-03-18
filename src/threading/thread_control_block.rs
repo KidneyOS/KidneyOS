@@ -7,7 +7,7 @@ use alloc::alloc::Global;
 
 use crate::constants::KB;
 use crate::threading::thread_functions::{
-    PrepareThreadContext, RunThreadContext, SwitchThreadsContext, ThreadFunction,
+    PrepareThreadContext, SwitchThreadsContext, ThreadFunction,
 };
 
 pub type Tid = u16;
@@ -78,13 +78,9 @@ impl ThreadControlBlock {
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
-        //  * run_thread frame
         //  * prepare_thread frame
         //  * switch_threads frame
 
-        let run_thread_context = new_thread
-            .allocate_stack_space(size_of::<RunThreadContext>())
-            .expect("No Stack Space!");
         let prepare_thread_context = new_thread
             .allocate_stack_space(size_of::<PrepareThreadContext>())
             .expect("No Stack Space!");
@@ -94,11 +90,9 @@ impl ThreadControlBlock {
 
         // SAFETY: Manually setting stack bytes ala C.
         unsafe {
-            *run_thread_context.as_ptr().cast::<RunThreadContext>() =
-                RunThreadContext::create(entry_function);
             *prepare_thread_context
                 .as_ptr()
-                .cast::<PrepareThreadContext>() = PrepareThreadContext::create();
+                .cast::<PrepareThreadContext>() = PrepareThreadContext::create(entry_function);
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::create();
