@@ -27,13 +27,11 @@ pub enum ThreadStatus {
 
 #[repr(C, packed)]
 pub struct ThreadControlBlock {
-    pub stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
+    stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
     stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
-
+    // TODO: Can we just leak this and not hold it? Keep size instead, then kernel thread won't have a dangling pointer.
     pub tid: Tid,
     pub status: ThreadStatus,
-
-    pub context: SwitchThreadsContext, // Not always valid. TODO: Use type system here, worried about use in inline assembly and ownership.
 }
 
 pub fn allocate_tid() -> Tid {
@@ -73,7 +71,6 @@ impl ThreadControlBlock {
             stack_pointer: stack_pointer_top,
             stack_pointer_bottom: NonNull::new(stack_pointer_bottom.as_ptr().cast::<u8>())
                 .expect("Error converting stack."),
-            context: SwitchThreadsContext::empty_context(),
         };
 
         // Now, we must build the stack frames for our new thread.
@@ -104,9 +101,23 @@ impl ThreadControlBlock {
     }
 
     /**
+     * Creates the 'kernel thread'.
+     *
+     * SAFETY: Should only be used once while starting the threading system.
+     */
+    pub unsafe fn create_kernel_thread() -> Self {
+        ThreadControlBlock {
+            stack_pointer: core::ptr::NonNull::dangling(), // This will be set in the context switch immediately following.
+            stack_pointer_bottom: core::ptr::NonNull::dangling(), // TODO: Is this ok left dangling? Special case code is required otherwise.
+            tid: allocate_tid(),
+            status: ThreadStatus::Running,
+        }
+    }
+
+    /**
      * If possible without stack-smashing, moves the stack pointer down and returns the new value.
      */
-    pub fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
+    fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
         if !self.has_stack_space(bytes) {
             return None;
         }
@@ -117,7 +128,7 @@ impl ThreadControlBlock {
     /**
      * Check if `bytes` bytes will fit on the stack.
      */
-    pub const fn has_stack_space(&self, bytes: usize) -> bool {
+    const fn has_stack_space(&self, bytes: usize) -> bool {
         // SAFETY: Calculates the distance between the top and bottom of the stack pointers.
         let avaliable_space =
             unsafe { self.stack_pointer.offset_from(self.stack_pointer_bottom) as usize };
@@ -128,7 +139,7 @@ impl ThreadControlBlock {
     /**
      * Moves the stack pointer down and returns the new position.
      */
-    pub fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
+    fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
         // SAFETY: `has_stack_space` must have returned true for this amount before calling.
         unsafe {
             let raw_pointer = self.stack_pointer.as_ptr().cast::<u8>();

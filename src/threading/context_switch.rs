@@ -18,7 +18,6 @@ pub unsafe fn switch_threads(mut switch_to: Box<ThreadControlBlock>) {
     // TODO:
     // Safety checks needed. Check that the from is not status::running and switch_to is ready.
     // Changing status is not the responsibility here, as we do not know if the current thread is blocked or not.
-    println!("FROM {:?}\n  TO {:?}\n", switch_from, switch_to,);
 
     let previous = context_switch(switch_from, switch_to);
 

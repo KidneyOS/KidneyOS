@@ -10,6 +10,7 @@ use crate::threading::scheduling::initialize_scheduler;
 use crate::threading::thread_control_block::{ThreadControlBlock, Tid};
 
 use self::scheduling::{scheduler_yield, SCHEDULER};
+use self::thread_control_block::{allocate_tid, ThreadStatus};
 
 pub fn test_func() {
     loop {
@@ -18,7 +19,7 @@ pub fn test_func() {
     }
 }
 
-pub fn test_halt() {
+pub fn test_func_2() {
     loop {
         println!("Goodbye threads!");
         scheduler_yield();
@@ -63,17 +64,40 @@ pub fn thread_system_start() {
 
     // TODO: Enable interrupts.
 
+    // We must 'turn the kernel thread into a thread'.
+    // This amounts to just making a TCB that will be in control of the kernel stack and will
+    // never exit.
+    // This thread also does not need to enter the `run_thread` function.
+    // SAFETY: The kernel thread's stack will be set up by the context switch following.
+    let tcb_kernel = unsafe { ThreadControlBlock::create_kernel_thread() };
+
     // TEMP.
-    let tcb_1 = ThreadControlBlock::create(test_halt);
-    let tcb_2 = ThreadControlBlock::create(test_func);
+    let tcb_1 = ThreadControlBlock::create(test_func);
+    let tcb_2 = ThreadControlBlock::create(test_func_2);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
-        RUNNING_THREAD = Some(Box::new(tcb_1));
+        RUNNING_THREAD = Some(Box::new(tcb_kernel));
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(Box::new(tcb_1));
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
             .push(Box::new(tcb_2));
     }
+
+    // Start threading by running the root thread.
     scheduler_yield();
+
+    // Eventually, the scheduler may run the kernel thread again.
+    // We may later replace this with code to clean up the kernel resources (`thread_exit` would not work).
+    // For now we will just yield continually.
+    loop {
+        println!("It's me! The kernel thread!\n");
+        scheduler_yield();
+    }
+
+    // This function never returns.
 }
