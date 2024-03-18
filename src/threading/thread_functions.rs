@@ -46,6 +46,7 @@ impl RunThreadContext {
 /**
  * A wrapper function to execute a thread's true function.
  */
+#[no_mangle]
 unsafe fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
@@ -88,14 +89,18 @@ impl PrepareThreadContext {
  * This function is used to clean up a thread's arguments and call into `run_thread`.
  */
 #[naked]
-unsafe fn prepare_thread() {
+#[no_mangle]
+unsafe extern "C" fn prepare_thread() {
     // We must place the TCB pointers left from the context switch onto the stack for `run_thread`.
-    // The addresses that `run_thread` queries for it's functions seem to be 4 bytes higher
-    // than expected.
+    // Since this function is only to be called from the `context_switch` function, we expect
+    // That %eax and %edx contain the arguments passed to it.
+    // These are pushed onto the stack for `run_thread`.
+    // No `call` instruction is used to get here, only `ret`.
+    // So there should be one less instruction pointer value on our stack.
     core::arch::asm!(
         r#"
-            mov [esp + 0x8], eax
-            mov [esp + 0xc], edx
+            mov [esp + 0x4], eax
+            mov [esp + 0x8], edx
             ret
         "#,
         options(noreturn)

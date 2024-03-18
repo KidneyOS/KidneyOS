@@ -35,33 +35,36 @@ pub unsafe fn switch_threads(mut switch_to: Box<ThreadControlBlock>) {
  */
 
 #[macro_export]
+macro_rules! save_registers {
+    () => {
+        // Saves the current thread's registers into it's context (on the stack).
+        r#"
+        push ebp
+        mov ebp, esp    # Part of the calling convention, saving where this stack starts.
+                        # We allocate no local variables.
+        push ebx
+        push esi
+        push edi
+        "#
+    };
+}
+
+#[macro_export]
 macro_rules! load_arguments {
     () => {
         // Loads two arguments from the stack into %eax and %edx.
         // Note, `call` should be used just before this.
         // So, at this point:
         // * [%esp] is an instruction pointer.
-        // * [%esp + 0x4] is our first argument (switch_from).
-        // * [%esp + 0x8] is our second argument (switch_to).
+        // * %eax = [%ebp + 0x8] is our first argument (switch_from).
+        // * %edx = [%ebp + 0x12] is our second argument (switch_to).
         // These arguments are pointers to the TCB / Stack pointers.
-        // These registers must be preserved as `prepare_thread` expects them to stay as such (and functions using it's return value).
-        // TODO: Move ESP (add esp, 0x8) to remove these arguments?
+        //
+        // Note: We do not change the value of %eax as this will be our return value.
         r#"
-            mov eax, [esp + 0x4]
-            mov edx, [esp + 0x8]
-        "#
-    };
-}
-
-#[macro_export]
-macro_rules! save_registers {
-    () => {
-        // Saves the current thread's registers into it's context (on the stack).
-        r#"
-            push ebp
-            push ebx
-            push esi
-            push edi
+            mov eax, [ebp + 0x8] # TODO: On the first call, the stack is the kernel stack, need to fix!
+                                 # Think we need to have the thread_start turn main into a thread.
+            mov edx, [ebp + 0xc]
         "#
     };
 }
@@ -70,12 +73,9 @@ macro_rules! save_registers {
 macro_rules! switch_stacks {
     () => {
         // Switches the current stack pointer.
-        // Requires that %eax holds the pointer to the stack pointer of the previous thread
-        // and that %edx holds the pointer to the stack pointer of the new thread.
-        // We use %ecx to deal with this level of indirection.
+        // Both %eax and %edx are *TCB = **stack and thus must be dereferenced once to get the stack pointer.
         r#"
-            mov ecx, [eax]
-            mov [ecx], esp
+            mov [eax], esp
             mov esp, [edx]
         "#
     };
@@ -101,16 +101,28 @@ macro_rules! restore_registers {
  *      fn context_switch(context **previous, context *next);
  *
  * Must save the Callee's registers and restore the next's registers.
+ *
+ * The caller saved registers are: %eax, %ecx, and %edx.
+ * So we may use them freely.
+ * All others must be saved as part of the context switch.
+ *
+ * Parameters are pushed to the stack the opposite order they are defined.
+ * The last is pushed to the stack first (higher address), and the first is pushed last (lower address).
+ * The caller is responisble to remove these from the stack.
+ *
+ * Our return value will need to be placed into the %eax register.
+ *
  */
 #[naked]
-unsafe fn context_switch(
+#[no_mangle]
+unsafe extern "C" fn context_switch(
     _switch_from: *mut ThreadControlBlock,
     _switch_to: *mut ThreadControlBlock,
 ) -> *mut ThreadControlBlock {
     // Our function arguments are placed on the stack Right to Left.
     core::arch::asm!(
-        load_arguments!(), // Required manually since this is a naked function.
         save_registers!(),
+        load_arguments!(), // Required manually since this is a naked function.
         switch_stacks!(),
         restore_registers!(),
         r#"

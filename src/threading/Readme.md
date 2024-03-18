@@ -34,7 +34,6 @@ The full stack will look like:
 | &entry_function       |
 | &prev_tcb = 0         | // The thread that just stopped running (initially 0).
 | &curr_tcb = 0         | // The now running thread (initially 0).
-| padding               | // 4 bytes. Rust reaches over this when grabbing arguements for `run_thread`.
 | --------------------- |
 | eip = &run_thread     | PrepareThreadContext
 | --------------------- |
@@ -75,3 +74,10 @@ As well, the new thread will be able to set itself as the running thread.
 In the case that a new thread is being started, it will not begin running in the middle of the `switch_threads` function.
 Instead, it will begin to run the `prepare_thread` and then `run_thread` functions.
 This gives the `run_thread` function the responsibility to enque our previously running thread in the scheduler and update the currently running thread.
+
+## Context Switching
+
+### Calling Conventions
+
+The actual `context_switch` is private within the threading module.
+This function a naked function, that is only our assembly.
