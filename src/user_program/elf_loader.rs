@@ -114,7 +114,7 @@ fn load_elf(elf_data: &[u8]) {
             let vm_end = vm_start + ph.p_memsz as usize;
             let mut flags = VmFlags::new();
 
-            // Set flags based on program header flags, e.g., readable, writable, executable
+            // Set flags based on program header flags
             flags.set_read(ph.p_flags & PF_R != 0);
             flags.set_write(ph.p_flags & PF_W != 0);
             flags.set_execute(ph.p_flags & PF_X != 0);

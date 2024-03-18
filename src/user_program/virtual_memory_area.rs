@@ -15,7 +15,7 @@ pub trait VmOperations {
     ); // This function is invoked by the remap_pages() system call to prefault a new mapping. Typically to reduce the number of page faults during runtime.
 }
 
-pub struct VMAOperations; // Implement VmOperations for your specific case.
+pub struct VMAOperations; 
 
 impl VmOperations for VMAOperations {
     fn open(&self, area: &VmAreaStruct) {
@@ -39,7 +39,7 @@ impl VmOperations for VMAOperations {
 struct VmAreaStruct {
     vm_start: usize, // VMA start, inclusive
     vm_end: usize,   // VMA end, exclusive
-    flags: u32,
+    flags: VmFlags,
     vm_ops: Box<dyn VmOperations>,
     // TODO: Add other necessary fields here
 }
