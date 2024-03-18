@@ -61,8 +61,6 @@ pub fn thread_system_start() -> ! {
         panic!("Cannot start threading without initializing the threading system.");
     }
 
-    // TODO: Enable interrupts.
-
     // We must 'turn the kernel thread into a thread'.
     // This amounts to just making a TCB that will be in control of the kernel stack and will
     // never exit.
@@ -87,6 +85,7 @@ pub fn thread_system_start() -> ! {
             .push(Box::new(tcb_2));
     }
 
+    // TODO: Enable interrupts.
     // Start threading by running the root thread.
     scheduler_yield();
 

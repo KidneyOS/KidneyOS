@@ -4,8 +4,8 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU16, Ordering};
 
 use alloc::alloc::Global;
+use kidneyos_shared::sizes::KB;
 
-use crate::constants::KB;
 use crate::threading::thread_functions::{
     PrepareThreadContext, SwitchThreadsContext, ThreadFunction,
 };

@@ -1,10 +1,8 @@
 result
 /.direnv
 
-/target
-/isofiles/boot/kernel.bin
-/kidneyos.iso
-/kidneyos-builder.tar.gz
-/local.mk
+/build/
+bx_enh_dbg.ini
 *.core
-kernel.sym
+/local.mk
+rustc-ice-*.txt

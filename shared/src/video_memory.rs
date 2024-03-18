@@ -1,13 +1,13 @@
 use core::{fmt, slice};
 
-const VIDEO_MEMORY_BASE: usize = 0xb8000;
-const VIDEO_MEMORY_COLS: usize = 80;
+pub const VIDEO_MEMORY_BASE: usize = 0xb8000;
+pub const VIDEO_MEMORY_COLS: usize = 80;
 const VIDEO_MEMORY_LINES: usize = 25;
-const VIDEO_MEMORY_SIZE: usize = VIDEO_MEMORY_COLS * VIDEO_MEMORY_LINES;
+pub const VIDEO_MEMORY_SIZE: usize = VIDEO_MEMORY_COLS * VIDEO_MEMORY_LINES;
 
 pub struct VideoMemoryWriter {
     // TODO: Actually move cursor visually.
-    cursor: usize,
+    pub cursor: usize,
     pub attribute: Attribute,
 }
 
@@ -43,6 +43,19 @@ impl Attribute {
         const MASK_3: u8 = (1 << 3) - 1;
         Self {
             inner: (((bg as u8) & MASK_3) << 4) | (fg as u8),
+        }
+    }
+}
+
+impl VideoMemoryWriter {
+    pub fn skip_lines(&mut self, mut n: usize) {
+        if self.cursor % VIDEO_MEMORY_COLS != 0 {
+            self.cursor = self.cursor.next_multiple_of(VIDEO_MEMORY_COLS);
+            n -= 1;
+        }
+        self.cursor += VIDEO_MEMORY_COLS * n;
+        if self.cursor >= VIDEO_MEMORY_SIZE {
+            self.cursor = VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS + self.cursor % VIDEO_MEMORY_COLS;
         }
     }
 }

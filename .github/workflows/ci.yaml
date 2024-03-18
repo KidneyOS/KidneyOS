@@ -1,0 +1,39 @@
+name: Clippy, formatting, tests, and ISO
+on:
+  push:
+    branches: ["**"]
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Cache cargo
+      uses: actions/cache@v3
+      with:
+        key: ${{ runner.os }}-cargo-${{ hashFiles('./Cargo.lock') }}
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+    - name: Cache nix
+      id: cache-nix
+      uses: mtoohey31/cache-flake-attrs@v2
+      with:
+        key: ${{ runner.os }}-nix-${{ hashFiles('nix/flake.lock', 'nix/flake.nix', 'rust-toolchain.toml') }}
+        flake_paths: ./nix#devShells.x86_64-linux.build
+    - name: Check clippy
+      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c cargo-clippy --quiet -- -D warnings
+    - name: Check formatting
+      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c sh -c 'find -name "*.rs" -print0 | xargs -0 rustfmt --quiet --check --'
+    - name: Run tests
+      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make test
+    - name: Build ISO
+      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make
