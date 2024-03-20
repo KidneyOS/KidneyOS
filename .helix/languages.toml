@@ -3,4 +3,5 @@ name = "gas"
 file-types = ["s", "S"]
 
 [language-server.rust-analyzer.config]
+cargo.target = "i686-unknown-linux-gnu"
 checkOnSave.command = "clippy"

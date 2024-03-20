@@ -490,13 +490,8 @@ lazy_static! {
             pse: bool,
         }
 
-        #[cfg(arch = "x86")]
-        {
-            let core::arch::x86::CpuidResult { edx, .. } = unsafe { core::arch::x86::__cpuid(0) };
-            CPUIDEdx::new_with_raw_value(edx).pse()
-        }
-        #[cfg(not(arch = "x86"))]
-        unimplemented!()
+        let core::arch::x86::CpuidResult { edx, .. } = unsafe { core::arch::x86::__cpuid(0) };
+        CPUIDEdx::new_with_raw_value(edx).pse()
     };
     static ref PSE_ENABLED: bool = {
         // Check if PSE is already enabled (from the trapoline, if we're running
