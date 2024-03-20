@@ -89,10 +89,10 @@ impl ThreadControlBlock {
         unsafe {
             *prepare_thread_context
                 .as_ptr()
-                .cast::<PrepareThreadContext>() = PrepareThreadContext::create(entry_function);
+                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(entry_function);
             *switch_threads_context
                 .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::create();
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
 
         // Our thread can now be run via the `switch_threads` method.

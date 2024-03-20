@@ -15,9 +15,9 @@ mod threading;
 
 extern crate alloc;
 
-use crate::threading::{thread_system_initialization, thread_system_start};
 use kidneyos_shared::{println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+use threading::{thread_system_initialization, thread_system_start};
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();

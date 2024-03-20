@@ -1,14 +1,12 @@
 pub mod fifo_scheduler;
 pub mod scheduler;
 
-use self::fifo_scheduler::FIFOScheduler;
-use self::scheduler::Scheduler;
+use fifo_scheduler::FIFOScheduler;
+use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
-use super::context_switch::switch_threads;
-use super::thread_control_block::ThreadStatus;
-use super::RUNNING_THREAD;
+use super::{context_switch::switch_threads, thread_control_block::ThreadStatus, RUNNING_THREAD};
 
 pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
 

@@ -1,8 +1,10 @@
-use super::scheduling::SCHEDULER;
-use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
-use super::RUNNING_THREAD;
+use super::{
+    scheduling::SCHEDULER,
+    thread_control_block::{ThreadControlBlock, ThreadStatus},
+    RUNNING_THREAD,
+};
 
-use crate::alloc::boxed::Box;
+use alloc::boxed::Box;
 
 // TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 // No arguments allowed for now.
@@ -26,6 +28,7 @@ const fn exit_thread() -> ! {
  * A wrapper function to execute a thread's true function.
  */
 #[no_mangle]
+// TODO: Mark as extern, see SO
 unsafe fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
@@ -60,7 +63,7 @@ pub struct PrepareThreadContext {
 }
 
 impl PrepareThreadContext {
-    pub fn create(entry_function: ThreadFunction) -> Self {
+    pub fn new(entry_function: ThreadFunction) -> Self {
         Self {
             entry_function: entry_function as *const ThreadFunction,
         }
@@ -71,7 +74,6 @@ impl PrepareThreadContext {
  * This function is used to clean up a thread's arguments and call into `run_thread`.
  */
 #[naked]
-#[no_mangle]
 unsafe extern "C" fn prepare_thread() {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
@@ -103,7 +105,7 @@ pub struct SwitchThreadsContext {
 }
 
 impl SwitchThreadsContext {
-    pub fn empty_context() -> Self {
+    pub fn new_empty_context() -> Self {
         Self {
             edi: 0,
             esi: 0,
@@ -113,7 +115,7 @@ impl SwitchThreadsContext {
         }
     }
 
-    pub fn create() -> Self {
+    pub fn new() -> Self {
         Self {
             edi: 0,
             esi: 0,

@@ -1,5 +1,4 @@
-use crate::alloc::boxed::Box;
-use alloc::collections::VecDeque;
+use alloc::{boxed::Box, collections::VecDeque};
 
 use super::super::{ThreadControlBlock, Tid};
 
