@@ -1,7 +1,7 @@
+use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use core::arch::asm;
-use core::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // A simple spinlock.
 pub struct SpinLock<T> {
@@ -71,7 +71,9 @@ pub fn intr_disable() {
     // Increment the disable count atomically
     INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
     // disable
-    unsafe { core::arch::asm!("cli", options(nomem, nostack));}
+    unsafe {
+        core::arch::asm!("cli", options(nomem, nostack));
+    }
 }
 
 // This function decrements the interrupt count when called, and enables interrupt only when the count is 1.
@@ -79,14 +81,16 @@ pub fn intr_enable() {
     // Decrement the disable count atomically and check if it's now zero (fetch_sub returns the previous value before decrement)
     if INTR_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
         // enable
-        unsafe { core::arch::asm!("sti", options(nomem, nostack));}
+        unsafe {
+            core::arch::asm!("sti", options(nomem, nostack));
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum IntrLevel {
-    INTR_ON,
-    INTR_OFF,
+    IntrOn,
+    IntrOff,
 }
 
 pub fn intr_get_level() -> IntrLevel {
@@ -94,16 +98,16 @@ pub fn intr_get_level() -> IntrLevel {
     unsafe {
         asm!(
             "pushf",
-            "pop {}",
+            "pop {0:e}",
             out(reg) flags,
             options(nomem, nostack)
         );
     }
 
     if flags & (1 << 9) != 0 {
-        IntrLevel::INTR_ON
+        IntrLevel::IntrOn
     } else {
-        IntrLevel::INTR_OFF
+        IntrLevel::IntrOff
     }
 }
 
