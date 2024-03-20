@@ -12,7 +12,6 @@ pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlB
 
     unsafe {
         context_switch(
-            #[allow(clippy::cast_ptr_alignment)]
             switch_from.stack_pointer.as_ptr().cast::<usize>(),
             switch_to.stack_pointer.as_ptr() as usize,
         );

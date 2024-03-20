@@ -22,7 +22,6 @@ struct HeaderTag {
 
 const MAGIC: u32 = 0xE85250D6;
 const ARCHITECTURE: u32 = 0;
-#[allow(clippy::cast_possible_truncation)]
 const HEADER_LENGTH: u32 = size_of::<Header>() as u32;
 
 #[used]
@@ -35,7 +34,6 @@ static HEADER: Header = Header {
     end_tag: HeaderTag {
         r#type: 0,
         flags: 0,
-        #[allow(clippy::cast_possible_truncation)]
         size: size_of::<HeaderTag>() as u32,
     },
 };

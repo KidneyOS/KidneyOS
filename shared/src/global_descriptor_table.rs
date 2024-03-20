@@ -85,7 +85,6 @@ const GDT: &[SegmentDescriptor; GDT_LEN] = &[
     // TODO: may need to add task state segment here at some point.
 ];
 
-#[allow(clippy::cast_possible_truncation)]
 static mut GDT_DESCRIPTOR: GDTDescriptor = GDTDescriptor {
     size: size_of::<[SegmentDescriptor; GDT_LEN]>() as u16 - 1,
     offset: 0, // Will fetch pointer and set at runtime below.

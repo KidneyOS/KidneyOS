@@ -2,5 +2,5 @@
 
 set -euo pipefail
 
-cargo clippy --quiet -- -D warnings
-find -name '*.rs' -print0 | xargs -0 cargo fmt -- --quiet --check
+cargo clippy --target i686-unknown-linux-gnu -- -D warnings
+cargo fmt -- --quiet --check
