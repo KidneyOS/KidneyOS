@@ -9,14 +9,14 @@ use alloc::boxed::Box;
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
 
-pub fn test_func() {
+pub extern "C" fn test_func() {
     loop {
         println!("Hello threads!");
         scheduler_yield();
     }
 }
 
-pub fn test_func_2() {
+pub extern "C" fn test_func_2() {
     loop {
         println!("Goodbye threads!");
         scheduler_yield();
@@ -46,7 +46,6 @@ pub fn thread_system_initialization() {
     }
     println!("Finished Thread System initialization. Ready to start threading.");
 }
-
 
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.

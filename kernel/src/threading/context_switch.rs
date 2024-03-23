@@ -106,7 +106,6 @@ macro_rules! restore_registers {
 ///
 /// Our return value will need to be placed into the %eax register.
 #[naked]
-#[no_mangle]
 unsafe extern "C" fn context_switch(
     _switch_from: *mut ThreadControlBlock,
     _switch_to: *mut ThreadControlBlock,

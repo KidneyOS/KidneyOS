@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 /// No arguments allowed for now.
 ///
 /// A function that may be used for thread creation.
-pub type ThreadFunction = fn() -> ();
+pub type ThreadFunction = unsafe extern "C" fn() -> ();
 
 /// A function to safely close a thread.
 const fn exit_thread() -> ! {
@@ -22,9 +22,7 @@ const fn exit_thread() -> ! {
 }
 
 /// A wrapper function to execute a thread's true function.
-#[no_mangle]
-// TODO: Mark as extern, see SO
-unsafe fn run_thread(
+unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
     entry_function: ThreadFunction,
@@ -54,13 +52,13 @@ unsafe fn run_thread(
 
 #[repr(C, packed)]
 pub struct PrepareThreadContext {
-    entry_function: *const ThreadFunction,
+    entry_function: ThreadFunction,
 }
 
 impl PrepareThreadContext {
     pub fn new(entry_function: ThreadFunction) -> Self {
         Self {
-            entry_function: entry_function as *const ThreadFunction,
+            entry_function: entry_function,
         }
     }
 }
@@ -92,27 +90,17 @@ pub struct SwitchThreadsContext {
     esi: usize,                 // Source index.
     ebx: usize,                 // Base (for memory access).
     ebp: usize,                 // Stack base pointer.
-    eip: *const ThreadFunction, // Instruction pointer (determines where to jump after the context switch).
+    eip: ThreadFunction, // Instruction pointer (determines where to jump after the context switch).
 }
 
 impl SwitchThreadsContext {
-    pub fn new_empty_context() -> Self {
-        Self {
-            edi: 0,
-            esi: 0,
-            ebx: 0,
-            ebp: 0,
-            eip: core::ptr::null(),
-        }
-    }
-
     pub fn new() -> Self {
         Self {
             edi: 0,
             esi: 0,
             ebx: 0,
             ebp: 0,
-            eip: prepare_thread as *const ThreadFunction,
+            eip: prepare_thread,
         }
     }
 }
