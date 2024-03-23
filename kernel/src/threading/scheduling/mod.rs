@@ -6,20 +6,27 @@ pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
+use crate::sync::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus, RUNNING_THREAD};
 
 pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
 
 pub fn initialize_scheduler() {
+    assert!(intr_get_level() == IntrLevel::IntrOff);
+
     // SAFETY: Interrupts should be off.
     unsafe {
         SCHEDULER = Some(Box::new(FIFOScheduler::new()));
     }
 }
 
+/// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
 pub fn scheduler_yield() {
+    intr_disable();
+
     // SAFETY: Threads and Scheduler must be initialized and active.
-    // As well, interupts must be off.
+    // Interrupts must be disabled.
     unsafe {
         let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
         let switch_to = scheduler.pop().expect("No threads to run!");
@@ -33,4 +40,6 @@ pub fn scheduler_yield() {
         // Switch to this other thread.
         switch_threads(switch_to);
     }
+
+    intr_enable();
 }

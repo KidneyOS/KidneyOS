@@ -3,7 +3,10 @@ pub mod scheduling;
 mod thread_control_block;
 mod thread_functions;
 
-use crate::println;
+use crate::{
+    println,
+    sync::{intr_enable, intr_get_level, IntrLevel},
+};
 use alloc::boxed::Box;
 
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
@@ -31,7 +34,7 @@ static mut THREAD_SYSTEM_INITIALIZED: bool = false;
 pub fn thread_system_initialization() {
     println!("Initializing Thread System...");
 
-    // TODO: Ensure interrupts are off.
+    assert!(intr_get_level() == IntrLevel::IntrOff);
 
     // Initialize the TID lock.
 
@@ -50,7 +53,8 @@ pub fn thread_system_initialization() {
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
 pub fn thread_system_start() -> ! {
-    // SAFETY: Interrupts must be disabled.
+    assert!(intr_get_level() == IntrLevel::IntrOff);
+
     if unsafe { !THREAD_SYSTEM_INITIALIZED } {
         panic!("Cannot start threading without initializing the threading system.");
     }
@@ -79,15 +83,13 @@ pub fn thread_system_start() -> ! {
             .push(Box::new(tcb_2));
     }
 
-    // TODO: Enable interrupts.
-    // Start threading by running the root thread.
-    scheduler_yield();
+    // Enable preemptive scheduling.
+    intr_enable();
 
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources (`thread_exit` would not work).
     // For now we will just yield continually.
     loop {
-        println!("It's me! The kernel thread!\n");
         scheduler_yield();
     }
 

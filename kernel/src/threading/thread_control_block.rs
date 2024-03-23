@@ -17,6 +17,8 @@ static mut NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 pub const THREAD_STACK_SIZE: usize = KB * 4;
 
+#[allow(unused)]
+#[derive(PartialEq)]
 pub enum ThreadStatus {
     Invalid,
     Running,

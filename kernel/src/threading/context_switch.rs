@@ -1,5 +1,7 @@
-use crate::threading::ThreadControlBlock;
-use core::mem::align_of;
+use crate::{
+    sync::{intr_get_level, IntrLevel},
+    threading::ThreadControlBlock,
+};
 
 use alloc::boxed::Box;
 
@@ -10,16 +12,18 @@ use super::{scheduling::SCHEDULER, thread_control_block::ThreadStatus, RUNNING_T
 /// This function should only be called by methods within the Scheduler crate.
 /// Interrupts must be disabled.
 pub unsafe fn switch_threads(switch_to: Box<ThreadControlBlock>) {
+    assert!(intr_get_level() == IntrLevel::IntrOff);
+
     let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
     let switch_to = Box::into_raw(switch_to);
 
     // Ensure we are switching to a valid thread.
-    if !matches!((*switch_to).status, ThreadStatus::Ready) {
+    if (*switch_to).status == ThreadStatus::Ready {
         panic!("Cannot switch to a non-ready thread.");
     }
 
     // Ensure that the previous thread is no longer running.
-    if matches!((*switch_from).status, ThreadStatus::Running) {
+    if (*switch_from).status == ThreadStatus::Running {
         panic!("The thread to switch out of must no longer be in the running state.");
     }
 

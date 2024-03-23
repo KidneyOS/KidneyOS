@@ -57,9 +57,7 @@ pub struct PrepareThreadContext {
 
 impl PrepareThreadContext {
     pub fn new(entry_function: ThreadFunction) -> Self {
-        Self {
-            entry_function: entry_function,
-        }
+        Self { entry_function }
     }
 }
 
@@ -86,10 +84,10 @@ unsafe extern "C" fn prepare_thread() {
 /// The context for a use within context_switch.
 #[repr(C, packed)]
 pub struct SwitchThreadsContext {
-    edi: usize,                 // Destination index.
-    esi: usize,                 // Source index.
-    ebx: usize,                 // Base (for memory access).
-    ebp: usize,                 // Stack base pointer.
+    edi: usize,          // Destination index.
+    esi: usize,          // Source index.
+    ebx: usize,          // Base (for memory access).
+    ebp: usize,          // Stack base pointer.
     eip: ThreadFunction, // Instruction pointer (determines where to jump after the context switch).
 }
 

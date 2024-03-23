@@ -10,7 +10,6 @@ mod interrupt_descriptor_table;
 mod mem;
 mod paging;
 mod sync;
-#[allow(unused)]
 mod threading;
 
 extern crate alloc;
