@@ -14,6 +14,8 @@ unsafe impl<T> Sync for SpinLock<T> {}
 unsafe impl<T> Send for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
+    #![allow(unused)]
+
     // Creates a new spinlock.
     pub const fn new(data: T) -> SpinLock<T> {
         SpinLock {
@@ -67,6 +69,7 @@ impl<T> Drop for SpinLockGuard<'_, T> {
 static INTR_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 // This function disables interrupt, and increments the interrupt count when called
+#[allow(unused)]
 pub fn intr_disable() {
     // Increment the disable count atomically
     INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -87,12 +90,14 @@ pub fn intr_enable() {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug, PartialEq)]
 pub enum IntrLevel {
     IntrOn,
     IntrOff,
 }
 
+#[allow(unused)]
 pub fn intr_get_level() -> IntrLevel {
     let flags: u32;
     unsafe {
@@ -121,6 +126,8 @@ unsafe impl<T> Sync for InterruptLock<T> {}
 unsafe impl<T> Send for InterruptLock<T> {}
 
 impl<T> InterruptLock<T> {
+    #![allow(unused)]
+
     // Creates a new InterruptLock.
     pub const fn new(data: T) -> InterruptLock<T> {
         InterruptLock {
