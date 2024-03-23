@@ -450,7 +450,7 @@ lazy_static! {
             id: bool,
         }
 
-        let eflags_diff: usize;
+        let eflags_diff: u32;
         unsafe {
             asm!(
                 "
@@ -480,7 +480,7 @@ lazy_static! {
 
         // If the attempted modification didn't change the id bit, then cpuid
         // isn't supported.
-        if !EFlags::new_with_raw_value(eflags_diff as u32).id() {
+        if !EFlags::new_with_raw_value(eflags_diff).id() {
             return false;
         }
 
@@ -502,9 +502,9 @@ lazy_static! {
             pse: bool,
         }
 
-        let cr4: usize;
+        let cr4: u32;
         unsafe { asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack)) };
-        let cr4 = CR4::new_with_raw_value(cr4 as u32);
+        let cr4 = CR4::new_with_raw_value(cr4);
         if cr4.pse() {
             // If it is, early return true.
             return true;
