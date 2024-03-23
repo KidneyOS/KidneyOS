@@ -70,10 +70,10 @@ $(TRAMPOLINE): $(TRAMPOLINE_DIR)/libkidneyos_trampoline.o
 
 build/isofiles/boot/kernel.bin: $(RAW_KERNEL)
 	mkdir -p build/isofiles/boot
-	$(OBJCOPY) --strip-debug $< $@
+	i686-unknown-linux-gnu-objcopy --strip-debug $< $@
 
 build/kernel.sym: $(RAW_KERNEL)
-	$(OBJCOPY) --only-keep-debug $< $@
+	i686-unknown-linux-gnu-objcopy --only-keep-debug $< $@
 
 build/isofiles/boot/grub/grub.cfg: build-support/grub.cfg
 	mkdir -p build/isofiles/boot/grub
