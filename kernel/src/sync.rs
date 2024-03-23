@@ -1,6 +1,7 @@
+use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // A simple spinlock.
 pub struct SpinLock<T> {
@@ -65,6 +66,56 @@ impl<T> Drop for SpinLockGuard<'_, T> {
     }
 }
 
+static INTR_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// This function disables interrupt, and increments the interrupt count when called
+#[allow(unused)]
+pub fn intr_disable() {
+    // Increment the disable count atomically
+    INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
+    // disable
+    unsafe {
+        core::arch::asm!("cli", options(nomem, nostack));
+    }
+}
+
+// This function decrements the interrupt count when called, and enables interrupt only when the count is 1.
+pub fn intr_enable() {
+    // Decrement the disable count atomically and check if it's now zero (fetch_sub returns the previous value before decrement)
+    if INTR_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+        // enable
+        unsafe {
+            core::arch::asm!("sti", options(nomem, nostack));
+        }
+    }
+}
+
+#[allow(unused)]
+#[derive(Debug, PartialEq)]
+pub enum IntrLevel {
+    IntrOn,
+    IntrOff,
+}
+
+#[allow(unused)]
+pub fn intr_get_level() -> IntrLevel {
+    let flags: u32;
+    unsafe {
+        asm!(
+            "pushf",
+            "pop {0:e}",
+            out(reg) flags,
+            options(nomem, nostack)
+        );
+    }
+
+    if flags & (1 << 9) != 0 {
+        IntrLevel::IntrOn
+    } else {
+        IntrLevel::IntrOff
+    }
+}
+
 // A structure for interrupt-based locking.
 pub struct InterruptLock<T> {
     data: UnsafeCell<T>,
@@ -87,20 +138,15 @@ impl<T> InterruptLock<T> {
     // Acquires the lock by disabling interrupts and returns a guard.
     // This function would ideally disable interrupts (using assembly or an external function call).
     pub fn lock(&self) -> InterruptLockGuard<T> {
-        // Assembly or external function call to disable interrupts here.
-        unsafe {
-            core::arch::asm!("cli", options(nomem, nostack));
-        }
+        intr_disable();
         InterruptLockGuard { lock: self }
     }
 
-    // This function is conceptual and would re-enable interrupts.
+    // This function would re-enable interrupts.
     // It's separated for clarity and would be used by the `Drop` implementation of `InterruptLockGuard`.
     fn unlock(&self) {
-        // Assembly or external function call to enable interrupts here.
-        unsafe {
-            core::arch::asm!("sti", options(nomem, nostack));
-        }
+        // Call function that enables interrupt only when there is no nested interrupt locks.
+        intr_enable();
     }
 }
 
