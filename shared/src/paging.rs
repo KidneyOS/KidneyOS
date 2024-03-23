@@ -474,7 +474,6 @@ lazy_static! {
                 ",
                 out(reg) eflags_diff,
                 mask = const EFlags::DEFAULT.with_id(true).raw_value(),
-                options(nomem),
             )
         };
 
