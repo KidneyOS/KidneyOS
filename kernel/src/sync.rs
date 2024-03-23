@@ -103,7 +103,7 @@ pub fn intr_get_level() -> IntrLevel {
     unsafe {
         asm!(
             "pushfd",
-            "mov {0:e}, [esp]",
+            "mov {}, [esp]",
             "popfd",
             out(reg) flags
         );
