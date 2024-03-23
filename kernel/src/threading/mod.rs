@@ -1,15 +1,13 @@
-pub mod context_switch;
+mod context_switch;
 pub mod scheduling;
-pub mod thread_control_block;
-pub mod thread_functions;
+mod thread_control_block;
+mod thread_functions;
 
 use crate::println;
 use alloc::boxed::Box;
 
-use crate::threading::scheduling::initialize_scheduler;
-use crate::threading::thread_control_block::{ThreadControlBlock, Tid};
-
-use self::scheduling::{scheduler_yield, SCHEDULER};
+use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
+use thread_control_block::{ThreadControlBlock, Tid};
 
 pub fn test_func() {
     loop {
@@ -27,10 +25,8 @@ pub fn test_func_2() {
 
 static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
-/**
- * To be called before any other thread functions.
- * To be called with interrupts disabled.
- */
+/// To be called before any other thread functions.
+/// To be called with interrupts disabled.
 static mut THREAD_SYSTEM_INITIALIZED: bool = false;
 pub fn thread_system_initialization() {
     println!("Initializing Thread System...");
@@ -51,10 +47,9 @@ pub fn thread_system_initialization() {
     println!("Finished Thread System initialization. Ready to start threading.");
 }
 
-/**
- * Enables preemptive scheduling.
- * Thread system must have been previously enabled.
- */
+
+/// Enables preemptive scheduling.
+/// Thread system must have been previously enabled.
 pub fn thread_system_start() -> ! {
     // SAFETY: Interrupts must be disabled.
     if unsafe { !THREAD_SYSTEM_INITIALIZED } {

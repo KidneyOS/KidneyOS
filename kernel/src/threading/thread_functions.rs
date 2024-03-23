@@ -6,16 +6,13 @@ use super::{
 
 use alloc::boxed::Box;
 
-// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
-// No arguments allowed for now.
-/**
- * A function that may be used for thread creation.
- */
+/// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
+/// No arguments allowed for now.
+///
+/// A function that may be used for thread creation.
 pub type ThreadFunction = fn() -> ();
 
-/**
- * A function to safely close a thread.
- */
+/// A function to safely close a thread.
 const fn exit_thread() -> ! {
     // TODO: Need to reap TCB, remove from scheduling.
 
@@ -24,9 +21,7 @@ const fn exit_thread() -> ! {
     panic!("Thread exited incorrectly.");
 }
 
-/**
- * A wrapper function to execute a thread's true function.
- */
+/// A wrapper function to execute a thread's true function.
 #[no_mangle]
 // TODO: Mark as extern, see SO
 unsafe fn run_thread(
@@ -70,9 +65,7 @@ impl PrepareThreadContext {
     }
 }
 
-/**
- * This function is used to clean up a thread's arguments and call into `run_thread`.
- */
+/// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
 unsafe extern "C" fn prepare_thread() {
     // Since this function is only to be called from the `context_switch` function, we expect
@@ -92,9 +85,7 @@ unsafe extern "C" fn prepare_thread() {
     );
 }
 
-/**
- * The context for a use within context_switch.
- */
+/// The context for a use within context_switch.
 #[repr(C, packed)]
 pub struct SwitchThreadsContext {
     edi: usize,                 // Destination index.

@@ -1,8 +1,8 @@
-pub mod fifo_scheduler;
-pub mod scheduler;
+mod fifo_scheduler;
+mod scheduler;
 
-use fifo_scheduler::FIFOScheduler;
-use scheduler::Scheduler;
+pub use fifo_scheduler::FIFOScheduler;
+pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 

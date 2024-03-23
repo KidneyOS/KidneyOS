@@ -5,13 +5,10 @@ use alloc::boxed::Box;
 
 use super::{scheduling::SCHEDULER, thread_control_block::ThreadStatus, RUNNING_THREAD};
 
-/**
- * Public facing method to perform a context switch between two threads.
- *
- * # Safety
- * This function should only be called by methods within the Scheduler crate.
- * Interrupts must be disabled.
- */
+/// Public facing method to perform a context switch between two threads.
+/// # Safety
+/// This function should only be called by methods within the Scheduler crate.
+/// Interrupts must be disabled.
 pub unsafe fn switch_threads(switch_to: Box<ThreadControlBlock>) {
     let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
     let switch_to = Box::into_raw(switch_to);
@@ -95,22 +92,19 @@ macro_rules! restore_registers {
     };
 }
 
-/**
- * Performs a context switch between two threads.
- *
- * Must save the Callee's registers and restore the next's registers.
- *
- * The caller saved registers are: %eax, %ecx, and %edx.
- * So we may use them freely.
- * All others must be saved as part of the context switch.
- *
- * Parameters are pushed to the stack the opposite order they are defined.
- * The last is pushed to the stack first (higher address), and the first is pushed last (lower address).
- * The caller is responisble to remove these from the stack.
- *
- * Our return value will need to be placed into the %eax register.
- *
- */
+/// Performs a context switch between two threads.
+///
+/// Must save the Callee's registers and restore the next's registers.
+///
+/// The caller saved registers are: %eax, %ecx, and %edx.
+/// So we may use them freely.
+/// All others must be saved as part of the context switch.
+///
+/// Parameters are pushed to the stack the opposite order they are defined.
+/// The last is pushed to the stack first (higher address), and the first is pushed last (lower address).
+/// The caller is responisble to remove these from the stack.
+///
+/// Our return value will need to be placed into the %eax register.
 #[naked]
 #[no_mangle]
 unsafe extern "C" fn context_switch(

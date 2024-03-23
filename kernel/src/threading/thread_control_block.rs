@@ -100,12 +100,10 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    /**
-     * Creates the 'kernel thread'.
-     *
-     * # Safety
-     * Should only be used once while starting the threading system.
-     */
+    /// Creates the 'kernel thread'.
+    ///
+    /// # Safety
+    /// Should only be used once while starting the threading system.
     pub unsafe fn create_kernel_thread() -> Self {
         ThreadControlBlock {
             stack_pointer: core::ptr::NonNull::dangling(), // This will be set in the context switch immediately following.
@@ -115,9 +113,7 @@ impl ThreadControlBlock {
         }
     }
 
-    /**
-     * If possible without stack-smashing, moves the stack pointer down and returns the new value.
-     */
+    /// If possible without stack-smashing, moves the stack pointer down and returns the new value.
     fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
         if !self.has_stack_space(bytes) {
             return None;
@@ -126,9 +122,7 @@ impl ThreadControlBlock {
         Some(self.shift_stack_pointer_down(bytes))
     }
 
-    /**
-     * Check if `bytes` bytes will fit on the stack.
-     */
+    /// Check if `bytes` bytes will fit on the stack.
     const fn has_stack_space(&self, bytes: usize) -> bool {
         // SAFETY: Calculates the distance between the top and bottom of the stack pointers.
         let avaliable_space =
@@ -137,9 +131,7 @@ impl ThreadControlBlock {
         avaliable_space >= bytes
     }
 
-    /**
-     * Moves the stack pointer down and returns the new position.
-     */
+    /// Moves the stack pointer down and returns the new position.
     fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
         // SAFETY: `has_stack_space` must have returned true for this amount before calling.
         unsafe {
