@@ -62,6 +62,10 @@
 
             CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER = "${i686-cc.targetPrefix}cc";
             CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_RUNNER = "${qemu}/bin/qemu-i386";
+
+            shellHook = ''
+              export CARGO_TARGET_DIR="$PWD/build/target"
+            '';
           };
 
           default = self.devShells.${system}.build.overrideAttrs (oldAttrs: {

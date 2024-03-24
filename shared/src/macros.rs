@@ -1,5 +1,3 @@
-#![allow(unused_macros)]
-
 // NOTE: VIDEO_MEMORY_WRITER should be written to before SERIAL_WRITER since the
 // second may fail if the serial chip misbehaves there, but VIDEO_MEMORY_WRITER
 // will always succeed.
