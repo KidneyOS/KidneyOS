@@ -8,6 +8,7 @@ pub struct FIFOScheduler {
     ready_queue: VecDeque<Box<ThreadControlBlock>>,
 }
 
+// TODO: Will be removed, requires a change to stack type.
 // SAFETY: Schedulers should be run with interrupts disabled.
 unsafe impl Sync for FIFOScheduler {}
 

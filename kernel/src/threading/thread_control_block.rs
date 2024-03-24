@@ -29,9 +29,10 @@ pub enum ThreadStatus {
 
 #[repr(C, packed)]
 pub struct ThreadControlBlock {
+    // TODO: Change the stack pointer type and remove the need to keep the bottom of the stack.
     stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
     stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
-    // TODO: Can we just leak this and not hold it? Keep size instead, then kernel thread won't have a dangling pointer.
+
     pub tid: Tid,
     pub status: ThreadStatus,
 }
