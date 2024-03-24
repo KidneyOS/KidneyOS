@@ -14,6 +14,7 @@ unsafe impl<T> Sync for SpinLock<T> {}
 unsafe impl<T> Send for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
+    #![allow(unused)]
     // Creates a new spinlock.
     pub const fn new(data: T) -> SpinLock<T> {
         SpinLock {
@@ -81,12 +82,14 @@ pub fn intr_enable() {
 }
 
 #[derive(Debug, PartialEq)]
+#[allow(unused)]
 pub enum IntrLevel {
     IntrOn = 1,
     IntrOff = 0,
 }
 
 // Get the interrupt level
+#[allow(unused)]
 pub fn intr_get_level() -> IntrLevel {
     let flags: u32;
     unsafe {
@@ -119,6 +122,7 @@ unsafe impl<T> Send for InterruptLock<T> {}
 
 impl<T> InterruptLock<T> {
     // Creates a new InterruptLock.
+    #[allow(unused)]
     pub const fn new(data: T) -> InterruptLock<T> {
         InterruptLock {
             data: UnsafeCell::new(data),
@@ -128,6 +132,7 @@ impl<T> InterruptLock<T> {
 
     // Acquires the lock by disabling interrupts and returns a guard.
     // This function would ideally disable interrupts (using assembly or an external function call).
+    #[allow(unused)]
     pub fn lock(&self) -> InterruptLockGuard<T> {
         // get previous interrupt level
         let prev_level = intr_get_level();
