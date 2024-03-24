@@ -1,8 +1,8 @@
 extern crate core;
 
 use core::slice;
-use virtual_memory_area::VmFlags;
 use virtual_memory_area::VmAreaStruct;
+use virtual_memory_area::VmFlags;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -39,13 +39,13 @@ struct Elf32Phdr {
 #[repr(u32)]
 #[derive(Debug, PartialEq)]
 enum SegmentType {
-    PtNull = 0,        // Ignore.
-    PtLoad = 1,        // Loadable segment.
-    PtDynamic = 2,     // Dynamic linking info.
-    PtInterp = 3,      // Name of dynamic loader.
-    PtNote = 4,        // Auxiliary info.
-    PtShlib = 5,       // Reserved.
-    PtPhdr = 6,        // Program header table.
+    PtNull = 0,           // Ignore.
+    PtLoad = 1,           // Loadable segment.
+    PtDynamic = 2,        // Dynamic linking info.
+    PtInterp = 3,         // Name of dynamic loader.
+    PtNote = 4,           // Auxiliary info.
+    PtShlib = 5,          // Reserved.
+    PtPhdr = 6,           // Program header table.
     PtStack = 0x6474e551, // Stack segment.
 }
 
@@ -70,7 +70,8 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
     }
 
     // Check data encoding (e_ident[5]), assuming 1 for little endian, 2 for big endian
-    if header.e_ident[5] != 1 { // Adjust according to your target architecture
+    if header.e_ident[5] != 1 {
+        // Adjust according to your target architecture
         return Err(ElfError::UnsupportedEndianess);
     }
 
@@ -112,14 +113,13 @@ fn load_elf(elf_data: &[u8]) {
         if ph.p_type == SegmentType::PtLoad {
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
-            let mut flags = VmFlags::new();
 
+            vma = VmAreaStruct::new(vm_start, vm_end, VmFlags::Default());
             // Set flags based on program header flags
-            flags.set_read(ph.p_flags & PF_R != 0);
-            flags.set_write(ph.p_flags & PF_W != 0);
-            flags.set_execute(ph.p_flags & PF_X != 0);
-
-            vm_areas.push(VmAreaStruct::new(vm_start, vm_end, flags));
+            vma.flags.read = (ph.p_flags & PF_R != 0);
+            vma.flags.write = (ph.p_flags & PF_W != 0);
+            vma.flags.execute = (ph.p_flags & PF_X != 0);
+            vm_areas.push(vma);
             // Here we would load the segment into memory, copy from `elf_data[ph.p_offset as usize..]` to `ph.p_vaddr` address in memory
 
             core::intrinsics::breakpoint(); // Placeholder for breakpoint or log message
