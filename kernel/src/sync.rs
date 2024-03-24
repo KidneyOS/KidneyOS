@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 // A simple spinlock.
 pub struct SpinLock<T> {
@@ -15,6 +15,7 @@ unsafe impl<T> Send for SpinLock<T> {}
 
 impl<T> SpinLock<T> {
     #![allow(unused)]
+
     // Creates a new spinlock.
     pub const fn new(data: T) -> SpinLock<T> {
         SpinLock {
@@ -65,44 +66,49 @@ impl<T> Drop for SpinLockGuard<'_, T> {
     }
 }
 
-// This function disables interrupt
+static INTR_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+// This function disables interrupt, and increments the interrupt count when called
+#[allow(unused)]
 pub fn intr_disable() {
+    // Increment the disable count atomically
+    INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
     // disable
     unsafe {
         core::arch::asm!("cli", options(nomem, nostack));
     }
 }
 
-// This function enables interrupt
+// This function decrements the interrupt count when called, and enables interrupt only when the count is 1.
 pub fn intr_enable() {
     // Decrement the disable count atomically and check if it's now zero (fetch_sub returns the previous value before decrement)
-    unsafe {
-        core::arch::asm!("sti", options(nomem, nostack));
+    if INTR_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+        // enable
+        unsafe {
+            core::arch::asm!("sti", options(nomem, nostack));
+        }
     }
 }
 
-#[derive(Debug, PartialEq)]
 #[allow(unused)]
+#[derive(Debug, PartialEq)]
 pub enum IntrLevel {
-    IntrOn = 1,
-    IntrOff = 0,
+    IntrOn,
+    IntrOff,
 }
 
-// Get the interrupt level
 #[allow(unused)]
 pub fn intr_get_level() -> IntrLevel {
     let flags: u32;
     unsafe {
         asm!(
-            "pushf",
-            "pop {}",
-            out(reg) flags,
-            options(nomem, nostack)
+            "pushfd",
+            "mov {0:e}, [esp]",
+            "popfd",
+            out(reg) flags
         );
     }
 
-    // flag used to check if the interrupts are enabled or disabled 
-    // in the flags register. It the 10th bit is 1 (0x00000200), then interrupt was on.
     if flags & (1 << 9) != 0 {
         IntrLevel::IntrOn
     } else {
@@ -113,7 +119,6 @@ pub fn intr_get_level() -> IntrLevel {
 // A structure for interrupt-based locking.
 pub struct InterruptLock<T> {
     data: UnsafeCell<T>,
-    intr_level: AtomicUsize,
 }
 
 // Safety: InterruptLock can be safely sent across threads.
@@ -121,24 +126,19 @@ unsafe impl<T> Sync for InterruptLock<T> {}
 unsafe impl<T> Send for InterruptLock<T> {}
 
 impl<T> InterruptLock<T> {
+    #![allow(unused)]
+
     // Creates a new InterruptLock.
-    #[allow(unused)]
     pub const fn new(data: T) -> InterruptLock<T> {
         InterruptLock {
             data: UnsafeCell::new(data),
-            intr_level: AtomicUsize::new(IntrLevel::IntrOn as usize),
         }
     }
 
     // Acquires the lock by disabling interrupts and returns a guard.
     // This function would ideally disable interrupts (using assembly or an external function call).
-    #[allow(unused)]
     pub fn lock(&self) -> InterruptLockGuard<T> {
-        // get previous interrupt level
-        let prev_level = intr_get_level();
         intr_disable();
-        // store the interrupt level in the lock's field
-        self.intr_level.store(prev_level as usize, Ordering::SeqCst);
         InterruptLockGuard { lock: self }
     }
 
@@ -146,15 +146,7 @@ impl<T> InterruptLock<T> {
     // It's separated for clarity and would be used by the `Drop` implementation of `InterruptLockGuard`.
     fn unlock(&self) {
         // Call function that enables interrupt only when there is no nested interrupt locks.
-        let previous = self.intr_level.load(Ordering::SeqCst);
-        let previous_intr_level = match previous{
-            0 => IntrLevel::IntrOn,
-            1 => IntrLevel::IntrOff,
-            _ => panic!("Unexpected value stored in intr_level"),
-        };
-        if previous_intr_level == IntrLevel::IntrOn {
-            intr_enable();
-        }
+        intr_enable();
     }
 }
 
