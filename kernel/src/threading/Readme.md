@@ -70,10 +70,8 @@ This gives the `run_thread` function the responsibility to enque our previously 
 ## Context Switching
 
 The function `switch_threads` is the public method for switching to a given thread.
-The thread to switch to must be in the `Ready` state otherwise the kernel will panic.
-This function will ensure that whatever thread becomes the running thread is marked as being in the `Running` state.
-However, it is the responsibility of the callee to ensure that the thread that is currrently running before the context switch is no longer in the `Running` state.
-This is because the `switch_threads` function is agnostic to whether the thread is blocked, dead, or ready to run again.
+This will ensure that thread's statuses are updated correctly.
+The thread specified to switch to must be in the ready state.
 
 Typically, you do not interact with `switch_threads` directly.
 Rather, you use one of the scheduling functions provided in the mod file for the scheduling crate.

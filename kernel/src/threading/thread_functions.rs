@@ -1,3 +1,5 @@
+use crate::sync::intr_enable;
+
 use super::{
     scheduling::SCHEDULER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
@@ -40,8 +42,7 @@ unsafe extern "C" fn run_thread(
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    // TODO:
-    // interrupts_enable();
+    intr_enable();
 
     // Run the thread.
     entry_function();

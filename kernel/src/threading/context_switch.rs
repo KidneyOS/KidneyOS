@@ -1,31 +1,38 @@
-use crate::{
-    sync::{intr_get_level, IntrLevel},
-    threading::ThreadControlBlock,
-};
+use crate::sync::{intr_get_level, IntrLevel};
 
 use alloc::boxed::Box;
 
-use super::{scheduling::SCHEDULER, thread_control_block::ThreadStatus, RUNNING_THREAD};
+use super::{
+    scheduling::SCHEDULER,
+    thread_control_block::{ThreadControlBlock, ThreadStatus},
+    RUNNING_THREAD,
+};
 
 /// Public facing method to perform a context switch between two threads.
 /// # Safety
 /// This function should only be called by methods within the Scheduler crate.
 /// Interrupts must be disabled.
-pub unsafe fn switch_threads(switch_to: Box<ThreadControlBlock>) {
+pub unsafe fn switch_threads(
+    status_for_current_thread: ThreadStatus,
+    switch_to: Box<ThreadControlBlock>,
+) {
     assert!(intr_get_level() == IntrLevel::IntrOff);
 
     let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
     let switch_to = Box::into_raw(switch_to);
 
     // Ensure we are switching to a valid thread.
-    if (*switch_to).status == ThreadStatus::Ready {
+    if (*switch_to).status != ThreadStatus::Ready {
         panic!("Cannot switch to a non-ready thread.");
     }
 
-    // Ensure that the previous thread is no longer running.
-    if (*switch_from).status == ThreadStatus::Running {
-        panic!("The thread to switch out of must no longer be in the running state.");
+    // Ensure that the previous thread is running.
+    if (*switch_from).status != ThreadStatus::Running {
+        panic!("The thread to switch out of must be in the running state.");
     }
+
+    // Update the status of the current thread.
+    (*switch_from).status = status_for_current_thread;
 
     let previous = context_switch(switch_from, switch_to);
 

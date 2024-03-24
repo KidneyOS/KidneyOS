@@ -8,7 +8,7 @@ use alloc::boxed::Box;
 
 use crate::sync::{intr_disable, intr_enable, intr_get_level, IntrLevel};
 
-use super::{context_switch::switch_threads, thread_control_block::ThreadStatus, RUNNING_THREAD};
+use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 
 pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
 
@@ -31,14 +31,9 @@ pub fn scheduler_yield() {
         let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
         let switch_to = scheduler.pop().expect("No threads to run!");
 
-        // The running thread is not blocked if it has called this.
-        // Place it in the ready state.
-        let mut running = RUNNING_THREAD.take().expect("No running thread");
-        running.status = ThreadStatus::Ready;
-        RUNNING_THREAD = Some(running);
-
         // Switch to this other thread.
-        switch_threads(switch_to);
+        // Since this is a voluntary switch, the current thread will be ready to run again.
+        switch_threads(ThreadStatus::Ready, switch_to);
     }
 
     intr_enable();

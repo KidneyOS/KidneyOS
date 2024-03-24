@@ -6,9 +6,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 use alloc::alloc::Global;
 use kidneyos_shared::sizes::KB;
 
-use crate::threading::thread_functions::{
-    PrepareThreadContext, SwitchThreadsContext, ThreadFunction,
-};
+use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
 
 pub type Tid = u16;
 
