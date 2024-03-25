@@ -45,6 +45,17 @@ enum SegmentType {
     PtStack = 0x6474e551, // Stack segment.
 }
 
+#[derive(Debug)]
+pub enum ElfError {
+    InvalidMagicNumber,
+    UnsupportedClass,
+    UnsupportedEndianess,
+    UnsupportedVersion,
+    UnsupportedType,
+    UnsupportedMachine,
+    // Additional error types as needed
+}
+
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 
 // Dummy function to simulate reading an ELF file from somewhere into a byte slice.
