@@ -104,12 +104,12 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
 
 // Main function to load the ELF binary
 #[allow(unused)]
-fn load_elf(elf_data: &[u8]) {
+fn load_elf(elf_data: &[u8]) -> Result<(), ElfError>{
     let header = unsafe { &*(elf_data.as_ptr() as *const Elf32Ehdr) };
     let mut vm_areas = Vec::new();
 
     // Verify ELF header
-    verify_elf_header(header);
+    verify_elf_header(header)?;
 
     // Iterate over program headers
     let ph_offset = header.e_phoff as usize;
@@ -136,6 +136,8 @@ fn load_elf(elf_data: &[u8]) {
             // Here we would load the segment into memory, copy from `elf_data[ph.p_offset as usize..]` to `ph.p_vaddr` address in memory
         }
     }
+
+    Ok(())
 }
 
 #[allow(unused)]
