@@ -1,4 +1,5 @@
 use super::virtual_memory_area::{VmAreaStruct, VmFlags};
+use alloc::vec::Vec;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -115,14 +116,17 @@ fn load_elf(elf_data: &[u8]) {
     let ph_size = header.e_phentsize as usize;
     for i in 0..header.e_phnum as usize {
         let ph = unsafe {
-            &*elf_data.as_ptr().add(ph_offset + i * ph_size).cast::<Elf32Phdr>()
+            &*elf_data
+                .as_ptr()
+                .add(ph_offset + i * ph_size)
+                .cast::<Elf32Phdr>()
         };
 
         if ph.p_type == SegmentType::Load as u32 {
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
-            let flags: VmFlags = Default::default(); 
+            let flags: VmFlags = Default::default();
             let mut vma = VmAreaStruct::new(vm_start, vm_end, flags);
             // Set flags based on program header flags
             vma.flags.read = ph.p_flags & PF_R != 0;
