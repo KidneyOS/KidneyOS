@@ -152,7 +152,7 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> bool {
     }
 
     // Disallow mapping page 0.
-    if (phdr.p_vaddr as usize) < (PAGE_FRAME_SIZE as usize) {
+    if (phdr.p_vaddr as usize) < PAGE_FRAME_SIZE {
         return false;
     }
 
