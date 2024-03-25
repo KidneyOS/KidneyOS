@@ -104,7 +104,7 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
 
 // Main function to load the ELF binary
 #[allow(unused)]
-fn load_elf(elf_data: &[u8]) -> Result<(), ElfError>{
+fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
     let header = unsafe { &*(elf_data.as_ptr() as *const Elf32Ehdr) };
     let mut vm_areas = Vec::new();
 
