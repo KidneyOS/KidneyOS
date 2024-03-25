@@ -36,14 +36,14 @@ struct Elf32Phdr {
 #[derive(Debug, PartialEq)]
 #[allow(unused)]
 pub enum SegmentType {
-    PtNull = 0,           // Ignore.
-    PtLoad = 1,           // Loadable segment.
-    PtDynamic = 2,        // Dynamic linking info.
-    PtInterp = 3,         // Name of dynamic loader.
-    PtNote = 4,           // Auxiliary info.
-    PtShlib = 5,          // Reserved.
-    PtPhdr = 6,           // Program header table.
-    PtStack = 0x6474e551, // Stack segment.
+    Null = 0,           // Ignore.
+    Load = 1,           // Loadable segment.
+    Dynamic = 2,        // Dynamic linking info.
+    Interp = 3,         // Name of dynamic loader.
+    Note = 4,           // Auxiliary info.
+    Shlib = 5,          // Reserved.
+    Phdr = 6,           // Program header table.
+    Stack = 0x6474e551, // Stack segment.
 }
 
 #[derive(Debug)]
@@ -115,10 +115,10 @@ fn load_elf(elf_data: &[u8]) {
     let ph_size = header.e_phentsize as usize;
     for i in 0..header.e_phnum as usize {
         let ph = unsafe {
-            &*(elf_data.as_ptr().offset((ph_offset + i * ph_size) as isize) as *const Elf32Phdr)
+            &*elf_data.as_ptr().add(ph_offset + i * ph_size).cast::<Elf32Phdr>()
         };
 
-        if ph.p_type == SegmentType::PtLoad as u32 {
+        if ph.p_type == SegmentType::Load as u32 {
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
