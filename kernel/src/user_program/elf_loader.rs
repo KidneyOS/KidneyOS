@@ -34,7 +34,7 @@ struct Elf32Phdr {
 
 #[repr(u32)]
 #[derive(Debug, PartialEq)]
-enum SegmentType {
+pub enum SegmentType {
     PtNull = 0,           // Ignore.
     PtLoad = 1,           // Loadable segment.
     PtDynamic = 2,        // Dynamic linking info.
@@ -55,6 +55,11 @@ pub enum ElfError {
     UnsupportedMachine,
     // Additional error types as needed
 }
+
+// Flags for p_flags
+const PF_X: u32 = 1; // Executable.
+const PF_W: u32 = 2; // Writable.
+const PF_R: u32 = 4; // Readable.
 
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 
@@ -107,7 +112,7 @@ fn load_elf(elf_data: &[u8]) {
     let mut vm_areas = Vec::new();
 
     // Verify ELF header
-    verify_elf_header(header)?;
+    verify_elf_header(header);
 
     // Iterate over program headers
     let ph_offset = header.e_phoff as usize;
@@ -117,19 +122,17 @@ fn load_elf(elf_data: &[u8]) {
             &*(elf_data.as_ptr().offset((ph_offset + i * ph_size) as isize) as *const Elf32Phdr)
         };
 
-        if ph.p_type == SegmentType::PtLoad {
+        if ph.p_type == SegmentType::PtLoad as u32 {
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
-            vma = VmAreaStruct::new(vm_start, vm_end, VmFlags::Default());
+            let vma = VmAreaStruct::new(vm_start, vm_end, VmFlags::Default());
             // Set flags based on program header flags
-            vma.flags.read = (ph.p_flags & PF_R != 0);
-            vma.flags.write = (ph.p_flags & PF_W != 0);
-            vma.flags.execute = (ph.p_flags & PF_X != 0);
+            vma.flags.read = ph.p_flags & PF_R != 0;
+            vma.flags.write = ph.p_flags & PF_W != 0;
+            vma.flags.execute = ph.p_flags & PF_X != 0;
             vm_areas.push(vma);
             // Here we would load the segment into memory, copy from `elf_data[ph.p_offset as usize..]` to `ph.p_vaddr` address in memory
-
-            core::intrinsics::breakpoint(); // Placeholder for breakpoint or log message
         }
     }
 }
