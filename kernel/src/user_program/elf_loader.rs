@@ -34,6 +34,7 @@ struct Elf32Phdr {
 
 #[repr(u32)]
 #[derive(Debug, PartialEq)]
+#[allow(unused)]
 pub enum SegmentType {
     PtNull = 0,           // Ignore.
     PtLoad = 1,           // Loadable segment.
@@ -62,12 +63,6 @@ const PF_W: u32 = 2; // Writable.
 const PF_R: u32 = 4; // Readable.
 
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
-
-// Dummy function to simulate reading an ELF file from somewhere into a byte slice.
-// TODO: replace this with actual file reading logic once we have file system implemented.
-fn read_elf_file() -> &'static [u8] {
-    &include_bytes!("path/to/your/elf/file")[..]
-}
 
 // Function to verify ELF header
 fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
@@ -107,6 +102,7 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
 }
 
 // Main function to load the ELF binary
+#[allow(unused)]
 fn load_elf(elf_data: &[u8]) {
     let header = unsafe { &*(elf_data.as_ptr() as *const Elf32Ehdr) };
     let mut vm_areas = Vec::new();
@@ -126,7 +122,8 @@ fn load_elf(elf_data: &[u8]) {
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
-            let vma = VmAreaStruct::new(vm_start, vm_end, VmFlags::Default());
+            let flags: VmFlags = Default::default(); 
+            let mut vma = VmAreaStruct::new(vm_start, vm_end, flags);
             // Set flags based on program header flags
             vma.flags.read = ph.p_flags & PF_R != 0;
             vma.flags.write = ph.p_flags & PF_W != 0;
@@ -137,7 +134,9 @@ fn load_elf(elf_data: &[u8]) {
     }
 }
 
+#[allow(unused)]
+// How we would load elf
 fn open_file_and_load() {
-    let elf_data = read_elf_file();
-    load_elf(elf_data);
+    // let elf_data: &'static [u8] = include_bytes!("path/to/your/elf/file");;
+    // load_elf(elf_data);
 }
