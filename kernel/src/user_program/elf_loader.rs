@@ -1,8 +1,4 @@
-extern crate core;
-
-use core::slice;
-use virtual_memory_area::VmAreaStruct;
-use virtual_memory_area::VmFlags;
+use super::virtual_memory_area::{VmAreaStruct, VmFlags};
 
 #[repr(C)]
 #[derive(Debug)]
