@@ -42,4 +42,4 @@ This section is optional. If you'd like to avoid having to run the command in th
 direnv allow
 ```
 
-...from the root of the KidneyOS respository. Now, every time you `cd` into the KidneyOS repository, the "devshell" environment will automatically be made available, without you having to run any commands.
+...from the root of the KidneyOS repository. Now, every time you `cd` into the KidneyOS repository, the "devshell" environment will automatically be made available, without you having to run any commands.
