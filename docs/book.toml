@@ -1,0 +1,15 @@
+[book]
+title = "KidneyOS Documentation"
+src = "."
+language = "en"
+multilingual = false
+
+[build]
+build-dir = "../build/docs"
+create-missing = true
+
+[rust]
+edition = "2021"
+
+[output.html]
+git-repository-url = "https://github.com/KidneyOS/KidneyOS/tree/main/docs"
