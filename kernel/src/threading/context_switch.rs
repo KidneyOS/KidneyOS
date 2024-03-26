@@ -22,14 +22,16 @@ pub unsafe fn switch_threads(
     let switch_to = Box::into_raw(switch_to);
 
     // Ensure we are switching to a valid thread.
-    if (*switch_to).status != ThreadStatus::Ready {
-        panic!("Cannot switch to a non-ready thread.");
-    }
+    assert!(
+        (*switch_to).status == ThreadStatus::Ready,
+        "Cannot switch to a non-ready thread."
+    );
 
     // Ensure that the previous thread is running.
-    if (*switch_from).status != ThreadStatus::Running {
-        panic!("The thread to switch out of must be in the running state.");
-    }
+    assert!(
+        (*switch_from).status == ThreadStatus::Running,
+        "The thread to switch out of must be in the running state."
+    );
 
     // Update the status of the current thread.
     (*switch_from).status = status_for_current_thread;

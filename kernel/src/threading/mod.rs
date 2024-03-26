@@ -54,10 +54,10 @@ pub fn thread_system_initialization() {
 /// Thread system must have been previously enabled.
 pub fn thread_system_start() -> ! {
     assert!(intr_get_level() == IntrLevel::IntrOff);
-
-    if unsafe { !THREAD_SYSTEM_INITIALIZED } {
-        panic!("Cannot start threading without initializing the threading system.");
-    }
+    assert!(
+        unsafe { THREAD_SYSTEM_INITIALIZED },
+        "Cannot start threading without initializing the threading system."
+    );
 
     // We must 'turn the kernel thread into a thread'.
     // This amounts to just making a TCB that will be in control of the kernel stack and will
