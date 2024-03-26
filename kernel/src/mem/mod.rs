@@ -1,6 +1,5 @@
 mod buddy_allocator;
 mod frame_allocator;
-mod pool_allocator;
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;

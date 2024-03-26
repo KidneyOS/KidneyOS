@@ -212,8 +212,6 @@ unsafe impl Allocator for BuddyAllocator {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::undocumented_unsafe_blocks)]
-
     use super::*;
 
     use kidneyos_shared::sizes::KB;

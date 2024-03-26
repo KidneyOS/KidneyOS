@@ -62,7 +62,6 @@ unsafe extern "C" fn page_fault_handler() -> ! {
     );
 }
 
-#[allow(clippy::cast_possible_truncation)]
 static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
     size: size_of::<[GateDescriptor; IDT_LEN]>() as u16 - 1,
     offset: 0, // Will fetch pointer and set at runtime below.
@@ -73,20 +72,17 @@ static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
 /// Can only be executed within code that expects the interrupt handlers to be
 /// defined as they are above.
 pub unsafe fn load() {
-    // u32 is wide enough since we're writing 32-bit code.
-    #![allow(clippy::fn_to_numeric_cast_with_truncation)]
-
     IDT_DESCRIPTOR.offset = IDT.as_ptr() as u32;
 
     for gate_descriptor in &mut IDT {
         *gate_descriptor = GateDescriptor::default()
-            .with_offset(unhandled_handler as u32)
+            .with_offset(unhandled_handler as usize as u32)
             .with_segment_selector(0x8)
             .with_gate_type(u4::new(0xE))
             .with_descriptor_privilege_level(u2::new(3))
             .with_present(true);
     }
-    IDT[0xE] = IDT[0xE].with_offset(page_fault_handler as u32);
+    IDT[0xE] = IDT[0xE].with_offset(page_fault_handler as usize as u32);
 
     asm!("lidt [{}]", sym IDT_DESCRIPTOR);
 }
