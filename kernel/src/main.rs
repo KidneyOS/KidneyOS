@@ -10,15 +10,14 @@ mod interrupt_descriptor_table;
 mod mem;
 mod paging;
 mod sync;
-#[allow(unused)]
 mod threading;
 mod user_program;
 
 extern crate alloc;
 
-use crate::threading::thread_system_initialization;
 use kidneyos_shared::{println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+use threading::{thread_system_initialization, thread_system_start};
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -49,8 +48,6 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Paging enabled!");
 
         thread_system_initialization();
+        thread_system_start();
     }
-
-    #[allow(clippy::empty_loop)]
-    loop {}
 }

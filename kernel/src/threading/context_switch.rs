@@ -1,39 +1,52 @@
-use crate::threading::ThreadControlBlock;
-use core::mem::align_of;
+use crate::sync::{intr_get_level, IntrLevel};
 
-/**
- * Public facing method to perform a context switch between two threads.
- */
-pub fn switch_threads(switch_from: ThreadControlBlock, switch_to: ThreadControlBlock) {
-    // TODO:
-    // Safety checks needed.
+use alloc::boxed::Box;
 
-    assert!(switch_from.stack_pointer.as_ptr() as usize % align_of::<usize>() == 0);
+use super::{
+    scheduling::SCHEDULER,
+    thread_control_block::{ThreadControlBlock, ThreadStatus},
+    RUNNING_THREAD,
+};
 
-    unsafe {
-        context_switch(
-            #[allow(clippy::cast_ptr_alignment)]
-            switch_from.stack_pointer.as_ptr().cast::<usize>(),
-            switch_to.stack_pointer.as_ptr() as usize,
-        );
-    }
-}
+/// Public facing method to perform a context switch between two threads.
+/// # Safety
+/// This function should only be called by methods within the Scheduler crate.
+/// Interrupts must be disabled.
+pub unsafe fn switch_threads(
+    status_for_current_thread: ThreadStatus,
+    switch_to: Box<ThreadControlBlock>,
+) {
+    assert!(intr_get_level() == IntrLevel::IntrOff);
 
-/**
- * See: `SwitchThreadsContext` for ordering details.
- */
+    let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
+    let switch_to = Box::into_raw(switch_to);
 
-#[macro_export]
-macro_rules! load_arguments {
-    () => {
-        // Loads two arguments from the stack into %eax and %edx.
-        // Note, `call` should be used just before this.
-        // So, [%esp] is an instruction pointer, [%esp + 0x4] is our first argument, and [%esp + 0x8] is our second argument.
-        r#"
-            mov eax, [esp + 0x4]
-            mov edx, [esp + 0x8]
-        "#
-    };
+    // Ensure we are switching to a valid thread.
+    assert!(
+        (*switch_to).status == ThreadStatus::Ready,
+        "Cannot switch to a non-ready thread."
+    );
+
+    // Ensure that the previous thread is running.
+    assert!(
+        (*switch_from).status == ThreadStatus::Running,
+        "The thread to switch out of must be in the running state."
+    );
+
+    // Update the status of the current thread.
+    (*switch_from).status = status_for_current_thread;
+
+    let previous = context_switch(switch_from, switch_to);
+
+    // We must mark this thread as running once again.
+    (*switch_from).status = ThreadStatus::Running;
+
+    // After threads have switched, we must update the scheduler and running thread.
+    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switch_from));
+    SCHEDULER
+        .as_mut()
+        .expect("Scheduler not set up!")
+        .push(Box::from_raw(previous));
 }
 
 #[macro_export]
@@ -41,10 +54,28 @@ macro_rules! save_registers {
     () => {
         // Saves the current thread's registers into it's context (on the stack).
         r#"
-            push ebp
-            push ebx
-            push esi
-            push edi
+        push ebp
+        mov ebp, esp    # Part of the calling convention, saving where this stack starts.
+                        # We allocate no local variables.
+        push ebx
+        push esi
+        push edi
+        "#
+    };
+}
+
+#[macro_export]
+macro_rules! load_arguments {
+    () => {
+        // Loads two arguments from the stack into %eax and %edx.
+        // * %eax = [%ebp + 0x8] is our first argument (switch_from).
+        // * %edx = [%ebp + 0x12] is our second argument (switch_to).
+        // These arguments are pointers to the TCB / Stack pointers.
+        //
+        // Note: We do not change the value of %eax as this will be our return value.
+        r#"
+            mov eax, [ebp + 0x8]
+            mov edx, [ebp + 0xc]
         "#
     };
 }
@@ -53,11 +84,10 @@ macro_rules! save_registers {
 macro_rules! switch_stacks {
     () => {
         // Switches the current stack pointer.
-        // Requires that %eax hold a pointer to the current stack.
-        //          and that %edx holds the value of the next stack.
+        // Both %eax and %edx are *TCB = **stack and thus must be dereferenced once to get the stack pointer.
         r#"
             mov [eax], esp
-            mov esp, edx
+            mov esp, [edx]
         "#
     };
 }
@@ -75,23 +105,28 @@ macro_rules! restore_registers {
     };
 }
 
-/**
- * The usize here represents the pointer to the struct itself.
- * That is, it's value is an address.
- * Effectively the signature:
- *      fn context_switch(context **previous, context *next);
- *
- * Must save the Callee's registers and restore the next's registers.
- */
+/// Performs a context switch between two threads.
+///
+/// Must save the Callee's registers and restore the next's registers.
+///
+/// The caller saved registers are: %eax, %ecx, and %edx.
+/// So we may use them freely.
+/// All others must be saved as part of the context switch.
+///
+/// Parameters are pushed to the stack the opposite order they are defined.
+/// The last is pushed to the stack first (higher address), and the first is pushed last (lower address).
+/// The caller is responisble to remove these from the stack.
+///
+/// Our return value will need to be placed into the %eax register.
 #[naked]
 unsafe extern "C" fn context_switch(
-    _previous_stack_pointer: *mut usize,
-    _next_stack_pointer: usize,
-) {
+    _switch_from: *mut ThreadControlBlock,
+    _switch_to: *mut ThreadControlBlock,
+) -> *mut ThreadControlBlock {
     // Our function arguments are placed on the stack Right to Left.
     core::arch::asm!(
-        load_arguments!(), // Required manually since this is a naked function.
         save_registers!(),
+        load_arguments!(), // Required manually since this is a naked function.
         switch_stacks!(),
         restore_registers!(),
         r#"
