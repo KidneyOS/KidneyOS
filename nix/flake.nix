@@ -20,8 +20,8 @@
           overlays = [ (import rust-overlay) ];
           inherit system;
         };
-        inherit (pkgs) bochs gdb gnumake mkShell mtools qemu rust-analyzer
-          rust-bin unixtools xorriso;
+        inherit (pkgs) bochs gdb gnumake mdbook mdsh mkShell mtools qemu
+          rust-analyzer rust-bin unixtools xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-pkgs = import nixpkgs {
@@ -43,7 +43,7 @@
       in
       {
         packages.kidneyos-builder = pkgs.dockerTools.buildNixShellImage {
-          name = "kidneyos-builder";
+          name = "ghcr.io/kidneyos/kidneyos-builder";
           tag = "latest";
           drv = self.devShells.${system}.build;
         };
@@ -72,6 +72,8 @@
             nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
               bochs
               gdb
+              mdbook
+              mdsh
               rust-analyzer
               xxd
             ];
