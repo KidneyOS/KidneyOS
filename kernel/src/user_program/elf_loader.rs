@@ -1,5 +1,6 @@
 use super::virtual_memory_area::{VmAreaStruct, VmFlags};
 use alloc::vec::Vec;
+use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -58,12 +59,27 @@ pub enum ElfError {
     // Additional error types as needed
 }
 
+// Error types that will arise when we try to validate segment
+#[derive(Debug)]
+pub enum ElfSegmentError {
+    DifferentPageOffset,
+    OffsetOutOfRange,
+    MemSizeLesserThanFileSize,
+    EmptyMemSize,
+    VMRegionOutOfRange,
+    VMRegionWrapAround,
+    PageZeroMapping,
+    // Additional error types as needed
+}
+
 // Flags for p_flags
 const PF_X: u32 = 1; // Executable.
 const PF_W: u32 = 2; // Writable.
 const PF_R: u32 = 4; // Readable.
 
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
+const PHYS_BASE: *const () = OFFSET as *const ();
+const PGMASK: usize = OFFSET - 1;
 
 // Function to verify ELF header
 fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
@@ -102,6 +118,61 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
     Ok(())
 }
 
+#[allow(unused)]
+fn is_kernel_vaddr(vaddr: *const ()) -> bool {
+    unsafe { vaddr >= PHYS_BASE }
+}
+
+#[allow(unused)]
+fn is_user_vaddr(vaddr: *const ()) -> bool {
+    unsafe { vaddr < PHYS_BASE }
+}
+
+fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegmentError> {
+    // p_offset and p_vaddr must have the same page offset.
+    if (phdr.p_offset as usize & PGMASK) != (phdr.p_vaddr as usize & PGMASK) {
+        return Err(ElfSegmentError::DifferentPageOffset);
+    }
+
+    // p_offset must point within FILE.
+    if phdr.p_offset as usize > file_data.len() {
+        return Err(ElfSegmentError::OffsetOutOfRange);
+    }
+
+    // p_memsz must be at least as big as p_filesz.
+    if phdr.p_memsz < phdr.p_filesz {
+        return Err(ElfSegmentError::MemSizeLesserThanFileSize);
+    }
+
+    // The segment must not be empty.
+    if phdr.p_memsz == 0 {
+        return Err(ElfSegmentError::EmptyMemSize);
+    }
+
+    // The virtual memory region must both start and end within the
+    // user address space range.
+    if !is_user_vaddr(phdr.p_vaddr as *const ()) {
+        return Err(ElfSegmentError::VMRegionOutOfRange);
+    }
+    if !is_user_vaddr((phdr.p_vaddr as usize + phdr.p_memsz as usize) as *const ()) {
+        return Err(ElfSegmentError::VMRegionOutOfRange);
+    }
+
+    // The region cannot "wrap around" across the kernel virtual
+    // address space.
+    if (phdr.p_vaddr as usize + phdr.p_memsz as usize) < (phdr.p_vaddr as usize) {
+        return Err(ElfSegmentError::VMRegionWrapAround);
+    }
+
+    // Disallow mapping page 0.
+    if (phdr.p_vaddr as usize) < PAGE_FRAME_SIZE {
+        return Err(ElfSegmentError::PageZeroMapping);
+    }
+
+    // It's okay.
+    Ok(())
+}
+
 // Main function to load the ELF binary
 #[allow(unused)]
 fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
@@ -122,7 +193,7 @@ fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
                 .cast::<Elf32Phdr>()
         };
 
-        if ph.p_type == SegmentType::Load as u32 {
+        if (ph.p_type == SegmentType::Load as u32) && validate_segment(ph, elf_data).is_ok() {
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
