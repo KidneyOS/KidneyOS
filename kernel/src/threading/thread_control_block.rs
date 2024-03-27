@@ -33,6 +33,7 @@ pub struct ThreadControlBlock {
 
     pub tid: Tid,
     pub status: ThreadStatus,
+    pub exit_code: Option<i32>
 }
 
 pub fn allocate_tid() -> Tid {
@@ -72,6 +73,7 @@ impl ThreadControlBlock {
             stack_pointer: stack_pointer_top,
             stack_pointer_bottom: NonNull::new(stack_pointer_bottom.as_ptr().cast::<u8>())
                 .expect("Error converting stack."),
+            exit_code: None,
         };
 
         // Now, we must build the stack frames for our new thread.
@@ -111,6 +113,7 @@ impl ThreadControlBlock {
             stack_pointer_bottom: core::ptr::NonNull::dangling(), // TODO: Is this ok left dangling? Special case code is required otherwise.
             tid: allocate_tid(),
             status: ThreadStatus::Running,
+            exit_code: None,
         }
     }
 
@@ -143,4 +146,14 @@ impl ThreadControlBlock {
             self.stack_pointer
         }
     }
+
+    pub fn set_exit_code(&mut self, exit_code: i32) {
+
+        // A thread must be dying to set it's exit code.
+        assert!(self.status == ThreadStatus::Dying);
+
+        self.exit_code = Some(exit_code);
+
+    }
+
 }

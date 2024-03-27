@@ -5,25 +5,27 @@ mod thread_functions;
 
 use crate::{
     println,
-    sync::{intr_enable, intr_get_level, IntrLevel},
+    sync::{intr_enable, intr_get_level, IntrLevel}, threading::scheduling::scheduler_yield_and_die,
 };
 use alloc::boxed::Box;
 
-use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
+use scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
 
-pub extern "C" fn test_func() {
-    loop {
-        println!("Hello threads!");
-        scheduler_yield();
+pub extern "C" fn test_func() -> Option<i32> {
+    for i in 1..5 {
+        println!("Hello threads! {}", i);
+        scheduler_yield_and_continue();
     }
+    return Some(1);
 }
 
-pub extern "C" fn test_func_2() {
-    loop {
-        println!("Goodbye threads!");
-        scheduler_yield();
+pub extern "C" fn test_func_2() -> Option<i32> {
+    for i in 1..5 {
+        println!("Goodbye threads! {}", i);
+        scheduler_yield_and_continue();
     }
+    return Some(2);
 }
 
 static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
@@ -35,8 +37,6 @@ pub fn thread_system_initialization() {
     println!("Initializing Thread System...");
 
     assert!(intr_get_level() == IntrLevel::IntrOff);
-
-    // Initialize the TID lock.
 
     // Initialize the scheduler.
     initialize_scheduler();
@@ -87,10 +87,10 @@ pub fn thread_system_start() -> ! {
     intr_enable();
 
     // Eventually, the scheduler may run the kernel thread again.
-    // We may later replace this with code to clean up the kernel resources (`thread_exit` would not work).
-    // For now we will just yield continually.
+    // We may later replace this with code to clean up the kernel resources.
+    // For now we will just die.
     loop {
-        scheduler_yield();
+        scheduler_yield_and_die();
     }
 
     // This function never returns.

@@ -1,4 +1,4 @@
-use crate::sync::intr_enable;
+use crate::{sync::{intr_enable, intr_disable}, threading::scheduling::scheduler_yield_and_die};
 
 use super::{
     scheduling::SCHEDULER,
@@ -12,15 +12,27 @@ use alloc::boxed::Box;
 /// No arguments allowed for now.
 ///
 /// A function that may be used for thread creation.
-pub type ThreadFunction = unsafe extern "C" fn() -> ();
+/// The return value will be the exit code of this thread.
+pub type ThreadFunction = unsafe extern "C" fn() -> Option<i32>;
 
-/// A function to safely close a thread.
-const fn exit_thread() -> ! {
-    // TODO: Need to reap TCB, remove from scheduling.
+/// A function to safely close the current thread.
+/// This is safe to call at any point in a threads runtime.
+pub fn exit_thread(exit_code: i32) -> ! {
 
-    // Relinquish CPU to another thread.
-    // TODO:
-    panic!("Thread exited incorrectly.");
+    // Disable interrupts.
+    // TODO: Does this cause issues with the counter? Do we need a 'force enable' or 'reset' for this?
+    intr_disable();
+
+    // Get the current thread.
+    // SAFETY: Interrupts must be off.
+    unsafe {
+        let mut current_thread = RUNNING_THREAD.take().expect("Why is nothing running!?");
+        current_thread.set_exit_code(exit_code);
+
+        // Replace and yield.
+        RUNNING_THREAD = Some(current_thread);
+        scheduler_yield_and_die();
+    }
 }
 
 /// A wrapper function to execute a thread's true function.
@@ -35,6 +47,8 @@ unsafe extern "C" fn run_thread(
 
     // Reschedule our threads.
     RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switched_to));
+
+    // TODO: Be wary of Dying threads.
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
@@ -45,10 +59,10 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Run the thread.
-    entry_function();
+    let exit_code = entry_function().unwrap_or_default();
 
     // Safely exit the thread.
-    exit_thread();
+    exit_thread(exit_code);
 }
 
 #[repr(C, packed)]
@@ -64,7 +78,7 @@ impl PrepareThreadContext {
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
-unsafe extern "C" fn prepare_thread() {
+unsafe extern "C" fn prepare_thread() -> Option<i32> {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.
