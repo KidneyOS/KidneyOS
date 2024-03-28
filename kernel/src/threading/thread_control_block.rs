@@ -30,10 +30,11 @@ pub struct ThreadControlBlock {
     // TODO: Change the stack pointer type and remove the need to keep the bottom of the stack.
     stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
     stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
+    layout: Layout,
 
     pub tid: Tid,
     pub status: ThreadStatus,
-    pub exit_code: Option<i32>
+    pub exit_code: Option<i32>,
 }
 
 pub fn allocate_tid() -> Tid {
@@ -42,7 +43,7 @@ pub fn allocate_tid() -> Tid {
 }
 
 impl ThreadControlBlock {
-    pub fn create(entry_function: ThreadFunction) -> Self {
+    pub fn new(entry_function: ThreadFunction) -> Self {
         let tid: Tid = allocate_tid();
 
         // Allocate a stack for this thread.
@@ -73,6 +74,7 @@ impl ThreadControlBlock {
             stack_pointer: stack_pointer_top,
             stack_pointer_bottom: NonNull::new(stack_pointer_bottom.as_ptr().cast::<u8>())
                 .expect("Error converting stack."),
+            layout,
             exit_code: None,
         };
 
@@ -107,10 +109,12 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub unsafe fn create_kernel_thread() -> Self {
+    pub unsafe fn new_kernel_thread() -> Self {
         ThreadControlBlock {
             stack_pointer: core::ptr::NonNull::dangling(), // This will be set in the context switch immediately following.
             stack_pointer_bottom: core::ptr::NonNull::dangling(), // TODO: Is this ok left dangling? Special case code is required otherwise.
+            layout: Layout::from_size_align(THREAD_STACK_SIZE, 8)
+                .expect("Could not create layout."),
             tid: allocate_tid(),
             status: ThreadStatus::Running,
             exit_code: None,
@@ -148,12 +152,27 @@ impl ThreadControlBlock {
     }
 
     pub fn set_exit_code(&mut self, exit_code: i32) {
-
-        // A thread must be dying to set it's exit code.
-        assert!(self.status == ThreadStatus::Dying);
-
         self.exit_code = Some(exit_code);
-
     }
 
+    pub fn reap(&mut self) {
+        assert!(
+            self.status == ThreadStatus::Dying,
+            "A thread must be dying to be reaped."
+        );
+
+        // Most of the TCB is dropped automatically.
+        // But the stack must be manually deallocated.
+        // However, the first TCB is the kernel stack and not treated as such.
+        if self.tid != 0 {
+            self.stack_pointer = NonNull::dangling();
+
+            // SAFETY: This must be a stack we allocated.
+            unsafe {
+                Global.deallocate(self.stack_pointer_bottom, self.layout);
+            }
+        }
+
+        self.status = ThreadStatus::Invalid;
+    }
 }

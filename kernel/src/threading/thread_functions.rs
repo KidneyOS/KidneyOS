@@ -1,4 +1,7 @@
-use crate::{sync::{intr_enable, intr_disable}, threading::scheduling::scheduler_yield_and_die};
+use crate::{
+    sync::{intr_disable, intr_enable},
+    threading::scheduling::scheduler_yield_and_die,
+};
 
 use super::{
     scheduling::SCHEDULER,
@@ -18,7 +21,6 @@ pub type ThreadFunction = unsafe extern "C" fn() -> Option<i32>;
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
 pub fn exit_thread(exit_code: i32) -> ! {
-
     // Disable interrupts.
     // TODO: Does this cause issues with the counter? Do we need a 'force enable' or 'reset' for this?
     intr_disable();
@@ -46,13 +48,18 @@ unsafe extern "C" fn run_thread(
     (*switched_to).status = ThreadStatus::Running;
 
     // Reschedule our threads.
-    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switched_to));
+    RUNNING_THREAD = Some(Box::from_raw(switched_to));
 
-    // TODO: Be wary of Dying threads.
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(Box::from_raw(switched_from));
+    let mut switched_from = Box::from_raw(switched_from);
+    if switched_from.status == ThreadStatus::Dying {
+        switched_from.reap();
+        drop(switched_from);
+    } else {
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(switched_from);
+    }
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.

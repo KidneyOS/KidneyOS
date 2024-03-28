@@ -5,7 +5,8 @@ mod thread_functions;
 
 use crate::{
     println,
-    sync::{intr_enable, intr_get_level, IntrLevel}, threading::scheduling::scheduler_yield_and_die,
+    sync::{intr_enable, intr_get_level, IntrLevel},
+    threading::scheduling::scheduler_yield_and_die,
 };
 use alloc::boxed::Box;
 
@@ -17,7 +18,7 @@ pub extern "C" fn test_func() -> Option<i32> {
         println!("Hello threads! {}", i);
         scheduler_yield_and_continue();
     }
-    return Some(1);
+    Some(1)
 }
 
 pub extern "C" fn test_func_2() -> Option<i32> {
@@ -25,7 +26,7 @@ pub extern "C" fn test_func_2() -> Option<i32> {
         println!("Goodbye threads! {}", i);
         scheduler_yield_and_continue();
     }
-    return Some(2);
+    Some(2)
 }
 
 static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
@@ -40,8 +41,6 @@ pub fn thread_system_initialization() {
 
     // Initialize the scheduler.
     initialize_scheduler();
-
-    // Create Idle thread.
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
@@ -64,15 +63,23 @@ pub fn thread_system_start() -> ! {
     // never exit.
     // This thread also does not need to enter the `run_thread` function.
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
-    let tcb_kernel = unsafe { ThreadControlBlock::create_kernel_thread() };
+    let tcb_kernel = unsafe { ThreadControlBlock::new_kernel_thread() };
 
-    // TEMP.
-    let tcb_1 = ThreadControlBlock::create(test_func);
-    let tcb_2 = ThreadControlBlock::create(test_func_2);
+    // Create the idle thread.
+    let idle_tcb = ThreadControlBlock::new(idle_function);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
         RUNNING_THREAD = Some(Box::new(tcb_kernel));
+
+        SCHEDULER
+            .as_mut()
+            .expect("No scheduler set up!")
+            .push(Box::new(idle_tcb));
+
+        // TEMP.
+        let tcb_1 = ThreadControlBlock::new(test_func);
+        let tcb_2 = ThreadControlBlock::new(test_func_2);
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
@@ -89,9 +96,15 @@ pub fn thread_system_start() -> ! {
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources.
     // For now we will just die.
-    loop {
-        scheduler_yield_and_die();
-    }
+    scheduler_yield_and_die();
 
     // This function never returns.
+}
+
+/// The function run by the idle thread.
+/// Continually yields and should never die.
+extern "C" fn idle_function() -> Option<i32> {
+    loop {
+        scheduler_yield_and_continue();
+    }
 }

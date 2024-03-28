@@ -29,11 +29,13 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
     // Interrupts must be disabled.
     unsafe {
         let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
-        let switch_to = scheduler.pop().expect("No threads to run!");
+        let switch_to_option = scheduler.pop();
 
-        // Switch to this other thread.
-        // Since this is a voluntary switch, the current thread will be ready to run again.
-        switch_threads(status_for_current_thread, switch_to);
+        // Do not switch to ourselves.
+        if let Some(switch_to) = switch_to_option {
+            // Switch to this other thread.
+            switch_threads(status_for_current_thread, switch_to);
+        }
     }
 
     intr_enable();
