@@ -12,6 +12,7 @@ mod paging;
 mod sync;
 #[allow(unused)]
 mod threading;
+mod user_program;
 
 extern crate alloc;
 
