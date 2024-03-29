@@ -68,25 +68,20 @@ impl<T> Drop for SpinLockGuard<'_, T> {
 
 static INTR_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-// This function disables interrupt, and increments the interrupt count when called
+// This function disables interrupt
 #[allow(unused)]
 pub fn intr_disable() {
-    // Increment the disable count atomically
-    INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
     // disable
     unsafe {
         core::arch::asm!("cli", options(nomem, nostack));
     }
 }
 
-// This function decrements the interrupt count when called, and enables interrupt only when the count is 1.
+// This function enables interrupt
 pub fn intr_enable() {
-    // Decrement the disable count atomically and check if it's now zero (fetch_sub returns the previous value before decrement)
-    if INTR_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
-        // enable
-        unsafe {
-            core::arch::asm!("sti", options(nomem, nostack));
-        }
+    // enable
+    unsafe {
+        core::arch::asm!("sti", options(nomem, nostack));
     }
 }
 
@@ -116,9 +111,75 @@ pub fn intr_get_level() -> IntrLevel {
     }
 }
 
-// A structure for interrupt-based locking.
+// A structure for interrupt-based locking that uses a counter to restore interrupt level.
+pub struct InterruptCounterLock<T> {
+    data: UnsafeCell<T>,
+}
+
+// Safety: InterruptLock can be safely sent across threads.
+unsafe impl<T> Sync for InterruptCounterLock<T> {}
+unsafe impl<T> Send for InterruptCounterLock<T> {}
+
+impl<T> InterruptCounterLock<T> {
+    #![allow(unused)]
+
+    // Creates a new InterruptLock.
+    pub const fn new(data: T) -> InterruptCounterLock<T> {
+        InterruptCounterLock {
+            data: UnsafeCell::new(data),
+        }
+    }
+
+    // Acquires the lock by disabling interrupts and returns a guard.
+    // This function would ideally disable interrupts (using assembly or an external function call).
+    pub fn lock(&self) -> InterruptCounterLockGuard<T> {
+        // Increment the disable count atomically
+        INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
+        intr_disable();
+        InterruptCounterLockGuard { lock: self }
+    }
+
+    // This function would re-enable interrupts.
+    // It's separated for clarity and would be used by the `Drop` implementation of `InterruptLockGuard`.
+    fn unlock(&self) {
+        // Call function that enables interrupt only when there is no nested interrupt locks.
+        // Decrement the disable count atomically and check if it's now zero (fetch_sub returns the previous value before decrement)
+        if INTR_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
+            // enable
+            intr_enable();
+        }
+    }
+}
+
+// A guard that provides access to the data protected by the `InterruptLock`.
+// When the guard is dropped, the lock is released (interrupts are re-enabled).
+pub struct InterruptCounterLockGuard<'a, T> {
+    lock: &'a InterruptCounterLock<T>,
+}
+
+impl<T> Deref for InterruptCounterLockGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<T> DerefMut for InterruptCounterLockGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<T> Drop for InterruptCounterLockGuard<'_, T> {
+    fn drop(&mut self) {
+        self.lock.unlock();
+    }
+}
+
+// A structure for interrupt-based locking by storing the previous interrupt level to restore interrupt level.
 pub struct InterruptLock<T> {
     data: UnsafeCell<T>,
+    intr_level: AtomicUsize,
 }
 
 // Safety: InterruptLock can be safely sent across threads.
@@ -127,18 +188,22 @@ unsafe impl<T> Send for InterruptLock<T> {}
 
 impl<T> InterruptLock<T> {
     #![allow(unused)]
-
     // Creates a new InterruptLock.
     pub const fn new(data: T) -> InterruptLock<T> {
         InterruptLock {
             data: UnsafeCell::new(data),
+            intr_level: AtomicUsize::new(IntrLevel::IntrOn as usize),
         }
     }
 
     // Acquires the lock by disabling interrupts and returns a guard.
     // This function would ideally disable interrupts (using assembly or an external function call).
     pub fn lock(&self) -> InterruptLockGuard<T> {
+        // get previous interrupt level
+        let prev_level = intr_get_level();
         intr_disable();
+        // store the interrupt level in the lock's field
+        self.intr_level.store(prev_level as usize, Ordering::SeqCst);
         InterruptLockGuard { lock: self }
     }
 
@@ -146,7 +211,15 @@ impl<T> InterruptLock<T> {
     // It's separated for clarity and would be used by the `Drop` implementation of `InterruptLockGuard`.
     fn unlock(&self) {
         // Call function that enables interrupt only when there is no nested interrupt locks.
-        intr_enable();
+        let previous = self.intr_level.load(Ordering::SeqCst);
+        let previous_intr_level = match previous {
+            0 => IntrLevel::IntrOn,
+            1 => IntrLevel::IntrOff,
+            _ => panic!("Unexpected value stored in intr_level"),
+        };
+        if previous_intr_level == IntrLevel::IntrOn {
+            intr_enable();
+        }
     }
 }
 
