@@ -181,7 +181,7 @@ impl<A: Allocator> PageManager<A> {
     /// any existing pointers to refer to anything they shouldn't.
     pub unsafe fn load(&self) {
         let root_phys_addr = self.root.as_ptr() as usize - self.phys_to_alloc_addr_offset;
-        unsafe { asm!("mov cr3, {}", in(reg) root_phys_addr, options(nomem, nostack)) };
+        unsafe { asm!("mov cr3, {}", in(reg) root_phys_addr, options(nostack)) };
     }
 
     /// Returns whether these page tables are loaded.
@@ -438,7 +438,7 @@ pub unsafe fn enable() {
         ",
         out(reg) _,
         mask = const MASK,
-        options(nomem, nostack),
+        options(nostack),
     );
 }
 
@@ -515,7 +515,7 @@ lazy_static! {
         }
 
         // Otherwise, enable it and return true.
-        unsafe { asm!("mov cr4, {}", in(reg) cr4.with_pse(true).raw_value() as usize, options(nomem, nostack)) };
+        unsafe { asm!("mov cr4, {}", in(reg) cr4.with_pse(true).raw_value() as usize, options(nostack)) };
         true
     };
 }
