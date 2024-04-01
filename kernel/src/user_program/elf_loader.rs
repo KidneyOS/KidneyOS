@@ -161,7 +161,8 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
     if !is_user_vaddr(
         phdr.p_vaddr
             .checked_add(phdr.p_memsz)
-            .ok_or(ElfSegmentError::VMRegionWrapAround)? as *const (),
+            .ok_or(ElfSegmentError::VMRegionWrapAround)?
+            .saturating_sub(1) as *const (),
     ) {
         return Err(ElfSegmentError::VMRegionOutOfRange);
     }
