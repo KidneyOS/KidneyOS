@@ -56,6 +56,7 @@ pub enum ElfError {
     UnsupportedVersion,
     UnsupportedType,
     UnsupportedMachine,
+    SegmentError(ElfSegmentError),
     // Additional error types as needed
 }
 
@@ -193,7 +194,8 @@ fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
                 .cast::<Elf32Phdr>()
         };
 
-        if (ph.p_type == SegmentType::Load as u32) && validate_segment(ph, elf_data).is_ok() {
+        if (ph.p_type == SegmentType::Load as u32) {
+            validate_segment(ph, elf_data).map_err(ElfError::SegmentError)?;
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
