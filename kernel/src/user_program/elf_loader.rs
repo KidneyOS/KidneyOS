@@ -155,14 +155,15 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
     if !is_user_vaddr(phdr.p_vaddr as *const ()) {
         return Err(ElfSegmentError::VMRegionOutOfRange);
     }
-    if !is_user_vaddr((phdr.p_vaddr as usize + phdr.p_memsz as usize) as *const ()) {
-        return Err(ElfSegmentError::VMRegionOutOfRange);
-    }
 
     // The region cannot "wrap around" across the kernel virtual
     // address space.
-    if (phdr.p_vaddr as usize + phdr.p_memsz as usize) < (phdr.p_vaddr as usize) {
-        return Err(ElfSegmentError::VMRegionWrapAround);
+    if !is_user_vaddr(
+        phdr.p_vaddr
+            .checked_add(phdr.p_memsz)
+            .ok_or(ElfSegmentError::VMRegionWrapAround)? as *const (),
+    ) {
+        return Err(ElfSegmentError::VMRegionOutOfRange);
     }
 
     // Disallow mapping page 0.
