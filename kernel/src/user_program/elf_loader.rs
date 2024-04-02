@@ -134,8 +134,15 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
         return Err(ElfSegmentError::DifferentPageOffset);
     }
 
-    // p_offset must point within FILE.
-    if phdr.p_offset as usize > file_data.len() {
+    // The range must point within FILE.
+    // and the region cannot "wrap around" across the kernel virtual
+    // address space.
+    if (phdr
+        .p_offset
+        .checked_add(phdr.p_filesz)
+        .ok_or(ElfSegmentError::VMRegionWrapAround)? as usize)
+        > file_data.len()
+    {
         return Err(ElfSegmentError::OffsetOutOfRange);
     }
 
