@@ -64,10 +64,9 @@ pub enum ElfError {
 #[derive(Debug)]
 pub enum ElfSegmentError {
     DifferentPageOffset,
-    OffsetOutOfRange,
+    ContentsOutOfRange,
     MemSizeLesserThanFileSize,
     VMRegionOutOfRange,
-    VMRegionWrapAround,
     PageZeroMapping,
     // Additional error types as needed
 }
@@ -140,10 +139,10 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
     if (phdr
         .p_offset
         .checked_add(phdr.p_filesz)
-        .ok_or(ElfSegmentError::VMRegionWrapAround)? as usize)
+        .ok_or(ElfSegmentError::ContentsOutOfRange)? as usize)
         > file_data.len()
     {
-        return Err(ElfSegmentError::OffsetOutOfRange);
+        return Err(ElfSegmentError::ContentsOutOfRange);
     }
 
     // p_memsz must be at least as big as p_filesz.
@@ -162,7 +161,7 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
     if !is_user_vaddr(
         phdr.p_vaddr
             .checked_add(phdr.p_memsz)
-            .ok_or(ElfSegmentError::VMRegionWrapAround)?
+            .ok_or(ElfSegmentError::ContentsOutOfRange)?
             .saturating_sub(1) as *const (),
     ) {
         return Err(ElfSegmentError::VMRegionOutOfRange);
