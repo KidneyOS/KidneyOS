@@ -105,11 +105,32 @@ run-qemu-ng: $(ISO)
 
 # Misc
 
+LLVM_PROFILE_FILE := default.profraw
+export LLVM_PROFILE_FILE
+
+# NOTE: This needs to be updated if we add tests to the trampoline crate.
+LLVM_PROFILE_FILES := kernel/$(LLVM_PROFILE_FILE) shared/$(LLVM_PROFILE_FILE)
+
 .PHONY: test
-test:
-	cargo test --target i686-unknown-linux-gnu --workspace
+test $(LLVM_PROFILE_FILES):
+	RUSTFLAGS="-C instrument-coverage" cargo test \
+	   --target i686-unknown-linux-gnu --workspace
+
+.PHONY: report-coverage
+report-coverage: $(LLVM_PROFILE_FILES)
+	grcov $^ --binary-path build/target/i686-unknown-linux-gnu/debug \
+	    --branch --output-path build/coverage --output-types html --source-dir .
+
+build/coverage.md: $(LLVM_PROFILE_FILES)
+	grcov $(LLVM_PROFILE_FILES) \
+	    --binary-path build/target/i686-unknown-linux-gnu/debug \
+	    --branch --output-path $@ --output-types markdown --source-dir .
+
+.PHONY: print-coverage
+print-coverage: build/coverage.md
+	tail -n 1 $<
 
 .PHONY: clean
 clean:
 	cargo clean
-	rm -rf build
+	rm -rf build $(LLVM_PROFILE_FILES)
