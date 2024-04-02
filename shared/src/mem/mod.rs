@@ -1,7 +1,10 @@
+pub mod pool_allocator;
+
 use crate::sizes::{KB, MB};
 
 // Page size is 4KB. This is a property of x86 processors.
 pub const PAGE_FRAME_SIZE: usize = 4 * KB;
+pub const HUGE_PAGE_SIZE: usize = 4 * MB;
 
 macro_rules! linker_offsets {
     ($($name:ident),*) => {

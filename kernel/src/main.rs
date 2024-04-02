@@ -44,7 +44,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("IDTR set up!");
 
         println!("Enabling paging");
-        paging::enable();
+        let _page_manager = paging::enable();
         println!("Paging enabled!");
 
         thread_system_initialization();

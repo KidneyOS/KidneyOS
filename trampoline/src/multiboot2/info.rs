@@ -77,7 +77,6 @@ impl Info {
     pub const fn iter(&self) -> InfoIterator {
         InfoIterator {
             info: self,
-            #[allow(clippy::cast_possible_truncation)]
             offset: size_of::<Self>() as u32,
         }
     }
@@ -100,10 +99,7 @@ impl<'a> InfoIterator<'a> {
         // a multiple of 8, meaning the result of curr_ptr is guaranteed to have
         // an alignment of at least 64, which is greater than what is required
         // by Headers.
-        #[allow(clippy::cast_ptr_alignment)]
-        unsafe {
-            &*self.curr_ptr().cast::<Headers>()
-        }
+        unsafe { &*self.curr_ptr().cast::<Headers>() }
     }
 }
 
@@ -116,10 +112,7 @@ impl<'a> Iterator for InfoIterator<'a> {
             END_TYPE => return None,
             COMMANDLINE_TYPE | BOOT_LOADER_NAME_TYPE | BASIC_MEMORY_INFO_TYPE => {
                 // SAFETY: Same as curr_headers.
-                unsafe {
-                    #[allow(clippy::cast_ptr_alignment)]
-                    &*self.curr_ptr().cast::<InfoTag>()
-                }
+                unsafe { &*self.curr_ptr().cast::<InfoTag>() }
             }
             _ => {
                 // It is UB to cast this to a variant since its discriminant is
