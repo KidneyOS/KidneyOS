@@ -20,8 +20,8 @@
           overlays = [ (import rust-overlay) ];
           inherit system;
         };
-        inherit (pkgs) bochs gdb gnumake mkShell mtools qemu rust-analyzer
-          rust-bin unixtools xorriso;
+        inherit (pkgs) bochs gdb gnumake mkShell mtools qemu rust-bin unixtools
+          xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-pkgs = import nixpkgs {
@@ -72,7 +72,6 @@
             nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
               bochs
               gdb
-              rust-analyzer
               xxd
             ];
           });
