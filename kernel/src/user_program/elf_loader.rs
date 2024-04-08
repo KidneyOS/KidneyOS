@@ -63,7 +63,7 @@ pub enum ElfError {
 // Error types that will arise when we try to validate segment
 #[derive(Debug)]
 pub enum ElfSegmentError {
-    DifferentPageOffset,
+    DifferentAlignment,
     ContentsOutOfRange,
     MemSizeLesserThanFileSize,
     VMRegionOutOfRange,
@@ -79,7 +79,7 @@ const PF_R: u32 = 4; // Readable.
 
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 const PHYS_BASE: *const () = OFFSET as *const ();
-const PGMASK: usize = OFFSET - 1;
+const MIN_ALIGNMENT: u32 = 1;
 
 // Function to verify ELF header
 fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
@@ -129,9 +129,13 @@ fn is_user_vaddr(vaddr: *const ()) -> bool {
 }
 
 fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegmentError> {
-    // p_offset and p_vaddr must have the same page offset.
-    if (phdr.p_offset as usize & PGMASK) != (phdr.p_vaddr as usize & PGMASK) {
-        return Err(ElfSegmentError::DifferentPageOffset);
+    // Check alignment constraints.
+    // If p_align is NO_ALIGNMENT or MIN_ALIGNMENT, no alignment check is needed.
+    // Otherwise, p_offset and p_vaddr should be congruent modulo p_align. Check section 2-2 of ELF spec.
+    if (phdr.p_align > MIN_ALIGNMENT)
+        && (phdr.p_offset % phdr.p_align != phdr.p_vaddr % phdr.p_align)
+    {
+        return Err(ElfSegmentError::DifferentAlignment);
     }
 
     // The range must point within FILE.
