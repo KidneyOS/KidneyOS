@@ -67,6 +67,7 @@ pub enum ElfSegmentError {
     ContentsOutOfRange,
     MemSizeLesserThanFileSize,
     VMRegionOutOfRange,
+    VmRegionWrapAround,
     PageZeroMapping,
     // Additional error types as needed
 }
@@ -134,8 +135,6 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
     }
 
     // The range must point within FILE.
-    // and the region cannot "wrap around" across the kernel virtual
-    // address space.
     if (phdr
         .p_offset
         .checked_add(phdr.p_filesz)
@@ -161,7 +160,7 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
     if !is_user_vaddr(
         phdr.p_vaddr
             .checked_add(phdr.p_memsz)
-            .ok_or(ElfSegmentError::ContentsOutOfRange)?
+            .ok_or(ElfSegmentError::VmRegionWrapAround)?
             .saturating_sub(1) as *const (),
     ) {
         return Err(ElfSegmentError::VMRegionOutOfRange);
