@@ -1,7 +1,12 @@
+/* This file is part of a system that loads and validates ELF (Executable and Linkable Format) binaries,
+commonly used for executables and shared libraries in Unix-like operating systems. See ELF Spec: https://refspecs.linuxfoundation.org/elf/elf.pdf */
+
 use super::virtual_memory_area::{VmAreaStruct, VmFlags};
 use alloc::vec::Vec;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
+/* Executable header.  See [ELF1] 1-4 to 1-8.
+This appears at the very beginning of an ELF binary. */
 #[repr(C)]
 #[derive(Debug)]
 struct Elf32Ehdr {
@@ -21,6 +26,7 @@ struct Elf32Ehdr {
     e_shstrndx: u16,
 }
 
+/* Program header.  See [ELF1] 2-2 to 2-4.*/
 #[repr(C)]
 #[derive(Debug)]
 struct Elf32Phdr {
@@ -34,6 +40,7 @@ struct Elf32Phdr {
     p_align: u32,
 }
 
+/* Values for p_type.  See [ELF1] 2-3. */
 #[repr(u32)]
 #[derive(Debug, PartialEq)]
 #[allow(unused)]
@@ -48,6 +55,7 @@ pub enum SegmentType {
     Stack = 0x6474e551, // Stack segment.
 }
 
+/* Various fields to ensure the ELF file is valid and compatible with the system's expectations. */
 #[derive(Debug)]
 pub enum ElfError {
     InvalidMagicNumber,
@@ -78,7 +86,15 @@ const PF_W: u32 = 2; // Writable.
 const PF_R: u32 = 4; // Readable.
 
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
+
+/* The value of PHYS_BASE determines the boundary between user and kernel space.
+With a PHYS_BASE of 4096, any address from 0 to 4095 would be considered user space,
+and addresses from 4096 and above would be considered kernel space. */
 const PHYS_BASE: *const () = OFFSET as *const ();
+
+/* For p_align, this member gives the value to which the
+segments are aligned in memory and in the file. Values 0 and 1 mean that no
+alignment is required. */
 const MIN_ALIGNMENT: u32 = 1;
 
 // Function to verify ELF header
@@ -118,16 +134,22 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
     Ok(())
 }
 
+/* This function takes a pointer to a constant void type, and returns a boolean indicating
+whether or not the given address is within the kernel's address space. */
 #[allow(unused)]
 fn is_kernel_vaddr(vaddr: *const ()) -> bool {
     unsafe { vaddr >= PHYS_BASE }
 }
 
+/* This function takes a pointer to a constant void type, and returns a boolean indicating
+whether or not the given address is within the user's address space. */
 #[allow(unused)]
 fn is_user_vaddr(vaddr: *const ()) -> bool {
     unsafe { vaddr < PHYS_BASE }
 }
 
+/* Checks whether phdr describes a valid, loadable segment in
+FILE and returns ok if so, ElfSegmentError otherwise. */
 fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegmentError> {
     // Check alignment constraints.
     // If p_align is NO_ALIGNMENT or MIN_ALIGNMENT, no alignment check is needed.
