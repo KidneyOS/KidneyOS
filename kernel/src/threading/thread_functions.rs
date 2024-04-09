@@ -21,8 +21,8 @@ pub type ThreadFunction = unsafe extern "C" fn() -> Option<i32>;
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
 pub fn exit_thread(exit_code: i32) -> ! {
-    // Disable interrupts.
-    // TODO: Does this cause issues with the counter? Do we need a 'force enable' or 'reset' for this?
+
+    // We will never return here so do not need to re-enable interrupts from here.
     intr_disable();
 
     // Get the current thread.
@@ -63,7 +63,7 @@ unsafe extern "C" fn run_thread(
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    intr_enable();
+    intr_enable(crate::sync::IntrLevel::IntrOn);
 
     // Run the thread.
     let exit_code = entry_function().unwrap_or_default();

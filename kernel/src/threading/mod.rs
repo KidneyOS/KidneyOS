@@ -91,7 +91,7 @@ pub fn thread_system_start() -> ! {
     }
 
     // Enable preemptive scheduling.
-    intr_enable();
+    intr_enable(IntrLevel::IntrOn);
 
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources.
