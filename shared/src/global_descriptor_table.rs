@@ -1,9 +1,11 @@
 // https://wiki.osdev.org/GDT
 // https://wiki.osdev.org/GDT_Tutorial
 
-use arbitrary_int::{u2, u20};
+use arbitrary_int::{u13, u2, u20};
 use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
+
+use crate::segment::SegmentSelector;
 
 #[bitfield(u64, default = 0)]
 struct SegmentDescriptor {
@@ -49,7 +51,7 @@ struct GDTDescriptor {
 
 const GDT_LEN: usize = 5;
 
-const GDT: &[SegmentDescriptor; GDT_LEN] = &[
+static mut GDT: [SegmentDescriptor; GDT_LEN] = [
     // Null Descriptor
     SegmentDescriptor::DEFAULT,
     // Kernel Mode Code
@@ -85,6 +87,17 @@ const GDT: &[SegmentDescriptor; GDT_LEN] = &[
     // TODO: may need to add task state segment here at some point.
 ];
 
+pub const KERNEL_CODE_SELECTOR: u16 = SegmentSelector::DEFAULT.with_index(u13::new(1)).raw_value();
+pub const KERNEL_DATA_SELECTOR: u16 = SegmentSelector::DEFAULT.with_index(u13::new(2)).raw_value();
+pub const USER_CODE_SELECTOR: u16 = SegmentSelector::DEFAULT
+    .with_requested_privilege_level(u2::new(3))
+    .with_index(u13::new(3))
+    .raw_value();
+pub const USER_DATA_SELECTOR: u16 = SegmentSelector::DEFAULT
+    .with_requested_privilege_level(u2::new(3))
+    .with_index(u13::new(4))
+    .raw_value();
+
 static mut GDT_DESCRIPTOR: GDTDescriptor = GDTDescriptor {
     size: size_of::<[SegmentDescriptor; GDT_LEN]>() as u16 - 1,
     offset: 0, // Will fetch pointer and set at runtime below.
@@ -101,17 +114,19 @@ pub unsafe fn load() {
     // long jump syntax...
     asm!(
         "
-        lgdt [{}]
-        ljmp $0x08, $2f
+        lgdt 0({0})
+        ljmp ${code_selector}, $2f
 2:
-        mov $0x10, %eax
-        mov %eax, %ds
-        mov %eax, %es
-        mov %eax, %fs
-        mov %eax, %gs
-        mov %eax, %ss
+        mov ${data_selector}, {0}
+        mov {0}, %ds
+        mov {0}, %es
+        mov {0}, %fs
+        mov {0}, %gs
+        mov {0}, %ss
         ",
-        sym GDT_DESCRIPTOR,
+        in(reg) &GDT_DESCRIPTOR as *const GDTDescriptor as usize,
+        code_selector = const KERNEL_CODE_SELECTOR,
+        data_selector = const KERNEL_DATA_SELECTOR,
         options(att_syntax),
     );
 }

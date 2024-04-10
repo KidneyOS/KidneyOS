@@ -31,6 +31,7 @@ It contains fields for the start and end addresses of the VMA, an instance of Vm
 pub struct VmAreaStruct {
     pub vm_start: usize, // VMA start, inclusive
     pub vm_end: usize,   // VMA end, exclusive
+    pub offset: usize,
     pub flags: VmFlags,
     // TODO: Add other necessary fields here
 }
@@ -48,10 +49,11 @@ pub struct VmFlags {
 }
 
 impl VmAreaStruct {
-    pub fn new(vm_start: usize, vm_end: usize, flags: VmFlags) -> Self {
+    pub fn new(vm_start: usize, vm_end: usize, offset: usize, flags: VmFlags) -> Self {
         Self {
             vm_start,
             vm_end,
+            offset,
             flags,
             // TODO: initialize other fields
         }

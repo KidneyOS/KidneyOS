@@ -4,14 +4,15 @@ mod frame_allocator;
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
 use core::{
-    alloc::{Allocator, GlobalAlloc, Layout},
+    alloc::{AllocError, Allocator, GlobalAlloc, Layout},
     cell::UnsafeCell,
     ops::Range,
     ptr::NonNull,
 };
 use frame_allocator::FrameAllocatorSolution;
 use kidneyos_shared::{
-    mem::{virt::trampoline_heap_top, OFFSET, PAGE_FRAME_SIZE},
+    eprintln,
+    mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
 };
@@ -48,17 +49,61 @@ where
     fn dealloc(&mut self, start: usize);
 }
 
+struct FrameAllocatorWrapper<A: Allocator> {
+    start: NonNull<u8>,
+    frame_allocator: FrameAllocatorSolution<A>,
+}
+
+impl<A: Allocator> FrameAllocatorWrapper<A> {
+    fn new_in(alloc: A, start: NonNull<u8>, max_frames: usize) -> Self {
+        Self {
+            start,
+            frame_allocator: FrameAllocatorSolution::new_in(alloc, max_frames),
+        }
+    }
+
+    pub fn alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
+        let Some(range) = self.frame_allocator.alloc(frames) else {
+            return Err(AllocError);
+        };
+
+        Ok(NonNull::slice_from_raw_parts(
+            NonNull::new(unsafe { self.start.as_ptr().add(range.start * PAGE_FRAME_SIZE) })
+                .ok_or(AllocError)?,
+            range.len() * PAGE_FRAME_SIZE,
+        ))
+    }
+
+    pub fn dealloc(&mut self, ptr: NonNull<u8>) {
+        let start = (ptr.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
+        self.frame_allocator.dealloc(start);
+    }
+}
+
 enum KernelAllocatorState {
     Uninitialized,
     Initialized {
-        frame_allocator: FrameAllocatorSolution<BuddyAllocator>,
-        frames_base: *mut u8,
-        subblock_allocators: Vec<(BuddyAllocator, Range<usize>), BuddyAllocator>,
+        frame_allocator: FrameAllocatorWrapper<BuddyAllocator>,
+        subblock_allocators: Vec<(BuddyAllocator, NonNull<[u8]>), BuddyAllocator>,
     },
 }
 
 pub struct KernelAllocator {
     state: UnsafeCell<KernelAllocatorState>,
+}
+
+// halt is used for cases where we would panic in KernelAllocator, but can't
+// because doing so causes undefined behaviour as per the GlobalAlloc safety
+// contract.
+macro_rules! halt {
+    () => {{
+        super::eprintln!();
+        loop {}
+    }};
+    ($($arg:tt)*) => {{
+        kidneyos_shared::eprintln!($($arg)*);
+        loop {}
+    }};
 }
 
 impl KernelAllocator {
@@ -80,12 +125,6 @@ impl KernelAllocator {
             panic!("init called while kernel allocator was already initialized");
         };
 
-        // TODO: Check bounds with assertions.
-
-        // TODO: We currently leave 8MB for the bootstrap allocator. This
-        // should be re-evaluated later.
-        const BUDDY_ALLOCATOR_SIZE: usize = 8 * MB;
-
         // "Upper memory" (as opposed to "lower memory") starts at 1MB.
         const UPPER_MEMORY_START: usize = MB + OFFSET;
 
@@ -93,22 +132,45 @@ impl KernelAllocator {
         // in a KB by mem_upper, and adding this to UPPER_MEMORY_START.
         let frames_max = UPPER_MEMORY_START.saturating_add(mem_upper * KB);
 
-        // We start kernel virtual memory at the very end of upper memory, so
-        // the start address is the max address minus the size.
         let bootstrap_base = trampoline_heap_top() as *mut u8;
 
         let bootstrap_allocator = BuddyAllocator::new(NonNull::slice_from_raw_parts(
             NonNull::new_unchecked(bootstrap_base),
-            BUDDY_ALLOCATOR_SIZE,
+            BOOTSTRAP_ALLOCATOR_SIZE,
         ));
 
-        let frames_base = bootstrap_base.add(BUDDY_ALLOCATOR_SIZE);
+        let frames_base = bootstrap_base.add(BOOTSTRAP_ALLOCATOR_SIZE).cast::<u8>();
         let max_frames = (frames_max - frames_base as usize) / PAGE_FRAME_SIZE;
         *self.state.get_mut() = KernelAllocatorState::Initialized {
-            frame_allocator: FrameAllocatorSolution::new_in(bootstrap_allocator, max_frames),
-            frames_base,
+            frame_allocator: FrameAllocatorWrapper::new_in(
+                bootstrap_allocator,
+                NonNull::new(frames_base).expect("frames_base can't be null"),
+                max_frames,
+            ),
             subblock_allocators: Vec::new_in(bootstrap_allocator),
         };
+    }
+
+    pub unsafe fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
+        let KernelAllocatorState::Initialized {
+            frame_allocator, ..
+        } = &mut *self.state.get()
+        else {
+            return Err(AllocError);
+        };
+
+        frame_allocator.alloc(frames)
+    }
+
+    pub unsafe fn frame_dealloc(&mut self, ptr: NonNull<u8>) {
+        let KernelAllocatorState::Initialized {
+            frame_allocator, ..
+        } = &mut *self.state.get()
+        else {
+            halt!("dealloc called before initialization of kernel allocator");
+        };
+
+        frame_allocator.dealloc(ptr)
     }
 
     /// Deinitialize the kernel allocator, printing information about any leaks
@@ -144,20 +206,6 @@ impl KernelAllocator {
     }
 }
 
-// halt is used for cases where we would panic in KernelAllocator, but can't
-// because doing so causes undefined behaviour as per the GlobalAlloc safety
-// contract.
-macro_rules! halt {
-    () => {{
-        super::eprintln!();
-        loop {}
-    }};
-    ($($arg:tt)*) => {{
-        kidneyos_shared::eprintln!($($arg)*);
-        loop {}
-    }};
-}
-
 // SAFETY:
 //
 // - We don't panic.
@@ -167,7 +215,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let KernelAllocatorState::Initialized {
             frame_allocator,
-            frames_base,
             subblock_allocators,
         } = &mut *self.state.get()
         else {
@@ -182,7 +229,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
             }
         }
 
-        let Some(range) = frame_allocator.alloc(
+        let Ok(region) = frame_allocator.alloc(
             (layout.size() + layout.align() - 1 + BuddyAllocator::OVERHEAD)
                 .next_multiple_of(PAGE_FRAME_SIZE)
                 / PAGE_FRAME_SIZE,
@@ -190,12 +237,8 @@ unsafe impl GlobalAlloc for KernelAllocator {
             halt!("Out of virtual memory!");
         };
 
-        let region = NonNull::slice_from_raw_parts(
-            NonNull::new_unchecked(frames_base.add(range.start * PAGE_FRAME_SIZE)),
-            range.len() * PAGE_FRAME_SIZE,
-        );
         let buddy_allocator = BuddyAllocator::new(region);
-        subblock_allocators.push((buddy_allocator, range));
+        subblock_allocators.push((buddy_allocator, region));
         buddy_allocator
             .allocate(layout)
             .expect("new buddy allocator created with sufficient region failed to fit planned allocation")
@@ -206,25 +249,36 @@ unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let KernelAllocatorState::Initialized {
             frame_allocator,
-            frames_base,
             subblock_allocators,
         } = &mut *self.state.get()
         else {
             halt!("dealloc called before initialization of kernel allocator");
         };
 
-        let frame_index = (ptr as usize - *frames_base as usize) / PAGE_FRAME_SIZE;
-
         // Scope ensures we drop subblock_allocator (which should be the only
         // reference to it, or its memory) before dealloc'ing its backing frames
         // out from under it.
-        let (at, start) = {
-            let Some((at, (subblock_allocator, range))) = subblock_allocators
+        let (at, ptr) = {
+            let Some((at, (subblock_allocator, region))) = subblock_allocators
                 .iter()
                 .enumerate()
-                .find(|(_, (_, range))| range.contains(&frame_index))
+                .find(|(_, (_, region))| {
+                    let start = region.as_ptr().cast::<u8>();
+                    start <= ptr && ptr < start.add(region.len())
+                })
             else {
-                halt!("internal inconsistency detected in kernel allocator")
+                for (_, region) in subblock_allocators {
+                    eprintln!(
+                        "region start: {:#X} end: {:#X}",
+                        region.as_ptr().cast::<u8>() as usize,
+                        region.as_ptr().cast::<u8>().add(region.len()) as usize
+                    )
+                }
+
+                halt!(
+                    "internal inconsistency detected in kernel allocator with ptr {:#X}",
+                    ptr as usize
+                )
             };
 
             subblock_allocator.deallocate(NonNull::new_unchecked(ptr), layout);
@@ -233,10 +287,10 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 return;
             }
 
-            (at, range.start)
+            (at, region.cast::<u8>())
         };
 
         subblock_allocators.remove(at);
-        frame_allocator.dealloc(start);
+        frame_allocator.dealloc(ptr);
     }
 }

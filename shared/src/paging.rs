@@ -21,6 +21,7 @@ use lazy_static::lazy_static;
 
 const PAGE_DIRECTORY_LEN: usize = PAGE_FRAME_SIZE / size_of::<PageDirectoryEntry>();
 
+#[derive(Clone)]
 #[repr(align(4096))]
 struct PageDirectory([PageDirectoryEntry; PAGE_DIRECTORY_LEN]);
 
@@ -251,10 +252,10 @@ impl<A: Allocator> PageManager<A> {
             // entry, so it's safe for us to enable things here. Same goes for
             // user_supervisor.
             if write && !page_directory[pdi].read_write() {
-                page_directory[pdi] = page_directory[pdi].with_read_write(write);
+                page_directory[pdi] = page_directory[pdi].with_read_write(true);
             }
             if user && !page_directory[pdi].user_supervisor() {
-                page_directory[pdi] = page_directory[pdi].with_user_supervisor(user);
+                page_directory[pdi] = page_directory[pdi].with_user_supervisor(true);
             }
 
             page_table
@@ -272,6 +273,7 @@ impl<A: Allocator> PageManager<A> {
         page_table[page_table_index] = PageTableEntry::default()
             .with_present(true)
             .with_read_write(write)
+            .with_user_supervisor(user)
             .with_page_frame(u20::new(phys_frame));
     }
 
@@ -284,8 +286,8 @@ impl<A: Allocator> PageManager<A> {
     /// Same as `map`.
     pub unsafe fn huge_map(&mut self, phys_addr: usize, virt_addr: usize, write: bool, user: bool) {
         assert!(
-            phys_addr % HUGE_PAGE_SIZE == 0,
-            "phys_addr was not properly aligned"
+            phys_addr % PAGE_FRAME_SIZE == 0,
+            "phys_addr was not page-frame-aligned"
         );
         assert!(
             virt_addr % HUGE_PAGE_SIZE == 0,
@@ -382,6 +384,19 @@ impl<A: Allocator> PageManager<A> {
         user: bool,
     ) {
         self.map_range(start, start, frames_len, write, user);
+    }
+}
+
+impl<A: Allocator + Copy> Clone for PageManager<A> {
+    fn clone(&self) -> Self {
+        let Ok(root_addr) = self.alloc.allocate(PAGE_DIRECTORY_LAYOUT) else {
+            panic!("allocation failed");
+        };
+
+        let mut root = root_addr.cast::<PageDirectory>();
+        unsafe { *root.as_mut() = (*self.root.as_ptr()).clone() };
+
+        Self { root, ..*self }
     }
 }
 

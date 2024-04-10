@@ -1,9 +1,15 @@
-use crate::sync::intr_enable;
-
 use super::{
     scheduling::SCHEDULER,
-    thread_control_block::{ThreadControlBlock, ThreadStatus},
+    thread_control_block::{
+        ThreadControlBlock, ThreadStatus, STACK_BOTTOM_VADDR, THREAD_STACK_FRAMES,
+    },
     RUNNING_THREAD,
+};
+use crate::sync::intr_enable;
+use core::arch::asm;
+use kidneyos_shared::{
+    global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
+    mem::PAGE_FRAME_SIZE,
 };
 
 use alloc::boxed::Box;
@@ -13,6 +19,35 @@ use alloc::boxed::Box;
 ///
 /// A function that may be used for thread creation.
 pub type ThreadFunction = unsafe extern "C" fn() -> ();
+
+unsafe fn iret(_thread_function: ThreadFunction) {
+    // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
+    // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
+
+    asm!(
+        "
+        xchg bx, bx
+
+        mov ds, {0:x}
+        mov es, {0:x}
+        mov fs, {0:x}
+        mov gs, {0:x} // SS and CS are handled by iret
+
+        // set up the stack frame iret expects
+        push {0:e} // stack segment
+        push {stack} // esp
+        pushfd // eflags
+        push {code_selector} // code segment
+        push {eip} // eip
+        iretd
+        ",
+        in(reg) USER_DATA_SELECTOR,
+        stack = const STACK_BOTTOM_VADDR + THREAD_STACK_FRAMES * PAGE_FRAME_SIZE - 8, // TODO: Off by one?
+        code_selector = const USER_CODE_SELECTOR,
+        eip = in(reg) 0x08049000_u32,
+        options(noreturn),
+    )
+}
 
 /// A function to safely close a thread.
 const fn exit_thread() -> ! {
@@ -34,7 +69,7 @@ unsafe extern "C" fn run_thread(
     (*switched_to).status = ThreadStatus::Running;
 
     // Reschedule our threads.
-    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switched_to));
+    RUNNING_THREAD = Some(Box::from_raw(switched_to));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
@@ -45,7 +80,7 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Run the thread.
-    entry_function();
+    iret(entry_function);
 
     // Safely exit the thread.
     exit_thread();

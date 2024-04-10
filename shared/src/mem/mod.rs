@@ -72,3 +72,7 @@ pub const OFFSET: usize = 0xC0000000;
 // TODO: Figure out how to detect kernel stack overflows.
 pub const MAIN_STACK_SIZE: usize = 32 * KB;
 pub const TRAMPOLINE_HEAP_SIZE: usize = 8 * MB;
+
+// TODO: We currently leave 8MB for the bootstrap allocator. This should be
+// re-evaluated later.
+pub const BOOTSTRAP_ALLOCATOR_SIZE: usize = 8 * MB;
