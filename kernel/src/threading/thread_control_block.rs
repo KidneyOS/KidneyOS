@@ -4,7 +4,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU16, Ordering};
 
 use alloc::alloc::Global;
-use kidneyos_shared::sizes::KB;
+use kidneyos_shared::sizes::MB;
 
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
 
@@ -13,7 +13,7 @@ pub type Tid = u16;
 // Current value marks the next avaliable TID value to use.
 static mut NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
-pub const THREAD_STACK_SIZE: usize = KB * 4;
+pub const THREAD_STACK_SIZE: usize = MB;
 
 #[allow(unused)]
 #[derive(PartialEq)]
