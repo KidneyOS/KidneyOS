@@ -16,12 +16,11 @@ use alloc::boxed::Box;
 ///
 /// A function that may be used for thread creation.
 /// The return value will be the exit code of this thread.
-pub type ThreadFunction = unsafe extern "C" fn() -> Option<i32>;
+pub type ThreadFunction = unsafe extern "C" fn() -> i32;
 
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
 pub fn exit_thread(exit_code: i32) -> ! {
-
     // We will never return here so do not need to re-enable interrupts from here.
     intr_disable();
 
@@ -66,7 +65,7 @@ unsafe extern "C" fn run_thread(
     intr_enable(crate::sync::IntrLevel::IntrOn);
 
     // Run the thread.
-    let exit_code = entry_function().unwrap_or_default();
+    let exit_code = entry_function();
 
     // Safely exit the thread.
     exit_thread(exit_code);
@@ -85,7 +84,7 @@ impl PrepareThreadContext {
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
-unsafe extern "C" fn prepare_thread() -> Option<i32> {
+unsafe extern "C" fn prepare_thread() -> i32 {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.

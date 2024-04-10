@@ -13,20 +13,20 @@ use alloc::boxed::Box;
 use scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
 
-pub extern "C" fn test_func() -> Option<i32> {
+pub extern "C" fn test_func() -> i32 {
     for i in 1..5 {
         println!("Hello threads! {}", i);
         scheduler_yield_and_continue();
     }
-    Some(1)
+    1
 }
 
-pub extern "C" fn test_func_2() -> Option<i32> {
+pub extern "C" fn test_func_2() -> i32 {
     for i in 1..5 {
         println!("Goodbye threads! {}", i);
         scheduler_yield_and_continue();
     }
-    Some(2)
+    2
 }
 
 static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
@@ -103,7 +103,7 @@ pub fn thread_system_start() -> ! {
 
 /// The function run by the idle thread.
 /// Continually yields and should never die.
-extern "C" fn idle_function() -> Option<i32> {
+extern "C" fn idle_function() -> i32 {
     loop {
         scheduler_yield_and_continue();
     }
