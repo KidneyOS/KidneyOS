@@ -21,7 +21,7 @@
           inherit system;
         };
         inherit (pkgs) bochs gdb gnumake grcov mdbook mdsh mkShell mtools qemu
-          rust-bin unixtools xorriso;
+          rust-bin shellcheck unixtools xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-pkgs = import nixpkgs {
@@ -75,6 +75,7 @@
               gdb
               mdbook
               mdsh
+              shellcheck
               xxd
             ];
           });

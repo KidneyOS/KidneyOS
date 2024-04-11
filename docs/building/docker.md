@@ -18,14 +18,14 @@ cd KidneyOS
 
 ## Install Docker
 
-If you already have Docker installed, you can skip this step. If you're on Linux, install the [`docker`](https://repology.org/project/docker/versions) package using your package manager. Otherwise, install Docker Desktop, which can be downloaded [here for MacOS](https://docs.docker.com/desktop/install/mac-install/) or [here for Windows](https://docs.docker.com/desktop/install/windows-install/).
+If you already have Docker installed, you can skip this step. If you're on Linux, install the [`docker`](https://repology.org/project/docker/versions) package using your package manager. Otherwise, install Docker Desktop, which can be downloaded [for MacOS from here](https://docs.docker.com/desktop/install/mac-install/) or [for Windows from here](https://docs.docker.com/desktop/install/windows-install/).
 
 ## Run Container
 
 Then execute the appropriate script. For Linux or MacOS, use the following:
 
 ```sh
-scripts/run-container.sh
+scripts/run-container.bash
 ```
 
 ...or for Windows:

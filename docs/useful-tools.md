@@ -15,10 +15,10 @@ The QEMU process will wait for GDB to attach before starting the OS.
 The root of the KidneyOS repository contains a `.gdbinit` file, which makes a variety of useful configuration tweaks. Before GDB will use this file though, you'll likely need to add the following to your user-level gdbinit file (which is located at `~/.config/gdb/gdbinit` on Linux and MacOS):
 
 ```gdbinit
-set auto-load safe-path .../KidneyOS # Replace this with the path to your repository.
+set auto-load safe-path KidneyOS # Replace "KidneyOS" with the path to your repository.
 ```
 
-Then, run the following from the root of the KidneyOS repository. (If you built KidneyOS with Docker and are running QEMU on your host, and `rust-gdb` is not installed on your host system, you can also use plain `gdb`, it just won't have the Rust-specific pretty printers added by `rust-gdb`, which is just a wrapper script.)
+Then, run the following from the root of the KidneyOS repository. (If you built KidneyOS with Docker and are running QEMU on your host, and `rust-gdb` is not installed on your host system, you can also use plain `gdb`, though it won't have the Rust-specific pretty printers added by `rust-gdb`, which is a wrapper script for `gdb`.)
 
 ```sh
 rust-gdb
@@ -41,3 +41,13 @@ make run-bochs
 ```
 
 The `bochs_break!` macro (which is defined in `shared/src/macros.rs`) may be of use when running KidneyOS with Bochs.
+
+## Code Coverage
+
+If you're writing tests and want to see which lines are being executed by the tests, the Makefile provides targets that help with this. To produce an HTML coverage report, run the following:
+
+```sh
+make test report-coverage
+```
+
+This will run the tests and produce a report at `build/coverage/index.html`.

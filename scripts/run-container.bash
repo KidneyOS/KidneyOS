@@ -3,13 +3,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [-p | --podman]" 2>&1
+  echo "Usage: $0 [-p | --podman]" >&2
   exit 2
 }
 
-extra_flags=
 case "$#" in
   0)
+    extra_flags=
     ;;
   1)
     case "$1" in

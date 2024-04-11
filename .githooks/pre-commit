@@ -5,8 +5,10 @@ set -euo pipefail
 cargo clippy --target i686-unknown-linux-gnu -- -D warnings
 cargo fmt -- --quiet --check
 
-find -name '*.md' \
-  | xargs dirname \
-  | sort -u \
-  | xargs -I '{}' sh -c 'cd {} && mdsh --frozen -i *.md' \
-  |& grep -Ev "^(Using input=|\[> )" || true
+# Skipping either of thse checks is OK if the tool isn't installed.
+if command -v mdsh >/dev/null; then
+  scripts/check-mdsh.bash
+fi
+if command -v shellcheck >/dev/null; then
+  shellcheck .githooks/pre-commit scripts/*sh
+fi

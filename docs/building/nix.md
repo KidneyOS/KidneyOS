@@ -2,7 +2,7 @@
 
 This section describes how to build KidneyOS using the Nix package manager.
 
-> ❗ This method is only supported on `x86_64-linux` and `aarch64-linux` hosts, or in WSL.
+> ❗ This method is only supported on `x86_64-linux` and `aarch64-linux` hosts. You can still use it indirectly on other host systems via [WSL](https://learn.microsoft.com/en-us/windows/wsl) or a virtual machine, but installing WSL or seting up a virtual machine will be up to you. If you chose to do this, all of the following commands should be run in the WSL or virtual machine environment.
 
 ## Installing Nix
 
@@ -32,7 +32,7 @@ nix --extra-experimental-features flakes \
     develop ./nix#
 ```
 
-(The `--extra-experimental-features` flags may be unnecessary depending on your Nix version and configuration.) Note that it may take a while for everything to be downloaded and built. Once it finishes, you should be in a shell containing everything needed to build KidneyOS. You will need to run the command each time you want to enter a shell in which you can build KidneyOS.
+(The `--extra-experimental-features` flags may be unnecessary depending on your Nix version and configuration.) Note that it may take a while for everything to be downloaded and built. Once it finishes, you should be in a shell containing everything needed to build and run KidneyOS. You will need to run the command each time you want to enter a shell in which you can build KidneyOS.
 
 ### Direnv
 
@@ -43,3 +43,5 @@ direnv allow
 ```
 
 ...from the root of the KidneyOS repository. Now, every time you `cd` into the KidneyOS repository, the "devshell" environment will automatically be made available, without you having to run any commands.
+
+> If you use an IDE, installing its direnv extension/plugin (if one is available) and setting this up to use the environment defined in the KidneyOS repository may result in better error messages and autocompletion. The VSCode extension is available [here](https://marketplace.visualstudio.com/items?itemName=mkhl.direnv).
