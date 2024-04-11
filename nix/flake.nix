@@ -49,6 +49,16 @@
         };
 
         devShells = {
+          # If you make changes to this, once they're merged be sure to push
+          # updated Docker containers to the GitHub container registry by
+          # running:
+          #
+          # ```sh
+          # scripts/build-container.bash && scripts/push-container.bash
+          # ```
+          #
+          # ...on a x86_64-linux host and the same commands but with the `--arm`
+          # flags added on a aarch64-linux host.
           build = mkShell {
             packages = [
               gnumake
