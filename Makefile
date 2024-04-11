@@ -103,6 +103,16 @@ run-qemu-ng: $(ISO)
 	# NOTE: You can quit with Ctrl-A X
 	qemu-system-i386 -nographic $(QEMU_FLAGS)
 
+# Docs
+
+.PHONY: docs
+docs:
+	mdbook build docs
+
+.PHONY: docs-serve
+docs-serve:
+	mdbook serve docs
+
 # Misc
 
 LLVM_PROFILE_FILE := default.profraw

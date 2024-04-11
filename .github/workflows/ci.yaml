@@ -1,13 +1,12 @@
-# TODO: Add workflow to check mdsh and build and deploy book to github pages from main
-
-name: Clippy, formatting, tests, and ISO
+name: Run Checks and Deploy Docs
 on:
   push:
     branches: ["**"]
 env:
   CARGO_TERM_COLOR: always
 jobs:
-  CI:
+  checks:
+    name: Check clippy, rustfmt, and tests; build ISO and docs
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -39,3 +38,26 @@ jobs:
     - name: Build ISO
       if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
       run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make
+    - name: Build Docs
+      id: docs
+      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make docs
+    - name: Upload Docs Artifact
+      if: ${{ !cancelled() && steps.docs.outcome == 'success' && github.ref-name == 'main' }}
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: build/docs
+  deploy-docs:
+    # This is a separate job so we're not running everything else with the
+    # additional permissions required for the deploy step.
+    name: Deploy Docs
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    needs: checks
+    if: ${{ github.ref-name == 'main' }}
+    steps:
+      - name: Deploy Docs to GitHub Pages
+        uses: actions/deploy-pages@v4

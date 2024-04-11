@@ -65,6 +65,7 @@
               grcov
               grub2
               i686-cc
+              mdbook
               mtools
               qemu
               rust
@@ -83,7 +84,6 @@
             nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
               bochs
               gdb
-              mdbook
               mdsh
               shellcheck
               xxd
