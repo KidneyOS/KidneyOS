@@ -1,6 +1,12 @@
+/* This file is part of a system that loads and validates ELF (Executable and Linkable Format) binaries,
+commonly used for executables and shared libraries in Unix-like operating systems. See ELF Spec: https://refspecs.linuxfoundation.org/elf/elf.pdf */
+
 use super::virtual_memory_area::{VmAreaStruct, VmFlags};
 use alloc::vec::Vec;
+use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
+/* Executable header.  See [ELF1] 1-4 to 1-8.
+This appears at the very beginning of an ELF binary. */
 #[repr(C)]
 #[derive(Debug)]
 struct Elf32Ehdr {
@@ -20,6 +26,7 @@ struct Elf32Ehdr {
     e_shstrndx: u16,
 }
 
+/* Program header.  See [ELF1] 2-2 to 2-4.*/
 #[repr(C)]
 #[derive(Debug)]
 struct Elf32Phdr {
@@ -33,6 +40,7 @@ struct Elf32Phdr {
     p_align: u32,
 }
 
+/* Values for p_type.  See [ELF1] 2-3. */
 #[repr(u32)]
 #[derive(Debug, PartialEq)]
 #[allow(unused)]
@@ -47,6 +55,7 @@ pub enum SegmentType {
     Stack = 0x6474e551, // Stack segment.
 }
 
+/* Various fields to ensure the ELF file is valid and compatible with the system's expectations. */
 #[derive(Debug)]
 pub enum ElfError {
     InvalidMagicNumber,
@@ -55,6 +64,19 @@ pub enum ElfError {
     UnsupportedVersion,
     UnsupportedType,
     UnsupportedMachine,
+    SegmentError(ElfSegmentError),
+    // Additional error types as needed
+}
+
+// Error types that will arise when we try to validate segment
+#[derive(Debug)]
+pub enum ElfSegmentError {
+    DifferentAlignment,
+    ContentsOutOfRange,
+    MemSizeLesserThanFileSize,
+    VMRegionOutOfRange,
+    VmRegionWrapAround,
+    PageZeroMapping,
     // Additional error types as needed
 }
 
@@ -64,6 +86,16 @@ const PF_W: u32 = 2; // Writable.
 const PF_R: u32 = 4; // Readable.
 
 const ELF_MAGIC_NUMBER: [u8; 4] = [0x7F, b'E', b'L', b'F'];
+
+/* The value of PHYS_BASE determines the boundary between user and kernel space.
+With a PHYS_BASE of 4096, any address from 0 to 4095 would be considered user space,
+and addresses from 4096 and above would be considered kernel space. */
+const PHYS_BASE: *const () = OFFSET as *const ();
+
+/* For p_align, this member gives the value to which the
+segments are aligned in memory and in the file. Values 0 and 1 mean that no
+alignment is required. */
+const MIN_ALIGNMENT: u32 = 1;
 
 // Function to verify ELF header
 fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
@@ -102,6 +134,73 @@ fn verify_elf_header(header: &Elf32Ehdr) -> Result<(), ElfError> {
     Ok(())
 }
 
+/* This function takes a pointer to a constant void type, and returns a boolean indicating
+whether or not the given address is within the kernel's address space. */
+#[allow(unused)]
+fn is_kernel_vaddr(vaddr: *const ()) -> bool {
+    unsafe { vaddr >= PHYS_BASE }
+}
+
+/* This function takes a pointer to a constant void type, and returns a boolean indicating
+whether or not the given address is within the user's address space. */
+#[allow(unused)]
+fn is_user_vaddr(vaddr: *const ()) -> bool {
+    unsafe { vaddr < PHYS_BASE }
+}
+
+/* Checks whether phdr describes a valid, loadable segment in
+FILE and returns ok if so, ElfSegmentError otherwise. */
+fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegmentError> {
+    // Check alignment constraints.
+    // If p_align is NO_ALIGNMENT or MIN_ALIGNMENT, no alignment check is needed.
+    // Otherwise, p_offset and p_vaddr should be congruent modulo p_align. Check section 2-2 of ELF spec.
+    if (phdr.p_align > MIN_ALIGNMENT)
+        && (phdr.p_offset % phdr.p_align != phdr.p_vaddr % phdr.p_align)
+    {
+        return Err(ElfSegmentError::DifferentAlignment);
+    }
+
+    // The range must point within FILE.
+    if (phdr
+        .p_offset
+        .checked_add(phdr.p_filesz)
+        .ok_or(ElfSegmentError::ContentsOutOfRange)? as usize)
+        > file_data.len()
+    {
+        return Err(ElfSegmentError::ContentsOutOfRange);
+    }
+
+    // p_memsz must be at least as big as p_filesz.
+    if phdr.p_memsz < phdr.p_filesz {
+        return Err(ElfSegmentError::MemSizeLesserThanFileSize);
+    }
+
+    // The virtual memory region must both start and end within the
+    // user address space range.
+    if !is_user_vaddr(phdr.p_vaddr as *const ()) {
+        return Err(ElfSegmentError::VMRegionOutOfRange);
+    }
+
+    // The region cannot "wrap around" across the kernel virtual
+    // address space.
+    if !is_user_vaddr(
+        phdr.p_vaddr
+            .checked_add(phdr.p_memsz)
+            .ok_or(ElfSegmentError::VmRegionWrapAround)?
+            .saturating_sub(1) as *const (),
+    ) {
+        return Err(ElfSegmentError::VMRegionOutOfRange);
+    }
+
+    // Disallow mapping page 0.
+    if (phdr.p_vaddr as usize) < PAGE_FRAME_SIZE {
+        return Err(ElfSegmentError::PageZeroMapping);
+    }
+
+    // It's okay.
+    Ok(())
+}
+
 // Main function to load the ELF binary
 #[allow(unused)]
 fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
@@ -122,7 +221,12 @@ fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
                 .cast::<Elf32Phdr>()
         };
 
-        if ph.p_type == SegmentType::Load as u32 {
+        if (ph.p_type == SegmentType::Load as u32) {
+            validate_segment(ph, elf_data).map_err(ElfError::SegmentError)?;
+            // The segment must not be empty, if yes, skip this segment.
+            if ph.p_memsz == 0 {
+                continue;
+            }
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
 
