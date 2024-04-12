@@ -45,6 +45,19 @@ impl DerefMut for PageDirectory {
     }
 }
 
+impl PageDirectory {
+    fn page_table(
+        &mut self,
+        page_directory_index: usize,
+        phys_to_alloc_addr_offset: usize,
+    ) -> &mut PageTable {
+        let page_table_frame = self[page_directory_index].page_table_frame().value() as usize;
+        let page_table_addr = ((page_table_frame * size_of::<PageTable>())
+            + phys_to_alloc_addr_offset) as *mut PageTable;
+        unsafe { &mut *page_table_addr }
+    }
+}
+
 #[bitfield(u32, default = 0)]
 struct PageDirectoryEntry {
     #[bit(0, rw)]
@@ -114,14 +127,22 @@ struct PageTableEntry {
     page_frame: u20,
 }
 
-#[bitfield(u32)]
-struct VirtualAddress {
-    #[bits(22..=31, r)]
-    page_directory_index: u10,
-    #[bits(12..=21, r)]
-    page_table_index: u10,
-    #[bits(0..=11, r)]
-    offset: u12,
+fn virt_parts(virt_addr: usize) -> (usize, usize) {
+    #[bitfield(u32)]
+    struct VirtualAddress {
+        #[bits(22..=31, r)]
+        page_directory_index: u10,
+        #[bits(12..=21, r)]
+        page_table_index: u10,
+        #[bits(0..=11, r)]
+        offset: u12,
+    }
+
+    let virt_addr = VirtualAddress::new_with_raw_value(virt_addr as u32);
+    (
+        virt_addr.page_directory_index().value() as usize,
+        virt_addr.page_table_index().value() as usize,
+    )
 }
 
 /// Wraps lower-level paging data structures.
@@ -220,9 +241,8 @@ impl<A: Allocator> PageManager<A> {
         );
 
         let page_directory = self.root.as_mut();
-        let virt_addr = VirtualAddress::new_with_raw_value(virt_addr as u32);
+        let (pdi, pti) = virt_parts(virt_addr);
 
-        let pdi = virt_addr.page_directory_index().value() as usize;
         let page_table = if !page_directory[pdi].present() {
             let Ok(page_table_addr) = self.alloc.allocate(PAGE_TABLE_LAYOUT) else {
                 panic!("allocation failed");
@@ -241,12 +261,6 @@ impl<A: Allocator> PageManager<A> {
                 .with_page_table_frame(u20::new(page_table_frame as u32));
             page_table
         } else {
-            let page_table_frame = page_directory[pdi].page_table_frame().value() as usize;
-            let page_table_addr = ((page_table_frame * size_of::<PageTable>())
-                + self.phys_to_alloc_addr_offset)
-                as *mut PageTable;
-            let page_table = &mut *page_table_addr;
-
             // NOTE: For a page to be considered writable, the read_write bit
             // must be set in both the page directory entry, and the page table
             // entry, so it's safe for us to enable things here. Same goes for
@@ -258,19 +272,17 @@ impl<A: Allocator> PageManager<A> {
                 page_directory[pdi] = page_directory[pdi].with_user_supervisor(true);
             }
 
-            page_table
+            page_directory.page_table(pdi, self.phys_to_alloc_addr_offset)
         };
 
-        let page_table_index = virt_addr.page_table_index().value() as usize;
-
         assert!(
-            !page_table[page_table_index].present(),
+            !page_table[pti].present(),
             "virtual address {:#X} was already mapped",
-            virt_addr.raw_value()
+            virt_addr
         );
 
         let phys_frame = (phys_addr / PAGE_FRAME_SIZE) as u32;
-        page_table[page_table_index] = PageTableEntry::default()
+        page_table[pti] = PageTableEntry::default()
             .with_present(true)
             .with_read_write(write)
             .with_user_supervisor(user)
@@ -279,12 +291,13 @@ impl<A: Allocator> PageManager<A> {
 
     /// Like map, except with length `HUGE_PAGE_SIZE`. `virt_addr` must have an
     /// alignment of `HUGE_PAGE_SIZE`, but `phys_addr` only needs to be aligned
-    /// to `PAGE_FRAME_SIZE`.
+    /// to `PAGE_FRAME_SIZE`. PSE must be enabled.
     ///
     /// # Safety
     ///
     /// Same as `map`.
     pub unsafe fn huge_map(&mut self, phys_addr: usize, virt_addr: usize, write: bool, user: bool) {
+        assert!(*PSE_ENABLED, "PSE was not enabled");
         assert!(
             phys_addr % PAGE_FRAME_SIZE == 0,
             "phys_addr was not page-frame-aligned"
@@ -295,14 +308,12 @@ impl<A: Allocator> PageManager<A> {
         );
 
         let page_directory = self.root.as_mut();
-        let virt_addr = VirtualAddress::new_with_raw_value(virt_addr as u32);
-
-        let pdi = virt_addr.page_directory_index().value() as usize;
+        let (pdi, _) = virt_parts(virt_addr);
 
         assert!(
             !page_directory[pdi].present(),
             "virtual address {:#X} was already mapped",
-            virt_addr.raw_value()
+            virt_addr
         );
 
         page_directory[pdi] = PageDirectoryEntry::default()
@@ -384,6 +395,111 @@ impl<A: Allocator> PageManager<A> {
         user: bool,
     ) {
         self.map_range(start, start, frames_len, write, user);
+    }
+
+    /// Sets write permissions for `virt_addr..(virt_addr + PAGE_FRAME_SIZE)`.
+    /// `virt_addr` must be page-frame-aligned (in other words, a multiple of
+    /// `PAGE_FRAME_SIZE`). The virtual address must already be mapped. If
+    /// these page tables are already loaded, the updated permissoins are not
+    /// guaranteed to be recognized by the CPU until `load` is called again.
+    pub fn set_write(&mut self, virt_addr: usize, write: bool) {
+        assert!(
+            virt_addr % PAGE_FRAME_SIZE == 0,
+            "virt_addr was not page-frame-aligned"
+        );
+
+        let page_directory = unsafe { self.root.as_mut() };
+        let (pdi, pti) = virt_parts(virt_addr);
+
+        assert!(
+            page_directory[pdi].present(),
+            "virtual address {:#X} was not yet mapped",
+            virt_addr
+        );
+
+        if page_directory[pdi].page_size() {
+            // We need to allocate a page table and populate its entries
+            // accordingly such that everything remains the same, but the region
+            // is now split up such that we can set the write for only the page
+            // referenced by virt_addr.
+            todo!();
+        }
+
+        if write && !page_directory[pdi].read_write() {
+            page_directory[pdi] = page_directory[pdi].with_read_write(true);
+        }
+
+        let page_table = page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
+
+        assert!(
+            page_table[pti].present(),
+            "virtual address {:#X} was not yet mapped",
+            virt_addr
+        );
+
+        page_table[pti] = page_table[pti].with_read_write(write);
+    }
+
+    /// Like `set_write`, except with length `HUGE_PAGE_SIZE`. `virt_addr` must
+    /// have an alignment of `HUGE_PAGE_SIZE`, and already be mapped as a huge
+    /// page.
+    pub fn huge_set_write(&mut self, virt_addr: usize, write: bool) {
+        assert!(
+            virt_addr % HUGE_PAGE_SIZE == 0,
+            "virt_addr was not properly aligned"
+        );
+
+        let page_directory = unsafe { self.root.as_mut() };
+        let (pdi, _) = virt_parts(virt_addr);
+
+        assert!(
+            page_directory[pdi].present(),
+            "virtual address {:#X} was not yet mapped",
+            virt_addr
+        );
+        assert!(
+            page_directory[pdi].page_size(),
+            "virtual address {:#X} was not huge-page mapped",
+            virt_addr
+        );
+
+        page_directory[pdi] = page_directory[pdi].with_read_write(write);
+    }
+
+    /// Like `set_write`, except over a range of addresses.
+    pub fn set_write_range(&mut self, virt_start: usize, len: usize, write: bool) {
+        assert!(
+            virt_start % PAGE_FRAME_SIZE == 0,
+            "virt_start was not page-frame-aligned"
+        );
+        assert!(
+            len % PAGE_FRAME_SIZE == 0,
+            "len was not a multiple of PAGE_FRAME_SIZE"
+        );
+
+        let page_directory = unsafe { self.root.as_mut() };
+        let mut virt_addr = virt_start;
+        loop {
+            if virt_addr - virt_start >= len {
+                break;
+            }
+
+            if *PSE_ENABLED
+                && virt_addr % HUGE_PAGE_SIZE == 0
+                && virt_addr.saturating_add(HUGE_PAGE_SIZE) - virt_start <= len
+                && page_directory[virt_parts(virt_addr).0].page_size()
+            {
+                self.huge_set_write(virt_addr, write);
+
+                virt_addr = virt_addr.saturating_add(HUGE_PAGE_SIZE);
+
+                continue;
+            }
+
+            self.set_write(virt_addr, write);
+
+            virt_addr = virt_addr.saturating_add(PAGE_FRAME_SIZE);
+        }
     }
 }
 
