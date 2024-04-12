@@ -3,7 +3,6 @@ commonly used for executables and shared libraries in Unix-like operating system
 
 use super::virtual_memory_area::{VmAreaStruct, VmFlags};
 use alloc::vec::Vec;
-use core::mem::transmute;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 /* Executable header.  See [ELF1] 1-4 to 1-8.
@@ -203,7 +202,7 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
 }
 
 // Main function to load the ELF binary
-pub fn parse_elf(elf_data: &[u8]) -> Result<(unsafe extern "C" fn(), Vec<VmAreaStruct>), ElfError> {
+pub fn parse_elf(elf_data: &[u8]) -> Result<(u32, Vec<VmAreaStruct>), ElfError> {
     let header = unsafe { &*(elf_data.as_ptr() as *const Elf32Ehdr) };
     let mut vm_areas = Vec::new();
 
@@ -241,10 +240,7 @@ pub fn parse_elf(elf_data: &[u8]) -> Result<(unsafe extern "C" fn(), Vec<VmAreaS
         }
     }
 
-    Ok((
-        unsafe { transmute::<_, unsafe extern "C" fn()>(header.e_entry) },
-        vm_areas,
-    ))
+    Ok((header.e_entry, vm_areas))
 }
 
 #[allow(unused)]

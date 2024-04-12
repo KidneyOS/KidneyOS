@@ -1,4 +1,5 @@
 use crate::sync::{intr_get_level, IntrLevel};
+use core::mem::offset_of;
 
 use alloc::boxed::Box;
 
@@ -35,6 +36,9 @@ pub unsafe fn switch_threads(
 
     // Update the status of the current thread.
     (*switch_from).status = status_for_current_thread;
+
+    let page_manager = &(*switch_to).page_manager;
+    page_manager.load();
 
     let previous = context_switch(switch_from, switch_to);
 
@@ -86,8 +90,8 @@ macro_rules! switch_stacks {
         // Switches the current stack pointer.
         // Both %eax and %edx are *TCB = **stack and thus must be dereferenced once to get the stack pointer.
         r#"
-            mov [eax], esp
-            mov esp, [edx]
+            mov [eax + {offset}], esp
+            mov esp, [edx + {offset}]
         "#
     };
 }
@@ -132,6 +136,7 @@ unsafe extern "C" fn context_switch(
         r#"
             ret
         "#, // Required manually since this is a naked function.
+        offset = const offset_of!(ThreadControlBlock, kernel_stack_pointer),
         options(noreturn)
     )
 }

@@ -67,7 +67,7 @@ pub mod virt {
 }
 
 // Any virtual address at or above OFFSET is a kernel address.
-pub const OFFSET: usize = 0xC0000000;
+pub const OFFSET: usize = 0x80000000;
 
 // TODO: Figure out how to detect kernel stack overflows.
 pub const MAIN_STACK_SIZE: usize = 32 * KB;

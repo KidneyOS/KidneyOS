@@ -1,8 +1,15 @@
-use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
-use crate::{paging::PageManager, KERNEL_ALLOCATOR};
+use super::thread_functions::SwitchThreadsContext;
+use crate::{
+    paging::{PageManager, PageManagerDefault},
+    user_program::{
+        elf_loader::parse_elf,
+        virtual_memory_area::{VmAreaStruct, VmFlags},
+    },
+    KERNEL_ALLOCATOR,
+};
 use core::{
     mem::size_of,
-    ptr::{write_bytes, NonNull},
+    ptr::{copy_nonoverlapping, write_bytes, NonNull},
     sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
@@ -10,10 +17,15 @@ use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 pub type Tid = u16;
 
 // Current value marks the next avaliable TID value to use.
-static mut NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
+static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
-pub const THREAD_STACK_FRAMES: usize = 4 * 1024;
-pub const STACK_BOTTOM_VADDR: usize = 0x100000; // TODO: How should this be determined? We need to make sure it doesn't overlap with anything else in the ELF file. We also need to make sure the elf file doesn't have its own stack segment defined.
+// TODO: These stack sizes are just guesses. We should do research about what
+// other operating systems think is reasonnable.
+pub const KERNEL_THREAD_STACK_FRAMES: usize = 4 * 1024;
+const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
+pub const USER_THREAD_STACK_FRAMES: usize = 4 * 1024;
+pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
+pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
 #[allow(unused)]
 #[derive(PartialEq)]
@@ -25,14 +37,21 @@ pub enum ThreadStatus {
     Dying,
 }
 
-#[repr(C, packed)]
+// TODO: Use enums so that we never have garbage data (i.e. stacks that don't
+// need be freed for the kernel thread, information that doesn't make sense when
+// the thread is in certain states, etc.)
 pub struct ThreadControlBlock {
-    // TODO: Change the stack pointer type and remove the need to keep the bottom of the stack.
-    stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
-    stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
+    pub kernel_stack_pointer: NonNull<u8>,
+    // Kept so we can free the kernel stack later.
+    pub kernel_stack: NonNull<u8>,
 
-    // True if this is a kernel thread to be executed in privileged mode.
-    kernel: bool,
+    // The user virtual address containing the user instruction pointer to
+    // switch to next time this thread is run.
+    pub eip: NonNull<u8>,
+    // Like above, but the stack pointer.
+    pub esp: NonNull<u8>,
+    // The kernel virtual address of the user stack, so it can be freed later.
+    pub user_stack: NonNull<u8>,
 
     pub tid: Tid,
     pub status: ThreadStatus,
@@ -40,31 +59,93 @@ pub struct ThreadControlBlock {
 }
 
 pub fn allocate_tid() -> Tid {
-    // SAFETY: Atomically accesses a shared variable.
-    unsafe { NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid }
+    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
 }
 
 impl ThreadControlBlock {
-    pub fn create(entry_function: ThreadFunction, mut page_manager: PageManager) -> Self {
+    pub fn create(elf_data: &[u8]) -> Self {
         let tid: Tid = allocate_tid();
 
-        // Allocate a stack for this thread.
-        // In x86 stacks from downward, so we must pass in the top of this memory to the thread.
-        let stack_pointer_bottom = unsafe { KERNEL_ALLOCATOR.frame_alloc(THREAD_STACK_FRAMES) }
-            .expect("Could not allocate stack.");
+        let (entrypoint, vm_areas) =
+            parse_elf(elf_data).expect("init process's ELF data was malformed");
 
+        let mut page_manager = PageManager::default();
+        for VmAreaStruct {
+            vm_start,
+            vm_end,
+            offset,
+            // TODO: Consider all the flags. For those we can support, implement
+            // it. For those we can't, throw an error if they're set in such a
+            // way that the program might not work correctly.
+            flags: VmFlags { write, .. },
+        } in vm_areas
+        {
+            let len = vm_end - vm_start;
+            let frames = len.div_ceil(PAGE_FRAME_SIZE);
+
+            unsafe {
+                // TODO: Save this physical address somewhere so we can deallocate
+                // it when droping the thread.
+                let kernel_virt_addr = KERNEL_ALLOCATOR
+                    .frame_alloc(frames)
+                    .expect("no more frames...")
+                    .cast::<u8>()
+                    .as_ptr();
+                let phys_addr = kernel_virt_addr.sub(OFFSET);
+
+                // TODO: Throw an error if this range overlaps any previously mapped
+                // ranges, since `map_range` requires that the input range has not
+                // already been mapped.
+
+                // Map the physical address obtained by the allocation above to the
+                // virtual address assigned by the ELF header.
+                page_manager.map_range(
+                    phys_addr as usize,
+                    vm_start,
+                    frames * PAGE_FRAME_SIZE,
+                    write,
+                    true,
+                );
+
+                // Load so we can write to the virtual addresses mapped above.
+                copy_nonoverlapping(&elf_data[offset] as *const u8, kernel_virt_addr, len);
+
+                // Zero the sliver of addresses between the end of the region, and
+                // the end of the region we had to map due to page
+                write_bytes(kernel_virt_addr.add(len), 0, frames * PAGE_FRAME_SIZE - len);
+            }
+        }
+
+        // Allocate a kernel stack for this thread. In x86 stacks grow downward,
+        // so we must pass in the top of this memory to the thread.
+        let (kernel_stack, kernel_stack_pointer_top);
         unsafe {
+            kernel_stack = KERNEL_ALLOCATOR
+                .frame_alloc(KERNEL_THREAD_STACK_FRAMES)
+                .expect("could not allocate kernel stack")
+                .cast::<u8>();
+            kernel_stack_pointer_top = kernel_stack.add(KERNEL_THREAD_STACK_SIZE);
+            write_bytes(kernel_stack.as_ptr(), 0, KERNEL_THREAD_STACK_SIZE);
+        }
+
+        // TODO: We should only do this if there wasn't already a stack section
+        // defined in the ELF file.
+        let user_stack;
+        unsafe {
+            user_stack = KERNEL_ALLOCATOR
+                .frame_alloc(USER_THREAD_STACK_FRAMES)
+                .expect("could not allocate user stack")
+                .cast::<u8>();
             page_manager.map_range(
-                stack_pointer_bottom.cast::<u8>().as_ptr() as usize - OFFSET,
-                STACK_BOTTOM_VADDR,
-                THREAD_STACK_FRAMES * PAGE_FRAME_SIZE,
+                user_stack.as_ptr() as usize - OFFSET,
+                // TODO: This shouldn't be hardcoded, we need to ensure the ELF
+                // didn't already declare a stack section (we should be using
+                // that if it did), and that this doesn't overlap with any
+                // existing regions.
+                USER_STACK_BOTTOM_VIRT,
+                USER_THREAD_STACK_SIZE,
                 true,
                 true,
-            );
-            write_bytes(
-                stack_pointer_bottom.cast::<u8>().as_ptr(),
-                0,
-                THREAD_STACK_FRAMES * PAGE_FRAME_SIZE,
             );
         }
 
@@ -72,13 +153,12 @@ impl ThreadControlBlock {
         let mut new_thread = Self {
             tid,
             status: ThreadStatus::Invalid,
-            kernel: false,
-            stack_pointer: NonNull::new(
-                (STACK_BOTTOM_VADDR + THREAD_STACK_FRAMES * PAGE_FRAME_SIZE) as *mut u8,
-            )
-            .unwrap(), // TODO: off by 1?
-            stack_pointer_bottom: NonNull::new(STACK_BOTTOM_VADDR as *mut u8)
-                .expect("Error converting stack."),
+            kernel_stack_pointer: kernel_stack_pointer_top,
+            kernel_stack,
+            eip: NonNull::new(entrypoint as *mut u8).expect("failed to create eip"),
+            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
+                .expect("failed to create esp"),
+            user_stack,
             page_manager,
         };
 
@@ -87,18 +167,12 @@ impl ThreadControlBlock {
         //  * prepare_thread frame
         //  * switch_threads frame
 
-        let prepare_thread_context = new_thread
-            .allocate_stack_space(size_of::<PrepareThreadContext>())
-            .expect("No Stack Space!");
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
             .expect("No Stack Space!");
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *prepare_thread_context
-                .as_ptr()
-                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(entry_function);
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
@@ -115,9 +189,11 @@ impl ThreadControlBlock {
     /// Should only be used once while starting the threading system.
     pub unsafe fn create_kernel_thread(page_manager: PageManager) -> Self {
         ThreadControlBlock {
-            stack_pointer: core::ptr::NonNull::dangling(), // This will be set in the context switch immediately following.
-            stack_pointer_bottom: core::ptr::NonNull::dangling(), // TODO: Is this ok left dangling? Special case code is required otherwise.
-            kernel: true,
+            kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
+            kernel_stack: NonNull::dangling(),
+            eip: NonNull::dangling(),
+            esp: NonNull::dangling(),
+            user_stack: NonNull::dangling(),
             tid: allocate_tid(),
             status: ThreadStatus::Running,
             page_manager,
@@ -137,7 +213,7 @@ impl ThreadControlBlock {
     const fn has_stack_space(&self, bytes: usize) -> bool {
         // SAFETY: Calculates the distance between the top and bottom of the stack pointers.
         let avaliable_space =
-            unsafe { self.stack_pointer.offset_from(self.stack_pointer_bottom) as usize };
+            unsafe { self.kernel_stack_pointer.offset_from(self.kernel_stack) as usize };
 
         avaliable_space >= bytes
     }
@@ -146,11 +222,11 @@ impl ThreadControlBlock {
     fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
         // SAFETY: `has_stack_space` must have returned true for this amount before calling.
         unsafe {
-            let raw_pointer = self.stack_pointer.as_ptr().cast::<u8>();
+            let raw_pointer = self.kernel_stack_pointer.as_ptr().cast::<u8>();
             let new_pointer =
                 NonNull::new(raw_pointer.sub(amount)).expect("Error shifting stack pointer.");
-            self.stack_pointer = new_pointer;
-            self.stack_pointer
+            self.kernel_stack_pointer = new_pointer;
+            self.kernel_stack_pointer
         }
     }
 }

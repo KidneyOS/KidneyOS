@@ -120,8 +120,7 @@ static mut GDT_DESCRIPTOR: GDTDescriptor = GDTDescriptor {
 /// Can only be executed within code that expects to have segments defined as
 /// they are above in GDT.
 pub unsafe fn load() {
-    GDT[TSS_INDEX] = GDT[TSS_INDEX]
-        .with_base(addr_of!(TASK_STATE_SEGMENT).cast::<u8>()/* .sub(OFFSET) */ as u32);
+    GDT[TSS_INDEX] = GDT[TSS_INDEX].with_base(addr_of!(TASK_STATE_SEGMENT).cast::<u8>() as u32);
     GDT_DESCRIPTOR.offset = GDT.as_ptr() as u32;
 
     // We need to use att_syntax since Rust doesn't appear to understand intel

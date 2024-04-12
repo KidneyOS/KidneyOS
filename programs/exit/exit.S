@@ -10,6 +10,6 @@ _start:
         mov ebx, 0
         int 0x80
 
-        # Hang if we make it back, though we shouldn't.
+        # Hang if we make it back.
 loop:
         jmp loop

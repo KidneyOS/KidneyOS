@@ -75,11 +75,11 @@ unsafe extern "C" fn syscall_handler() -> ! {
         push ebx
         push eax
 
-        // TODO: Probably need to save and restore some registers between this
-        // call? Even if we're allowed to clobber argument registers (need to
-        // define this in our syscall calling convention) we need to make sure
-        // we're zeroing them so we're not accidentally leaving sensitive kernel
-        // data in them.
+        // TODO: We need to define what our syscall ABI is allowed to clobber
+        // and what it must preserve, then actually do that. We should also
+        // investigate what actual OSs do to ensure that we're not leaking
+        // sensitive kernel data, even if we are respecting our ABI.
+
         call {}
         // eax will contain the handler's return value, which is where it should
         // remain when we return to the program.

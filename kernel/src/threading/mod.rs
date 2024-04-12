@@ -6,18 +6,9 @@ mod thread_functions;
 use crate::{
     paging::PageManager,
     sync::{intr_enable, intr_get_level, IntrLevel},
-    user_program::{
-        elf_loader::parse_elf,
-        virtual_memory_area::{VmAreaStruct, VmFlags},
-    },
 };
-use alloc::{alloc::Global, boxed::Box};
-use core::ptr::copy_nonoverlapping;
-use kidneyos_shared::{
-    mem::{OFFSET, PAGE_FRAME_SIZE},
-    paging::kernel_mapping_ranges,
-    println,
-};
+use alloc::boxed::Box;
+use kidneyos_shared::println;
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
 
@@ -61,55 +52,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
     let tcb_kernel = unsafe { ThreadControlBlock::create_kernel_thread(kernel_page_manager) };
 
-    let (entrypoint, vm_areas) = parse_elf(init_elf).expect("Init ELF was malformed.");
-
-    let mut init_page_manager =
-        PageManager::from_mapping_ranges_in(kernel_mapping_ranges(), Global, OFFSET);
-    for VmAreaStruct {
-        vm_start,
-        vm_end,
-        offset,
-        flags:
-            VmFlags {
-                read: _,
-                write: _,
-                execute: _,
-                shared: _,
-                private: _,
-            },
-    } in vm_areas
-    {
-        let len = vm_end - vm_start;
-        let frames = len.div_ceil(PAGE_FRAME_SIZE);
-
-        let phys_addr = unsafe {
-            crate::KERNEL_ALLOCATOR
-                .frame_alloc(frames)
-                .expect("no more frames...")
-                .cast::<u8>()
-                .as_ptr()
-                .sub(OFFSET)
-        };
-
-        // SAFETY: this page manager is not yet activated.
-        unsafe {
-            init_page_manager.map_range(
-                phys_addr as usize,
-                vm_start,
-                frames * PAGE_FRAME_SIZE,
-                true, // TODO: Drop write privilege after we copy if necessary
-                true,
-            )
-        };
-
-        // TODO: Probably not how we should do this...
-        unsafe { init_page_manager.load() };
-
-        unsafe { copy_nonoverlapping(&init_elf[offset] as *const u8, vm_start as *mut u8, len) };
-        // TODO: Zero bytes from len to the range mapped above.
-    }
-
-    let init_tcb = ThreadControlBlock::create(entrypoint, init_page_manager);
+    let init_tcb = ThreadControlBlock::create(init_elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {

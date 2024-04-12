@@ -6,8 +6,18 @@ use kidneyos_shared::{
 
 pub type PageManager<A = Global> = paging::PageManager<A>;
 
+pub trait PageManagerDefault {
+    fn default() -> Self;
+}
+
+impl PageManagerDefault for PageManager<Global> {
+    fn default() -> Self {
+        PageManager::from_mapping_ranges_in(kernel_mapping_ranges(), Global, OFFSET)
+    }
+}
+
 pub unsafe fn enable() -> PageManager {
-    let page_manager = PageManager::from_mapping_ranges_in(kernel_mapping_ranges(), Global, OFFSET);
+    let page_manager = PageManager::default();
     page_manager.load();
     page_manager
 }

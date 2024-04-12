@@ -11,7 +11,6 @@ use core::{
 };
 use frame_allocator::FrameAllocatorSolution;
 use kidneyos_shared::{
-    eprintln,
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
@@ -267,14 +266,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
                     start <= ptr && ptr < start.add(region.len())
                 })
             else {
-                for (_, region) in subblock_allocators {
-                    eprintln!(
-                        "region start: {:#X} end: {:#X}",
-                        region.as_ptr().cast::<u8>() as usize,
-                        region.as_ptr().cast::<u8>().add(region.len()) as usize
-                    )
-                }
-
                 halt!(
                     "internal inconsistency detected in kernel allocator with ptr {:#X}",
                     ptr as usize
