@@ -63,7 +63,7 @@ pub mod virt {
         }
     }
 
-    to_virt!(trampoline_heap_top);
+    to_virt!(main_stack_top, trampoline_heap_top);
 }
 
 // Any virtual address at or above OFFSET is a kernel address.

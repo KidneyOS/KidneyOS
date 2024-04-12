@@ -9,7 +9,8 @@ use crate::sync::intr_enable;
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    mem::PAGE_FRAME_SIZE,
+    mem::{virt, PAGE_FRAME_SIZE},
+    task_state_segment::TASK_STATE_SEGMENT,
 };
 
 use alloc::boxed::Box;
@@ -24,16 +25,16 @@ unsafe fn iret(_thread_function: ThreadFunction) {
     // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
     // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
 
+    TASK_STATE_SEGMENT.esp0 = virt::main_stack_top() as u32;
+
     asm!(
         "
-        xchg bx, bx
-
         mov ds, {0:x}
         mov es, {0:x}
         mov fs, {0:x}
         mov gs, {0:x} // SS and CS are handled by iret
 
-        // set up the stack frame iret expects
+        // Set up the stack frame iret expects.
         push {0:e} // stack segment
         push {stack} // esp
         pushfd // eflags

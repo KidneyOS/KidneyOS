@@ -12,4 +12,5 @@ pub mod paging;
 pub mod segment;
 pub mod serial;
 pub mod sizes;
+pub mod task_state_segment;
 pub mod video_memory;

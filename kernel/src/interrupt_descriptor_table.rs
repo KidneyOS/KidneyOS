@@ -2,6 +2,7 @@
 // https://wiki.osdev.org/Interrupts_tutorial
 // https://wiki.osdev.org/Exceptions
 
+use crate::user_program::syscall;
 use arbitrary_int::{u2, u4};
 use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
@@ -31,8 +32,10 @@ struct IDTDescriptor {
 const IDT_LEN: usize = 256;
 static mut IDT: [GateDescriptor; IDT_LEN] = [GateDescriptor::DEFAULT; IDT_LEN];
 
-// TODO: Set up stack on entry to handlers, the current behaviour is horribly
-// dangerous...
+// TODO: Set up stack on entry to handlers from kernel, the current behaviour is
+// horribly dangerous... The current behaviour is currently safe fine for cases
+// where we're entering a handler from usermode though, because when doing that
+// we get the new stack from the TSS.
 
 #[naked]
 unsafe extern "C" fn unhandled_handler() -> ! {
@@ -62,6 +65,34 @@ unsafe extern "C" fn page_fault_handler() -> ! {
     );
 }
 
+#[naked]
+unsafe extern "C" fn syscall_handler() -> ! {
+    asm!(
+        "
+        // Push arguments to stack.
+        push edx
+        push ecx
+        push ebx
+        push eax
+
+        // TODO: Probably need to save and restore some registers between this
+        // call? Even if we're allowed to clobber argument registers (need to
+        // define this in our syscall calling convention) we need to make sure
+        // we're zeroing them so we're not accidentally leaving sensitive kernel
+        // data in them.
+        call {}
+        // eax will contain the handler's return value, which is where it should
+        // remain when we return to the program.
+
+        add esp, 16 // Drop arguments from stack.
+
+        iretd
+        ",
+        sym syscall::handler,
+        options(noreturn),
+    );
+}
+
 static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
     size: size_of::<[GateDescriptor; IDT_LEN]>() as u16 - 1,
     offset: 0, // Will fetch pointer and set at runtime below.
@@ -83,6 +114,7 @@ pub unsafe fn load() {
             .with_present(true);
     }
     IDT[0xE] = IDT[0xE].with_offset(page_fault_handler as usize as u32);
+    IDT[0x80] = IDT[0x80].with_offset(syscall_handler as usize as u32);
 
     asm!("lidt [{}]", sym IDT_DESCRIPTOR);
 }
