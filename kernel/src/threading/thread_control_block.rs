@@ -4,7 +4,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU16, Ordering};
 
 use alloc::alloc::Global;
-use kidneyos_shared::sizes::KB;
+use kidneyos_shared::sizes::MB;
 
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
 
@@ -13,7 +13,7 @@ pub type Tid = u16;
 // Current value marks the next avaliable TID value to use.
 static mut NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
-pub const THREAD_STACK_SIZE: usize = KB * 4;
+pub const THREAD_STACK_SIZE: usize = MB;
 
 #[allow(unused)]
 #[derive(PartialEq)]
@@ -30,9 +30,11 @@ pub struct ThreadControlBlock {
     // TODO: Change the stack pointer type and remove the need to keep the bottom of the stack.
     stack_pointer: NonNull<u8>, // Must be kept as the top of the struct so it has the same address as the TCB.
     stack_pointer_bottom: NonNull<u8>, // Kept to avoid dropping the stack and to detect overflows.
+    layout: Layout,
 
     pub tid: Tid,
     pub status: ThreadStatus,
+    pub exit_code: Option<i32>,
 }
 
 pub fn allocate_tid() -> Tid {
@@ -41,7 +43,7 @@ pub fn allocate_tid() -> Tid {
 }
 
 impl ThreadControlBlock {
-    pub fn create(entry_function: ThreadFunction) -> Self {
+    pub fn new(entry_function: ThreadFunction) -> Self {
         let tid: Tid = allocate_tid();
 
         // Allocate a stack for this thread.
@@ -72,6 +74,8 @@ impl ThreadControlBlock {
             stack_pointer: stack_pointer_top,
             stack_pointer_bottom: NonNull::new(stack_pointer_bottom.as_ptr().cast::<u8>())
                 .expect("Error converting stack."),
+            layout,
+            exit_code: None,
         };
 
         // Now, we must build the stack frames for our new thread.
@@ -105,12 +109,15 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub unsafe fn create_kernel_thread() -> Self {
+    pub unsafe fn new_kernel_thread() -> Self {
         ThreadControlBlock {
             stack_pointer: core::ptr::NonNull::dangling(), // This will be set in the context switch immediately following.
             stack_pointer_bottom: core::ptr::NonNull::dangling(), // TODO: Is this ok left dangling? Special case code is required otherwise.
+            layout: Layout::from_size_align(THREAD_STACK_SIZE, 8)
+                .expect("Could not create layout."),
             tid: allocate_tid(),
             status: ThreadStatus::Running,
+            exit_code: None,
         }
     }
 
@@ -142,5 +149,30 @@ impl ThreadControlBlock {
             self.stack_pointer = new_pointer;
             self.stack_pointer
         }
+    }
+
+    pub fn set_exit_code(&mut self, exit_code: i32) {
+        self.exit_code = Some(exit_code);
+    }
+
+    pub fn reap(&mut self) {
+        assert!(
+            self.status == ThreadStatus::Dying,
+            "A thread must be dying to be reaped."
+        );
+
+        // Most of the TCB is dropped automatically.
+        // But the stack must be manually deallocated.
+        // However, the first TCB is the kernel stack and not treated as such.
+        if self.tid != 0 {
+            self.stack_pointer = NonNull::dangling();
+
+            // SAFETY: This must be a stack we allocated.
+            unsafe {
+                Global.deallocate(self.stack_pointer_bottom, self.layout);
+            }
+        }
+
+        self.status = ThreadStatus::Invalid;
     }
 }

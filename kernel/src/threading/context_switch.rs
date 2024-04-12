@@ -36,17 +36,24 @@ pub unsafe fn switch_threads(
     // Update the status of the current thread.
     (*switch_from).status = status_for_current_thread;
 
-    let previous = context_switch(switch_from, switch_to);
+    let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
 
     // We must mark this thread as running once again.
-    (*switch_from).status = ThreadStatus::Running;
+    let mut switch_from = Box::from_raw(switch_from);
+    switch_from.status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switch_from));
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(Box::from_raw(previous));
+    RUNNING_THREAD = Some(switch_from);
+
+    if previous.status == ThreadStatus::Dying {
+        previous.reap();
+        drop(previous);
+    } else {
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(previous);
+    }
 }
 
 #[macro_export]
