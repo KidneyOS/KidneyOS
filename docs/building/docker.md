@@ -34,10 +34,6 @@ scripts/run-container.bash
 scripts/run-container.ps1
 ```
 
-<!-- TODO: implement the powershell script. -->
-
-<!-- TODO: actually push the container to the GitHub container registry. -->
-
 <!-- TODO: support some way of handling different container versions for once there are multiple releases. -->
 
 This will pull the container from the GitHub container registry and start it. You will need to run the container with the script above each time you want to build KidneyOS.
