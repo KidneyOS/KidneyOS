@@ -9,4 +9,4 @@ KidneyOS is being developed by students at the University of Toronto. The projec
 
 ## Documentation
 
-Detailed documentation for KidneyOS (including building instructions and assignment descriptions) is available [here](TODO).
+Detailed documentation for KidneyOS (including building instructions and assignment descriptions) is available [here](https://kidneyos.github.io/KidneyOS/).
