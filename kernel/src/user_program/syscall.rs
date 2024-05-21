@@ -11,5 +11,20 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // TODO: Start implementing this by branching on syscall_number. Add
     // todo!()'s for any syscalls that aren't implemented. Return an error if an
     // invalid syscall number is provided.
-    42
+    // Translate between syscall names and numbers: https://x86.syscall.sh/
+    match syscall_number {
+        0x1 => {    // exit
+            todo!("exit syscall")
+        }
+        0x2 => {    // fork
+            todo!("fork syscall")
+        }
+        0x7 => {    // waitpid
+            todo!("waitpid syscall")
+        }
+        0x11c => {    // waitid
+            todo!("waitid syscall")
+        }
+        _ => { 1 }
+    }
 }
