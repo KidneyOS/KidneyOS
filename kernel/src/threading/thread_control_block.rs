@@ -19,9 +19,10 @@ pub type Tid = u16;
 // Current value marks the next avaliable TID value to use.
 static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
-// TODO: These stack sizes are just guesses. We should do research about what
-// other operating systems think is reasonnable.
-pub const KERNEL_THREAD_STACK_FRAMES: usize = 4 * 1024;
+// The stack size choice is based on that of x86-64 Linux and 32-bit Windows
+// Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
+// Windows: https://techcommunity.microsoft.com/t5/windows-blog-archive/pushing-the-limits-of-windows-processes-and-threads/ba-p/723824
+pub const KERNEL_THREAD_STACK_FRAMES: usize = 2;
 const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
 pub const USER_THREAD_STACK_FRAMES: usize = 4 * 1024;
 pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
@@ -85,7 +86,7 @@ impl ThreadControlBlock {
 
             unsafe {
                 // TODO: Save this physical address somewhere so we can deallocate
-                // it when droping the thread.
+                // it when dropping the thread.
                 let kernel_virt_addr = KERNEL_ALLOCATOR
                     .frame_alloc(frames)
                     .expect("no more frames...")
