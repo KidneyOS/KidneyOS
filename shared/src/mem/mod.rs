@@ -63,12 +63,16 @@ pub mod virt {
         }
     }
 
-    to_virt!(trampoline_heap_top);
+    to_virt!(main_stack_top, trampoline_heap_top);
 }
 
 // Any virtual address at or above OFFSET is a kernel address.
-pub const OFFSET: usize = 0xC0000000;
+pub const OFFSET: usize = 0x80000000;
 
 // TODO: Figure out how to detect kernel stack overflows.
 pub const MAIN_STACK_SIZE: usize = 32 * KB;
 pub const TRAMPOLINE_HEAP_SIZE: usize = 8 * MB;
+
+// TODO: We currently leave 8MB for the bootstrap allocator. This should be
+// re-evaluated later.
+pub const BOOTSTRAP_ALLOCATOR_SIZE: usize = 8 * MB;

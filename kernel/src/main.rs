@@ -1,7 +1,9 @@
 #![feature(allocator_api)]
+#![feature(asm_const)]
 #![feature(btreemap_alloc)]
 #![feature(naked_functions)]
 #![feature(non_null_convenience)]
+#![feature(offset_of)]
 #![feature(slice_ptr_get)]
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
@@ -15,7 +17,7 @@ mod user_program;
 
 extern crate alloc;
 
-use kidneyos_shared::{println, video_memory::VIDEO_MEMORY_WRITER};
+use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
 
@@ -28,6 +30,8 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     kidneyos_shared::eprintln!("{}", args);
     loop {}
 }
+
+const INIT: &[u8] = include_bytes!("../../programs/exit/exit").as_slice();
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
@@ -44,10 +48,14 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("IDTR set up!");
 
         println!("Enabling paging");
-        let _page_manager = paging::enable();
+        let page_manager = paging::enable();
         println!("Paging enabled!");
 
+        println!("Setting up GDTR");
+        global_descriptor_table::load();
+        println!("GDTR set up!");
+
         thread_system_initialization();
-        thread_system_start();
+        thread_system_start(page_manager, INIT);
     }
 }

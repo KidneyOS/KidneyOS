@@ -4,27 +4,13 @@ mod thread_control_block;
 mod thread_functions;
 
 use crate::{
-    println,
+    paging::PageManager,
     sync::{intr_enable, intr_get_level, IntrLevel},
 };
 use alloc::boxed::Box;
-
+use kidneyos_shared::println;
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
-
-pub extern "C" fn test_func() {
-    loop {
-        println!("Hello threads!");
-        scheduler_yield();
-    }
-}
-
-pub extern "C" fn test_func_2() {
-    loop {
-        println!("Goodbye threads!");
-        scheduler_yield();
-    }
-}
 
 static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
@@ -52,7 +38,7 @@ pub fn thread_system_initialization() {
 
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
-pub fn thread_system_start() -> ! {
+pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) -> ! {
     assert!(intr_get_level() == IntrLevel::IntrOff);
     assert!(
         unsafe { THREAD_SYSTEM_INITIALIZED },
@@ -64,11 +50,9 @@ pub fn thread_system_start() -> ! {
     // never exit.
     // This thread also does not need to enter the `run_thread` function.
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
-    let tcb_kernel = unsafe { ThreadControlBlock::create_kernel_thread() };
+    let tcb_kernel = unsafe { ThreadControlBlock::create_kernel_thread(kernel_page_manager) };
 
-    // TEMP.
-    let tcb_1 = ThreadControlBlock::create(test_func);
-    let tcb_2 = ThreadControlBlock::create(test_func_2);
+    let init_tcb = ThreadControlBlock::create(init_elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
@@ -76,11 +60,7 @@ pub fn thread_system_start() -> ! {
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
-            .push(Box::new(tcb_1));
-        SCHEDULER
-            .as_mut()
-            .expect("No Scheduler set up!")
-            .push(Box::new(tcb_2));
+            .push(Box::new(init_tcb));
     }
 
     // Enable preemptive scheduling.
