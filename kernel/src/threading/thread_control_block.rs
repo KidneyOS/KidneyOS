@@ -16,7 +16,7 @@ use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 pub type Tid = u16;
 
-// Current value marks the next avaliable TID value to use.
+// Current value marks the next available TID value to use.
 static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
@@ -56,15 +56,17 @@ pub struct ThreadControlBlock {
 
     pub tid: Tid,
     pub status: ThreadStatus,
+    pub exit_code: Option<i32>,
     pub page_manager: PageManager,
 }
 
 pub fn allocate_tid() -> Tid {
+    // SAFETY: Atomically accesses a shared variable.
     NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
 }
 
 impl ThreadControlBlock {
-    pub fn create(elf_data: &[u8]) -> Self {
+    pub fn new(elf_data: &[u8]) -> Self {
         let tid: Tid = allocate_tid();
 
         let (entrypoint, vm_areas) =
@@ -152,14 +154,15 @@ impl ThreadControlBlock {
 
         // Create our new TCB.
         let mut new_thread = Self {
-            tid,
-            status: ThreadStatus::Invalid,
             kernel_stack_pointer: kernel_stack_pointer_top,
             kernel_stack,
             eip: NonNull::new(entrypoint as *mut u8).expect("failed to create eip"),
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
             user_stack,
+            tid,
+            status: ThreadStatus::Invalid,
+            exit_code: None,
             page_manager,
         };
 
@@ -188,7 +191,7 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub unsafe fn create_kernel_thread(page_manager: PageManager) -> Self {
+    pub unsafe fn new_kernel_thread(page_manager: PageManager) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -197,6 +200,7 @@ impl ThreadControlBlock {
             user_stack: NonNull::dangling(),
             tid: allocate_tid(),
             status: ThreadStatus::Running,
+            exit_code: None,
             page_manager,
         }
     }
@@ -229,5 +233,30 @@ impl ThreadControlBlock {
             self.kernel_stack_pointer = new_pointer;
             self.kernel_stack_pointer
         }
+    }
+
+    pub fn set_exit_code(&mut self, exit_code: i32) {
+        self.exit_code = Some(exit_code);
+    }
+
+    pub fn reap(&mut self) {
+        assert!(
+            self.status == ThreadStatus::Dying,
+            "A thread must be dying to be reaped."
+        );
+
+        // Most of the TCB is dropped automatically.
+        // But the stack must be manually deallocated.
+        // However, the first TCB is the kernel stack and not treated as such.
+        if self.tid != 0 {
+            self.stack_pointer = NonNull::dangling();
+
+            // SAFETY: This must be a stack we allocated.
+            unsafe {
+                Global.deallocate(self.stack_pointer_bottom, self.layout);
+            }
+        }
+
+        self.status = ThreadStatus::Invalid;
     }
 }

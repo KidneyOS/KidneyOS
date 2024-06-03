@@ -1,9 +1,17 @@
+use crate::{
+    sync::{intr_disable, intr_enable},
+    threading::scheduling::scheduler_yield_and_die,
+};
+
 use super::{
     scheduling::SCHEDULER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
-use crate::sync::intr_enable;
+use crate::sync::{
+    sync::{intr_disable, intr_enable},
+    threading::scheduling::scheduler_yield_and_die,
+};
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
@@ -16,16 +24,26 @@ use alloc::boxed::Box;
 /// No arguments allowed for now.
 ///
 /// A function that may be used for thread creation.
-pub type ThreadFunction = unsafe extern "C" fn() -> ();
+/// The return value will be the exit code of this thread.
+pub type ThreadFunction = unsafe extern "C" fn() -> i32;
 
-/// A function to safely close a thread.
+/// A function to safely close the current thread.
+/// This is safe to call at any point in a threads runtime.
 #[allow(unused)]
-const fn exit_thread() -> ! {
-    // TODO: Need to reap TCB, remove from scheduling.
+pub fn exit_thread(exit_code: i32) -> ! {
+    // We will never return here so do not need to re-enable interrupts from here.
+    intr_disable();
 
-    // Relinquish CPU to another thread.
-    // TODO:
-    panic!("Thread exited incorrectly.");
+    // Get the current thread.
+    // SAFETY: Interrupts must be off.
+    unsafe {
+        let mut current_thread = RUNNING_THREAD.take().expect("Why is nothing running!?");
+        current_thread.set_exit_code(exit_code);
+
+        // Replace and yield.
+        RUNNING_THREAD = Some(current_thread);
+        scheduler_yield_and_die();
+    }
 }
 
 /// A wrapper function to execute a thread's true function.
@@ -44,45 +62,45 @@ unsafe extern "C" fn run_thread(
     let ThreadControlBlock { eip, esp, .. } = *switched_to;
 
     // Reschedule our threads.
-    RUNNING_THREAD = Some(switched_to);
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(Box::from_raw(switched_from));
+    RUNNING_THREAD = Some(Box::from_raw(switched_to));
+
+    let mut switched_from = Box::from_raw(switched_from);
+
+    if switched_from.status == ThreadStatus::Dying {
+        switched_from.reap();
+        drop(switched_from);
+    } else {
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(switched_from);
+    }
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    intr_enable();
+    intr_enable(crate::sync::IntrLevel::IntrOn);
 
-    // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
-    // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
+    // Run the thread.
+    let exit_code = entry_function();
 
-    asm!(
-        "
-        mov ds, {data_sel:x}
-        mov es, {data_sel:x}
-        mov fs, {data_sel:x}
-        mov gs, {data_sel:x} // SS and CS are handled by iret
+    // Safely exit the thread.
+    exit_thread(exit_code);
+}
 
-        // Set up the stack frame iret expects.
-        push {data_sel:e} // stack segment
-        push {esp} // esp
-        pushfd // eflags
-        push {code_sel} // code segment
-        push {eip} // eip
-        iretd
-        ",
-        data_sel = in(reg) USER_DATA_SELECTOR,
-        esp = in(reg) esp.as_ptr(),
-        code_sel = const USER_CODE_SELECTOR,
-        eip = in(reg) eip.as_ptr(),
-        options(noreturn),
-    );
+#[repr(C, packed)]
+pub struct PrepareThreadContext {
+    entry_function: ThreadFunction,
+}
+
+impl PrepareThreadContext {
+    pub fn new(entry_function: ThreadFunction) -> Self {
+        Self { entry_function }
+    }
 }
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
-unsafe extern "C" fn prepare_thread() {
+unsafe extern "C" fn prepare_thread() -> i32 {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.
