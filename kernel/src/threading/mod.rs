@@ -1,6 +1,6 @@
 mod context_switch;
 pub mod scheduling;
-mod thread_control_block;
+pub mod thread_control_block;
 pub mod thread_functions;
 
 use crate::{
@@ -63,7 +63,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     //         .push(Box::new(idle_tcb));
     // }
 
-    let init_tcb = ThreadControlBlock::create(init_elf);
+    let init_tcb = ThreadControlBlock::new(init_elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {

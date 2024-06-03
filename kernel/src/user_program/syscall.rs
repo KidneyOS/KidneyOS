@@ -1,6 +1,8 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use kidneyos_shared::println;
+use crate::threading::{thread_functions, scheduling};
+use crate::threading::thread_control_block::ThreadControlBlock;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the
@@ -13,22 +15,24 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // invalid syscall number is provided.
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
-        0x1 => {
-            // exit
-            todo!("exit syscall")
+        SYS_EXIT => {
+            thread_functions::exit_thread(arg0 as i32);
         }
-        0x2 => {
-            // fork
-            todo!("fork syscall")
+        SYS_FORK => {
+            // Need to get the elf data
+            let sibling: ThreadControlBlock = ThreadControlBlock::new();
+            scheduling::scheduler_yield_and_continue();
+            sibling.tid as usize
         }
         0x7 => {
-            // waitpid
             todo!("waitpid syscall")
         }
         0x11c => {
-            // waitid
             todo!("waitid syscall")
         }
         _ => 1,
     }
 }
+
+pub const SYS_EXIT: usize = 0x1;
+pub const SYS_FORK: usize = 0x2;
