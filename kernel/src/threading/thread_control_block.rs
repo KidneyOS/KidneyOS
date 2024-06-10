@@ -66,7 +66,7 @@ pub fn allocate_tid() -> Tid {
 }
 
 impl ThreadControlBlock {
-    pub fn new(elf_data: &[u8]) -> Self {
+    pub fn new_elf(elf_data: &[u8]) -> Self {
         let tid: Tid = allocate_tid();
 
         let (entrypoint, vm_areas) =
@@ -119,6 +119,62 @@ impl ThreadControlBlock {
             }
         }
 
+        let (kernel_stack, kernel_stack_pointer_top) = Self::allocate_kernel_stack();
+
+        // TODO: We should only do this if there wasn't already a stack section
+        // defined in the ELF file.
+        let user_stack = Self::allocate_user_stack(&mut page_manager, false);
+
+        // Create our new TCB.
+        let mut new_thread = Self {
+            kernel_stack_pointer: kernel_stack_pointer_top,
+            kernel_stack,
+            eip: NonNull::new(entrypoint as *mut u8).expect("failed to create eip"),
+            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
+                .expect("failed to create esp"),
+            user_stack,
+            tid,
+            status: ThreadStatus::Invalid,
+            exit_code: None,
+            page_manager,
+        };
+
+        Self::setup_context(&mut new_thread);
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
+    pub fn new_func(entry_instruction: NonNull<u8>) -> Self {
+        let tid: Tid = allocate_tid();
+        let mut page_manager = PageManager::default();
+
+        let (kernel_stack, kernel_stack_pointer_top) = Self::allocate_kernel_stack();
+        let user_stack = Self::allocate_user_stack(&mut page_manager, true);
+
+        // Create our new TCB.
+        let mut new_thread = Self {
+            kernel_stack_pointer: kernel_stack_pointer_top,
+            kernel_stack,
+            eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
+            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
+                .expect("failed to create esp"),
+            user_stack,
+            tid,
+            status: ThreadStatus::Invalid,
+            exit_code: None,
+            page_manager,
+        };
+
+        Self::setup_context(&mut new_thread);
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
+    fn allocate_kernel_stack() -> (NonNull<u8>, NonNull<u8>) {
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
         // so we must pass in the top of this memory to the thread.
         let (kernel_stack, kernel_stack_pointer_top);
@@ -130,9 +186,10 @@ impl ThreadControlBlock {
             kernel_stack_pointer_top = kernel_stack.add(KERNEL_THREAD_STACK_SIZE);
             write_bytes(kernel_stack.as_ptr(), 0, KERNEL_THREAD_STACK_SIZE);
         }
+        (kernel_stack, kernel_stack_pointer_top)
+    }
 
-        // TODO: We should only do this if there wasn't already a stack section
-        // defined in the ELF file.
+    fn allocate_user_stack(page_manager: &mut PageManager, zero_init: bool) -> NonNull<u8> {
         let user_stack;
         unsafe {
             user_stack = KERNEL_ALLOCATOR
@@ -150,27 +207,22 @@ impl ThreadControlBlock {
                 true,
                 true,
             );
+            if zero_init {
+                write_bytes(
+                    user_stack.as_ptr(),
+                    0,
+                    USER_THREAD_STACK_SIZE,
+                );
+            };
         }
+        user_stack
+    }
 
-        // Create our new TCB.
-        let mut new_thread = Self {
-            kernel_stack_pointer: kernel_stack_pointer_top,
-            kernel_stack,
-            eip: NonNull::new(entrypoint as *mut u8).expect("failed to create eip"),
-            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
-                .expect("failed to create esp"),
-            user_stack,
-            tid,
-            status: ThreadStatus::Invalid,
-            exit_code: None,
-            page_manager,
-        };
-
+    fn setup_context(new_thread: &mut ThreadControlBlock) {
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
         //  * prepare_thread frame
         //  * switch_threads frame
-
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
             .expect("No Stack Space!");
@@ -181,10 +233,6 @@ impl ThreadControlBlock {
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
-
-        // Our thread can now be run via the `switch_threads` method.
-        new_thread.status = ThreadStatus::Ready;
-        new_thread
     }
 
     /// Creates the 'kernel thread'.
@@ -214,13 +262,14 @@ impl ThreadControlBlock {
         Some(self.shift_stack_pointer_down(bytes))
     }
 
-    /// Check if `bytes` bytes will fit on the stack.
+    /// Check if `bytes` bytes will fit on the kernel stack.
     const fn has_stack_space(&self, bytes: usize) -> bool {
-        // SAFETY: Calculates the distance between the top and bottom of the stack pointers.
-        let avaliable_space =
-            unsafe { self.kernel_stack_pointer.offset_from(self.kernel_stack) as usize };
+        // SAFETY: Calculates the distance between the top and bottom of the kernel stack pointers.
+        let available_space = unsafe {
+            self.kernel_stack_pointer.offset_from(self.kernel_stack) as usize
+        };
 
-        avaliable_space >= bytes
+        available_space >= bytes
     }
 
     /// Moves the stack pointer down and returns the new position.
@@ -249,14 +298,24 @@ impl ThreadControlBlock {
         // But the stack must be manually deallocated.
         // However, the first TCB is the kernel stack and not treated as such.
         if self.tid != 0 {
-            self.stack_pointer = NonNull::dangling();
+            self.kernel_stack_pointer = NonNull::dangling();
 
-            // SAFETY: This must be a stack we allocated.
-            unsafe {
-                Global.deallocate(self.stack_pointer_bottom, self.layout);
-            }
+            self.eip = NonNull::dangling();
+            self.esp = NonNull::dangling();
+
+            // TODO: drop up alloc'd memory
         }
 
         self.status = ThreadStatus::Invalid;
+    }
+
+    // Copies the stack from the source TCB to the target one.
+    pub unsafe fn copy_stack(source: &Self, target: &mut Self) -> () {
+        copy_nonoverlapping(
+            source.kernel_stack.as_ptr(), target.kernel_stack.as_ptr(), KERNEL_THREAD_STACK_SIZE
+        );
+        copy_nonoverlapping(
+            source.user_stack.as_ptr(), target.user_stack.as_ptr(), USER_THREAD_STACK_SIZE
+        )
     }
 }
