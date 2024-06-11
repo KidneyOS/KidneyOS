@@ -14,12 +14,14 @@ mod paging;
 mod sync;
 mod threading;
 mod user_program;
+mod dev;
 
 extern crate alloc;
 
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
+use dev::ide;
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -54,6 +56,8 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up GDTR");
         global_descriptor_table::load();
         println!("GDTR set up!");
+        
+        ide::ide_init();
 
         thread_system_initialization();
         thread_system_start(page_manager, INIT);
