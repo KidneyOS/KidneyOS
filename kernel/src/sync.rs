@@ -97,7 +97,7 @@ pub fn intr_get_level() -> IntrLevel {
 pub fn intr_disable() -> IntrLevel {
     let previous = intr_get_level();
     unsafe {
-        core::arch::asm!("cli", options(nomem, nostack));
+        asm!("cli", options(nomem, nostack));
     }
     previous
 }
@@ -106,7 +106,7 @@ pub fn intr_disable() -> IntrLevel {
 pub fn intr_enable(previous: IntrLevel) {
     if previous == IntrLevel::IntrOn {
         unsafe {
-            core::arch::asm!("sti", options(nomem, nostack));
+            asm!("sti", options(nomem, nostack));
         }
     }
 }

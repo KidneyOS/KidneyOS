@@ -122,7 +122,7 @@ unsafe extern "C" fn run_thread(
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
-unsafe extern "C" fn prepare_thread() -> ! {
+unsafe extern "C" fn prepare_thread() -> i32 {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.
