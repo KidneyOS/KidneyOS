@@ -4,10 +4,11 @@ pub mod thread_control_block;
 pub mod thread_functions;
 
 use crate::{
-    paging::PageManager,
+    paging::{PageManager, PageManagerDefault},
     sync::{intr_enable, intr_get_level, IntrLevel},
     threading::scheduling::scheduler_yield_and_die,
 };
+use core::ptr::NonNull;
 use alloc::boxed::Box;
 use kidneyos_shared::println;
 use scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER};
@@ -19,8 +20,6 @@ static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 /// To be called with interrupts disabled.
 static mut THREAD_SYSTEM_INITIALIZED: bool = false;
 pub fn thread_system_initialization() {
-    println!("Initializing Thread System...");
-
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // Initialize the scheduler.
@@ -30,7 +29,6 @@ pub fn thread_system_initialization() {
     unsafe {
         THREAD_SYSTEM_INITIALIZED = true;
     }
-    println!("Finished Thread System initialization. Ready to start threading.");
 }
 
 /// Enables preemptive scheduling.
@@ -49,21 +47,25 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
     let tcb_kernel = unsafe { ThreadControlBlock::new_kernel_thread(kernel_page_manager) };
 
-    // TODO: figure out how to create the idle thread
-    // // Create the idle thread.
-    // let idle_tcb = ThreadControlBlock::new(idle_function);
-    //
-    // // SAFETY: Interrupts must be disabled.
-    // unsafe {
-    //     RUNNING_THREAD = Some(Box::new(tcb_kernel));
-    //
-    //     SCHEDULER
-    //         .as_mut()
-    //         .expect("No Scheduler set up!")
-    //         .push(Box::new(idle_tcb));
-    // }
+    // TODO: Create the idle thread.
+    let idle_func_ptr = NonNull::new(idle_function as *mut u8).expect("idle function pointer is null!");
+    let idle_tcb = ThreadControlBlock::new_func(idle_func_ptr);
 
-    let init_tcb = ThreadControlBlock::new(init_elf);
+    // SAFETY: Interrupts must be disabled.
+    unsafe {
+        RUNNING_THREAD = Some(Box::new(tcb_kernel));
+
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(Box::new(idle_tcb));
+    }
+    scheduler_yield_and_continue();
+
+    // Create the initial user program thread.
+    let kernel_page_manager = PageManager::default();
+    let tcb_kernel = unsafe { ThreadControlBlock::new_kernel_thread(kernel_page_manager) };
+    let init_tcb = ThreadControlBlock::new_elf(init_elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
@@ -74,6 +76,8 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
             .expect("No Scheduler set up!")
             .push(Box::new(init_tcb));
     }
+
+    println!("turning on interrupts");
 
     // Enable preemptive scheduling.
     intr_enable(IntrLevel::IntrOn);
@@ -90,6 +94,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 /// Continually yields and should never die.
 extern "C" fn idle_function() -> i32 {
     loop {
+        println!("idle");
         scheduler_yield_and_continue();
     }
 }
