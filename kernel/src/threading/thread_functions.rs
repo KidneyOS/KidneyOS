@@ -8,7 +8,10 @@ use super::{
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
-use core::arch::asm;
+use core::{
+    arch::asm,
+    ptr::NonNull,
+};
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
@@ -22,6 +25,21 @@ use alloc::boxed::Box;
 /// A function that may be used for thread creation.
 /// The return value will be the exit code of this thread.
 pub type ThreadFunction = unsafe extern "C" fn() -> i32;
+
+// Returns the eip of the currently running thread.
+pub fn get_eip() -> NonNull<u8> {
+    unsafe {
+        RUNNING_THREAD.as_ref().expect("Why is nothing Running!?").eip
+    }
+}
+
+// Copies the user and kernel stack of the current thread to the passed target thread.
+pub fn copy_stack(target: &mut ThreadControlBlock) -> () {
+    unsafe {
+        let source = RUNNING_THREAD.as_ref().expect("Why is nothing running!?");
+        ThreadControlBlock::copy_stack(&source, target)
+    }
+}
 
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
@@ -46,7 +64,6 @@ pub fn exit_thread(exit_code: i32) -> ! {
 unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
-    entry_function: ThreadFunction,
 ) -> ! {
     let mut switched_to = Box::from_raw(switched_to);
 
@@ -105,12 +122,12 @@ unsafe extern "C" fn run_thread(
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
-unsafe extern "C" fn prepare_thread() -> i32 {
+unsafe extern "C" fn prepare_thread() -> ! {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.
     // We move this into a register and call the run thread function.
-    core::arch::asm!(
+    asm!(
         r#"
             # push [esp] # Already in place on stack.
             push edx

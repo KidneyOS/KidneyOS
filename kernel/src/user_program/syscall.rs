@@ -1,8 +1,10 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use kidneyos_shared::println;
-use crate::threading::{thread_functions, scheduling};
-use crate::threading::thread_control_block::ThreadControlBlock;
+use crate::threading::{
+    thread_functions,
+    thread_control_block::ThreadControlBlock,
+};
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the
@@ -19,9 +21,8 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             thread_functions::exit_thread(arg0 as i32);
         }
         SYS_FORK => {
-            // Need to get the elf data
-            let sibling: ThreadControlBlock = ThreadControlBlock::new();
-            scheduling::scheduler_yield_and_continue();
+            let mut sibling = ThreadControlBlock::new_func(thread_functions::get_eip());
+            thread_functions::copy_stack(&mut sibling);
             sibling.tid as usize
         }
         0x7 => {
