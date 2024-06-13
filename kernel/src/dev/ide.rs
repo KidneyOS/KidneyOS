@@ -6,7 +6,7 @@ use alloc::{format, string::String};
 const NUM_CHANNELS: usize = 2;
 
 struct ATADisk<'a>{
-    name: [char; 8],
+    name: [u8; 8],
     channel: &'a ATAChannel<'a>,
     dev_no: u16,
     is_ata: bool,
@@ -35,7 +35,7 @@ impl Default for ATAChannel<'_>{
 }
 
 
-
+//call with interupts enabled
 pub fn ide_init(){
     println!("Initialziing ATA driver in PIO mode");
 
@@ -44,30 +44,32 @@ pub fn ide_init(){
     for i in 0..NUM_CHANNELS{
 
 
-        let s: Cstr = format!("ide{}zu",i);
-        for (j,c) in s.chars().enumerate(){
+        let s: String = format!("ide{}zu",i);
+        for (j,c) in s.to_bytes().enumerate(){
             channels[i].name[j] = c;
         }
         println!("{:?}",channels[i].name);
         
         channels[i].reg_base = match channel_no{
-            0 => 0x1f0
-            1 => 0x170
-            _ => panic!()
-        }
-
-
-    }
-
+            0 => 0x1f0,
+            1 => 0x170,
+            _ => panic!(),
+        };
+        
+        
+    };
 
 
 }
 
-unsafe fn outb(value :u8, port: u16){
+
+fn outb(value :u8, port: u16){
+    unsafe {
     asm!(
         "outb %al, %dx",
         in("dx") port,
         in("al") value,
         options(att_syntax)
      );
+    };
 }   
