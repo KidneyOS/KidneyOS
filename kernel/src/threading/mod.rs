@@ -5,7 +5,7 @@ mod thread_functions;
 
 use crate::{
     paging::PageManager,
-    sync::{intr_enable, intr_get_level, IntrLevel},
+    sync::intr::{intr_enable, intr_get_level, IntrLevel},
 };
 use alloc::boxed::Box;
 use kidneyos_shared::println;

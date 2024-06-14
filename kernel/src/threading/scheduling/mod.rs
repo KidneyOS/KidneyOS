@@ -6,7 +6,7 @@ pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
-use crate::sync::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::sync::intr::{intr_disable, intr_enable, intr_get_level, IntrLevel};
 
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 

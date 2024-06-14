@@ -1,4 +1,4 @@
-use crate::sync::{intr_get_level, IntrLevel};
+use crate::sync::intr::{intr_get_level, IntrLevel};
 use core::mem::offset_of;
 
 use alloc::boxed::Box;
