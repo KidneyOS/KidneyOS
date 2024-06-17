@@ -17,49 +17,39 @@ use kidneyos_shared::{
     println,
     sizes::{KB, MB},
 };
-
-// Confirm that FrameAllocatorSolution has ::new_in and its result implements
-// FrameAllocator.
-fn __<A>(alloc: A) -> impl FrameAllocator<A>
-where
-    A: Allocator,
-{
-    FrameAllocatorSolution::<A>::new_in(alloc, 0)
-}
+use crate::mem::frame_allocator::PlacementPolicy;
 
 /// # Safety
 ///
 /// alloc must not return a range containing any frame index which has already
 /// been returned by a prior alloc call and has not yet been deallocated.
-unsafe trait FrameAllocator<A>
-where
-    A: Allocator,
+///
+trait FrameAllocator
 {
     /// Create a new FrameAllocator.
-    fn new_in(alloc: A, max_frames: usize) -> Self
-    where
-        A: Allocator,
-        Self: Sized;
+    /// TODO
+    /// Add support for including the number of frames in the initialization
+    fn new_in(placement_policy: PlacementPolicy) -> Self;
 
     /// Allocate the specified number of frames if possible, returning a range
     /// of indices for the allocated frames.
-    fn alloc(&mut self, frames: usize) -> Option<Range<usize>>;
+    fn alloc(&mut self, frames_requested: usize) -> Option<Range<usize>>;
 
     /// Deallocate the previously allocated range of frames that begins at
     /// start.
     fn dealloc(&mut self, start: usize);
 }
 
-struct FrameAllocatorWrapper<A: Allocator> {
+struct FrameAllocatorWrapper{
     start: NonNull<u8>,
-    frame_allocator: FrameAllocatorSolution<A>,
+    frame_allocator: FrameAllocatorSolution,
 }
 
-impl<A: Allocator> FrameAllocatorWrapper<A> {
-    fn new_in(alloc: A, start: NonNull<u8>, max_frames: usize) -> Self {
+impl FrameAllocatorWrapper{
+    fn new_in(start: NonNull<u8>, _max_frames: usize) -> Self {
         Self {
             start,
-            frame_allocator: FrameAllocatorSolution::new_in(alloc, max_frames),
+            frame_allocator: FrameAllocatorSolution::default(),
         }
     }
 
@@ -84,7 +74,7 @@ impl<A: Allocator> FrameAllocatorWrapper<A> {
 enum KernelAllocatorState {
     Uninitialized,
     Initialized {
-        frame_allocator: FrameAllocatorWrapper<BuddyAllocator>,
+        frame_allocator: FrameAllocatorWrapper,
         subblock_allocators: Vec<(BuddyAllocator, NonNull<[u8]>), BuddyAllocator>,
     },
 }
@@ -144,7 +134,6 @@ impl KernelAllocator {
         let max_frames = (frames_max - frames_base as usize) / PAGE_FRAME_SIZE;
         *self.state.get_mut() = KernelAllocatorState::Initialized {
             frame_allocator: FrameAllocatorWrapper::new_in(
-                bootstrap_allocator,
                 NonNull::new(frames_base).expect("frames_base can't be null"),
                 max_frames,
             ),
@@ -203,7 +192,7 @@ impl KernelAllocator {
         assert!(leaked || subblock_allocators.is_empty());
 
         // We can't sucessfully deinitialize because there are still references
-        // to the memory that we would loose by deinitializing.
+        // to the memory that we would lose by deinitializing.
         if leaked {
             println!();
             panic!("leaks detected");
