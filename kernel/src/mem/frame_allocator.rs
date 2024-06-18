@@ -261,7 +261,7 @@ impl FrameAllocatorSolution{
 impl Default for FrameAllocatorSolution{
     fn default() -> Self {
         let core_map_entries = [CoreMapEntry::default(); TOTAL_FRAME_NUMBER];
-        FrameAllocator{
+        FrameAllocatorSolution{
             core_map_entries,
             placement_policy: PlacementPolicy::NextFit,
             total_frames_allocated: 0,
