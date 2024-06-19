@@ -1,10 +1,17 @@
 pub mod ticket;
 pub use self::ticket::{TicketMutex, TicketMutexGuard};
 
+#[cfg(feature = "ticket_mutex")]
 type InnerMutex<T> = TicketMutex<T>;
+#[cfg(feature = "ticket_mutex")]
 type InnerMutexGuard<'a, T> = TicketMutexGuard<'a, T>;
 
-/// A locak that provides mutually exclusive data access.
+#[cfg(not(feature = "ticket_mutex"))]
+type InnerMutex<T> = TicketMutex<T>;
+#[cfg(not(feature = "ticket_mutex"))]
+type InnerMutexGuard<'a, T> = TicketMutexGuard<'a, T>;
+
+/// A lock that provides mutually exclusive data access.
 pub struct Mutex<T: ?Sized> {
     inner: InnerMutex<T>,
 }
