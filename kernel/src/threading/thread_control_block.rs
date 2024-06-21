@@ -12,11 +12,15 @@ use core::{
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
     sync::atomic::{AtomicU16, Ordering},
 };
+use alloc::vec::Vec;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use crate::threading::RUNNING_THREAD;
 
+pub type Pid = u16;
 pub type Tid = u16;
 
-// Current value marks the next available TID value to use.
+// Current value marks the next available PID & TID values to use.
+static NEXT_UNRESERVED_PID: AtomicU16 = AtomicU16::new(0);
 static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
@@ -38,39 +42,33 @@ pub enum ThreadStatus {
     Dying,
 }
 
-// TODO: Use enums so that we never have garbage data (i.e. stacks that don't
-// need be freed for the kernel thread, information that doesn't make sense when
-// the thread is in certain states, etc.)
-pub struct ThreadControlBlock {
-    pub kernel_stack_pointer: NonNull<u8>,
-    // Kept so we can free the kernel stack later.
-    pub kernel_stack: NonNull<u8>,
 
-    // The user virtual address containing the user instruction pointer to
-    // switch to next time this thread is run.
-    pub eip: NonNull<u8>,
-    // Like above, but the stack pointer.
-    pub esp: NonNull<u8>,
-    // The kernel virtual address of the user stack, so it can be freed later.
-    pub user_stack: NonNull<u8>,
-
-    pub tid: Tid,
-    pub status: ThreadStatus,
-    pub exit_code: Option<i32>,
-    pub page_manager: PageManager,
+pub fn allocate_pid() -> Pid {
+    // SAFETY: Atomically accesses a shared variable.
+    NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
 }
-
 pub fn allocate_tid() -> Tid {
     // SAFETY: Atomically accesses a shared variable.
     NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
 }
 
-impl ThreadControlBlock {
-    pub fn new_elf(elf_data: &[u8]) -> Self {
-        let tid: Tid = allocate_tid();
+pub struct ProcessControlBlock {
+    pub pid: Pid,
+    // The TIDs of this process' children threads
+    pub child_tids: Vec<Tid>,
+    // The TIDs of the threads waiting on this process to end
+    pub wait_list: Vec<Tid>,
 
-        let (entrypoint, vm_areas) =
-            parse_elf(elf_data).expect("init process's ELF data was malformed");
+    // TODO: (file I/O) file descriptor table
+
+    pub exit_code: Option<i32>,
+}
+
+impl ProcessControlBlock {
+    pub fn new(elf_data: &[u8]) -> ThreadControlBlock {
+        let pid: Pid = allocate_pid();
+
+        let (entrypoint, vm_areas) = parse_elf(elf_data).expect("init process's ELF data was malformed");
 
         let mut page_manager = PageManager::default();
         for VmAreaStruct {
@@ -119,36 +117,60 @@ impl ThreadControlBlock {
             }
         }
 
-        let (kernel_stack, kernel_stack_pointer_top) = Self::allocate_kernel_stack();
-
-        // TODO: We should only do this if there wasn't already a stack section
-        // defined in the ELF file.
-        let user_stack = Self::allocate_user_stack(&mut page_manager, false);
-
-        // Create our new TCB.
-        let mut new_thread = Self {
-            kernel_stack_pointer: kernel_stack_pointer_top,
-            kernel_stack,
-            eip: NonNull::new(entrypoint as *mut u8).expect("failed to create eip"),
-            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
-                .expect("failed to create esp"),
-            user_stack,
-            tid,
-            status: ThreadStatus::Invalid,
+        let mut new_pcb = Self {
+            pid,
+            child_tids: Vec::new(),
+            wait_list: Vec::new(),
             exit_code: None,
-            page_manager,
         };
+        let new_tcb = ThreadControlBlock::new_with_manager(
+            NonNull::new(entrypoint as *mut u8).expect("fail to create PCB entry point"),
+            pid,
+            page_manager
+        );
+        new_pcb.child_tids.push(new_tcb.tid);
 
-        Self::setup_context(&mut new_thread);
+        new_tcb
+    }
+}
 
-        // Our thread can now be run via the `switch_threads` method.
-        new_thread.status = ThreadStatus::Ready;
-        new_thread
+// TODO: Use enums so that we never have garbage data (i.e. stacks that don't
+// need be freed for the kernel thread, information that doesn't make sense when
+// the thread is in certain states, etc.)
+pub struct ThreadControlBlock {
+    pub kernel_stack_pointer: NonNull<u8>,
+    // Kept so we can free the kernel stack later.
+    pub kernel_stack: NonNull<u8>,
+
+    // The user virtual address containing the user instruction pointer to
+    // switch to next time this thread is run.
+    pub eip: NonNull<u8>,
+    // Like above, but the stack pointer.
+    pub esp: NonNull<u8>,
+    // The kernel virtual address of the user stack, so it can be freed later.
+    pub user_stack: NonNull<u8>,
+
+    pub tid: Tid,
+    // The PID of the parent PCB.
+    pub ppid: Pid,
+    pub status: ThreadStatus,
+    pub exit_code: Option<i32>,
+    pub page_manager: PageManager,
+}
+
+impl ThreadControlBlock {
+    pub fn new(entry_instruction: NonNull<u8>) -> Self {
+        unsafe {
+            Self::new_with_manager(
+                entry_instruction,
+                RUNNING_THREAD.as_ref().unwrap().ppid,
+                PageManager::default()
+            )
+        }
     }
 
-    pub fn new_func(entry_instruction: NonNull<u8>) -> Self {
+    pub fn new_with_manager(entry_instruction: NonNull<u8>, ppid: Pid, mut page_manager: PageManager) -> Self {
         let tid: Tid = allocate_tid();
-        let mut page_manager = PageManager::default();
 
         let (kernel_stack, kernel_stack_pointer_top) = Self::allocate_kernel_stack();
         let user_stack = Self::allocate_user_stack(&mut page_manager, true);
@@ -162,6 +184,7 @@ impl ThreadControlBlock {
                 .expect("failed to create esp"),
             user_stack,
             tid,
+            ppid, // Potentially could be swapped to directly copy the ppid of the running thread
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,
@@ -172,6 +195,25 @@ impl ThreadControlBlock {
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
         new_thread
+    }
+
+    /// Creates the 'kernel thread'.
+    ///
+    /// # Safety
+    /// Should only be used once while starting the threading system.
+    pub unsafe fn new_kernel_thread(page_manager: PageManager, ppid: Pid) -> Self {
+        ThreadControlBlock {
+            kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
+            kernel_stack: NonNull::dangling(),
+            eip: NonNull::dangling(),
+            esp: NonNull::dangling(),
+            user_stack: NonNull::dangling(),
+            tid: allocate_tid(),
+            ppid,
+            status: ThreadStatus::Running,
+            exit_code: None,
+            page_manager,
+        }
     }
 
     fn allocate_kernel_stack() -> (NonNull<u8>, NonNull<u8>) {
@@ -232,24 +274,6 @@ impl ThreadControlBlock {
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
-        }
-    }
-
-    /// Creates the 'kernel thread'.
-    ///
-    /// # Safety
-    /// Should only be used once while starting the threading system.
-    pub unsafe fn new_kernel_thread(page_manager: PageManager) -> Self {
-        ThreadControlBlock {
-            kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
-            kernel_stack: NonNull::dangling(),
-            eip: NonNull::dangling(),
-            esp: NonNull::dangling(),
-            user_stack: NonNull::dangling(),
-            tid: allocate_tid(),
-            status: ThreadStatus::Running,
-            exit_code: None,
-            page_manager,
         }
     }
 

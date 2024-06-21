@@ -15,6 +15,7 @@ use core::{
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
+    serial::outb,
 };
 
 use alloc::boxed::Box;
@@ -89,6 +90,9 @@ unsafe extern "C" fn run_thread(
             .expect("Scheduler not set up!")
             .push(switched_from);
     }
+
+    outb(0x21, 0xfd);
+    outb(0xa1, 0xff);
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
