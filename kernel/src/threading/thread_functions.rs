@@ -3,7 +3,7 @@ use super::{
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
-use crate::sync::intr_enable;
+use crate::sync::intr::intr_enable;
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
