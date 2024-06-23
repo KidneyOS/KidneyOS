@@ -13,7 +13,7 @@ const LCR: u16 = IO_BASE + 3; // Line Control Register
 const MCR: u16 = IO_BASE + 4; // MODEM Control Register
 const LSR: u16 = IO_BASE + 5; // Line Status Register (read-only)
 
-unsafe fn outb(port: u16, byte: u8) {
+pub unsafe fn outb(port: u16, byte: u8) {
     asm!("out dx, al", in("dx") port, in("al") byte)
 }
 

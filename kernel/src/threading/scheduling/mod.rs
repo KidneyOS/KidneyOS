@@ -23,7 +23,7 @@ pub fn initialize_scheduler() {
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
 pub fn scheduler_yield() {
-    intr_disable();
+    let previous = intr_disable();
 
     // SAFETY: Threads and Scheduler must be initialized and active.
     // Interrupts must be disabled.
@@ -36,5 +36,5 @@ pub fn scheduler_yield() {
         switch_threads(ThreadStatus::Ready, switch_to);
     }
 
-    intr_enable();
+    intr_enable(previous);
 }

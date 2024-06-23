@@ -13,22 +13,18 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // invalid syscall number is provided.
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
-        0x1 => {
-            // exit
+        SYS_EXIT => {
             todo!("exit syscall")
         }
-        0x2 => {
-            // fork
+        SYS_FORK => {
             todo!("fork syscall")
         }
         0x7 => {
-            // waitpid
             todo!("waitpid syscall")
-        }
-        0x11c => {
-            // waitid
-            todo!("waitid syscall")
         }
         _ => 1,
     }
 }
+
+pub const SYS_EXIT: usize = 0x1;
+pub const SYS_FORK: usize = 0x2;

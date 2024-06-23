@@ -8,8 +8,8 @@ use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
+    serial::outb,
 };
-
 use alloc::boxed::Box;
 
 /// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
@@ -35,7 +35,7 @@ unsafe extern "C" fn run_thread(
 ) -> ! {
     let mut switched_to = Box::from_raw(switched_to);
 
-    // We assume that switched_from had it's status changed already.
+    // We assume that switched_from had its status changed already.
     // We must only mark this thread as running.
     switched_to.status = ThreadStatus::Running;
 
@@ -52,7 +52,9 @@ unsafe extern "C" fn run_thread(
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    intr_enable();
+    outb(0x21, 0xfd);
+    outb(0xa1, 0xff);
+    intr_enable(crate::sync::IntrLevel::IntrOn);
 
     // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
     // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
@@ -87,7 +89,7 @@ unsafe extern "C" fn prepare_thread() {
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.
     // We move this into a register and call the run thread function.
-    core::arch::asm!(
+    asm!(
         r#"
             # push [esp] # Already in place on stack.
             push edx
