@@ -124,6 +124,17 @@ unsafe extern "C" fn run_thread(
     );
 }
 
+#[repr(C, packed)]
+pub struct PrepareThreadContext {
+    entry_function: ThreadFunction,
+}
+
+impl PrepareThreadContext {
+    pub fn new(entry_function: ThreadFunction) -> Self {
+        Self { entry_function }
+    }
+}
+
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
 unsafe extern "C" fn prepare_thread() -> i32 {

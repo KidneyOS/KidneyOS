@@ -1,4 +1,4 @@
-use super::thread_functions::SwitchThreadsContext;
+use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
 use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::{
@@ -8,7 +8,7 @@ use crate::{
     KERNEL_ALLOCATOR,
 };
 use core::{
-    mem::size_of,
+    mem::{size_of, transmute},
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
     sync::atomic::{AtomicU16, Ordering},
 };
@@ -188,7 +188,8 @@ impl ThreadControlBlock {
             page_manager,
         };
 
-        Self::setup_context(&mut new_thread);
+        let entry_function: ThreadFunction = unsafe { transmute(entry_instruction.as_ptr()) };
+        Self::setup_context(&mut new_thread, entry_function);
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
@@ -258,17 +259,24 @@ impl ThreadControlBlock {
         user_stack
     }
 
-    fn setup_context(new_thread: &mut ThreadControlBlock) {
+    fn setup_context(new_thread: &mut ThreadControlBlock, entry_function: ThreadFunction) {
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
         //  * prepare_thread frame
         //  * switch_threads frame
+
+        let prepare_thread_context = new_thread
+            .allocate_stack_space(size_of::<PrepareThreadContext>())
+            .expect("No Stack Space!");
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
             .expect("No Stack Space!");
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
+            *prepare_thread_context
+                .as_ptr()
+                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(entry_function);
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();

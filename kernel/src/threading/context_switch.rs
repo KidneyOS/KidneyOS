@@ -117,7 +117,7 @@ macro_rules! restore_registers {
 
 /// Performs a context switch between two threads.
 ///
-/// Must save the Callee's registers and restore the next's registers.
+/// Must save the callee's registers and restore the next's registers.
 ///
 /// The caller saved registers are: %eax, %ecx, and %edx.
 /// So we may use them freely.
@@ -125,7 +125,7 @@ macro_rules! restore_registers {
 ///
 /// Parameters are pushed to the stack the opposite order they are defined.
 /// The last is pushed to the stack first (higher address), and the first is pushed last (lower address).
-/// The caller is responisble to remove these from the stack.
+/// The caller is responsible to remove these from the stack.
 ///
 /// Our return value will need to be placed into the %eax register.
 #[naked]
