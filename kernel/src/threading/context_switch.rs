@@ -43,11 +43,10 @@ pub unsafe fn switch_threads(
     let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
 
     // We must mark this thread as running once again.
-    let mut switch_from = Box::from_raw(switch_from);
-    switch_from.status = ThreadStatus::Running;
+    (*switch_from).status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    RUNNING_THREAD = Some(switch_from);
+    RUNNING_THREAD = Some(Box::from_raw(switch_from));
 
     if previous.status == ThreadStatus::Dying {
         previous.reap();

@@ -160,13 +160,11 @@ pub struct ThreadControlBlock {
 
 impl ThreadControlBlock {
     pub fn new(entry_instruction: NonNull<u8>) -> Self {
-        unsafe {
-            Self::new_with_manager(
-                entry_instruction,
-                RUNNING_THREAD.as_ref().unwrap().ppid,
-                PageManager::default()
-            )
-        }
+        Self::new_with_manager(
+            entry_instruction,
+            unsafe { RUNNING_THREAD.as_ref().unwrap().ppid },
+            PageManager::default()
+        )
     }
 
     pub fn new_with_manager(entry_instruction: NonNull<u8>, ppid: Pid, mut page_manager: PageManager) -> Self {

@@ -3,7 +3,6 @@
 use kidneyos_shared::println;
 use crate::threading::{
     thread_functions,
-    thread_control_block::ThreadControlBlock,
 };
 
 /// This function is responsible for processing syscalls made by user programs.
@@ -21,15 +20,10 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             thread_functions::exit_thread(arg0 as i32);
         }
         SYS_FORK => {
-            let mut sibling = ThreadControlBlock::new_func(thread_functions::get_eip());
-            thread_functions::copy_stack(&mut sibling);
-            sibling.tid as usize
+            todo!("fork syscall")
         }
         0x7 => {
             todo!("waitpid syscall")
-        }
-        0x11c => {
-            todo!("waitid syscall")
         }
         _ => 1,
     }
