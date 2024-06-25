@@ -122,6 +122,27 @@ impl<T> From<T> for TicketMutex<T> {
     }
 }
 
+impl<T: ?Sized + fmt::Debug> fmt::Debug for TicketMutex<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.try_lock() {
+            Some(guard) => write!(f, "Mutex {{ data: ")
+                .and_then(|()| (*guard).fmt(f))
+                .and_then(|()| write!(f, "}}")),
+            None => write!(f, "Mutex {{ <locked> }}"),
+        }
+    }
+}
+
+impl<'a, T: ?Sized> TicketMutexGuard<'a, T> {
+    /// Leak the lock guard, yielding a mutable reference to the underlying data.
+    #[inline(always)]
+    pub fn leak(this: Self) -> &'a mut T {
+        let data = this.data as *mut _; // Keep it in pointer form temporarily to avoid double-aliasing
+        core::mem::forget(this);
+        unsafe { &mut *data }
+    }
+}
+
 impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for TicketMutexGuard<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
