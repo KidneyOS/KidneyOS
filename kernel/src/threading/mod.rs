@@ -2,8 +2,8 @@ mod context_switch;
 pub mod scheduling;
 mod thread_control_block;
 mod thread_functions;
-// pub mod thread_manager;
-use core::arch::asm;   // remove from here 
+pub mod thread_manager;
+// use core::arch::asm;   // remove from here 
 
 use crate::{
     paging::PageManager,
@@ -28,34 +28,8 @@ pub fn thread_system_initialization() {
 
     // Initialize the scheduler.
     initialize_scheduler();
-
-    let mut cache: i32 = 14;
-    let mut result: i32 = 8;
-    unsafe {
-        asm!(
-            "tzcnt {result}, {cache}",
-            // cache = inout(reg) cache,
-            result = inout(reg) result,
-            cache = inout(reg) cache,
-        );
-    }
-    println!("{} {}", cache, result);
-    assert!(0 < 0);
-
-    let mut x: u32 = 4;
-    unsafe {
-        asm!(
-            "mov {tmp}, {x}",
-            "shl {tmp}, 1",
-            "shl {x}, 2",
-            "add {x}, {tmp}",
-            x = inout(reg) x,
-            tmp = out(reg) _,
-        );
-    };
-    println!("{}", x);
-    assert_eq!(x, 4 * 6);
-
+    // let all_set: u32 = u32::MAX;
+    
     // Create Idle thread.
 
     // SAFETY: Interrupts must be disabled.
