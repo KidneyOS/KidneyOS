@@ -2,6 +2,8 @@ use super::{ThreadControlBlock, Tid};
 use alloc::boxed::Box;
 use core::arch::asm;
 
+// a comment
+
 pub static mut THREADMANAGER: Option<Box<dyn ThreadManager>> = None;
 
 pub trait ThreadManager {
