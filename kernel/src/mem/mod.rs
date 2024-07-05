@@ -7,72 +7,73 @@ use buddy_allocator::BuddyAllocator;
 use core::{
     alloc::{AllocError, Allocator, GlobalAlloc, Layout},
     cell::UnsafeCell,
-    ops::Range,
     ptr::NonNull,
+    mem::size_of,
 };
-use std::mem;
+use std::ptr::null_mut;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution, DummyAllocatorSolution};
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
 };
-use crate::mem::frame_allocator::PlacementPolicy;
-use crate::mem::frame_allocator::PlacementPolicy::NextFit;
-
-static FIRST_ALLOCATION: bool = false;
 
 
-/// # Safety
-///
-/// alloc must not return a range containing any frame index which has already
-/// been returned by a prior alloc call and has not yet been deallocated.
-///
-trait FrameAllocator
+// Global variables to keep track of allocation statistics
+static TOTAL_NUM_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+static TOTAL_NUM_DEALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+static TOTAL_NUM_FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+
+// The alignment of the layout cannot be greater than the size of the page
+const MAX_SUPPORTED_ALIGN: usize = 4096;
+
+
+// Confirm that FrameAllocatorSolution has ::new_in and its result implements
+// FrameAllocator.
+fn __(start: NonNull<u8>,
+      core_map: Box<[CoreMapEntry]>,
+      num_frames_in_system: usize) -> impl FrameAllocator{
+    FrameAllocatorSolution::new_in(start, core_map, num_frames_in_system);
+}
+
+unsafe trait FrameAllocator
 {
     /// Create a new FrameAllocator.
-    /// TODO
-    /// Add support for including the number of frames in the initialization
-    fn new_in(core_map: Box<[CoreMapEntry]>, num_frames_in_system: usize, placement_policy: PlacementPolicy) -> Self;
+    fn new_in(start: NonNull<u8>,
+              core_map: Box<[CoreMapEntry]>,
+              num_frames_in_system: usize) -> Self;
 
-    /// Allocate the specified number of frames if possible, returning a range
-    /// of indices for the allocated frames.
-    fn alloc(&mut self, frames_requested: usize) -> Option<Range<usize>>;
+    /// Allocate the specified number of frames if possible,
+    /// Input: The numbers of frames wanted
+    /// Output: Pointer to piece of memory satisfying requirements or AllocError if not enough
+    /// room available
+    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>;
 
-    /// Deallocate the previously allocated range of frames that begins at
-    /// start.
-    fn dealloc(&mut self, start: usize);
+    /// Deallocate the previously allocated range of frames that begins at start.
+    /// Input: Pointer to region of memory to be deallocated
+    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>);
 }
 
 struct FrameAllocatorWrapper{
-    start: NonNull<u8>,
     frame_allocator: FrameAllocatorSolution,
 }
 
-// TODO: Double check the functions in this wrapper
 impl FrameAllocatorWrapper{
     fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>, num_frames_in_system: usize) -> Self {
         Self {
-            start,
-            frame_allocator: FrameAllocatorSolution::new_in(core_map, num_frames_in_system, NextFit),
+            frame_allocator: FrameAllocatorSolution::new_in(start: NonNull<u8>,
+                                                            core_map,
+                                                            num_frames_in_system),
         }
     }
 
     pub fn alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
-        let Some(range) = self.frame_allocator.alloc(frames) else {
-            return Err(AllocError);
-        };
-
-        Ok(NonNull::slice_from_raw_parts(
-            NonNull::new(unsafe { self.start.as_ptr().add(range.start * PAGE_FRAME_SIZE) })
-                .ok_or(AllocError)?,
-            range.len() * PAGE_FRAME_SIZE,
-        ))
+        self.frame_allocator.alloc(frames)
     }
 
     pub fn dealloc(&mut self, ptr: NonNull<u8>) {
-        let start = (ptr.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
-        self.frame_allocator.dealloc(start);
+        self.frame_allocator.dealloc(ptr);
     }
 }
 
@@ -108,8 +109,7 @@ impl KernelAllocator {
     pub const fn new() -> KernelAllocator {
         Self {
             state: UnsafeCell::new(KernelAllocatorState::Uninitialized{
-                dummy_allocator: DummyAllocatorSolution::new_in(0, 0),
-            })
+                dummy_allocator: DummyAllocatorSolution::new_in(0, 0), }),
         }
     }
 
@@ -138,9 +138,8 @@ impl KernelAllocator {
             NonNull::new_unchecked(bootstrap_base),
             BOOTSTRAP_ALLOCATOR_SIZE,
         ));
-        let frames_base = bootstrap_base.add(BOOTSTRAP_ALLOCATOR_SIZE).cast::<u8>();
+        let frames_base_pointer = bootstrap_base.add(BOOTSTRAP_ALLOCATOR_SIZE).cast::<u8>();
 
-        // TODO: CHECK MATH!!!!
         // Now that we know the start and end bounds for our memory region, we can set it in the
         // dummy; initial values should be 0 if set correctly
         let start = dummy_allocator.get_start_address();
@@ -148,14 +147,14 @@ impl KernelAllocator {
         assert_eq!(start, 0);
         assert_eq!(end, 0);
 
-        dummy_allocator.set_start_address(frames_base as usize);
+        dummy_allocator.set_start_address(frames_base_pointer as usize);
         dummy_allocator.set_end_address(frames_max);
 
-        let num_frames_in_system = (frames_max - frames_base as usize) /
-            (mem::size_of::<CoreMapEntry>() + PAGE_FRAME_SIZE);
+        let num_frames_in_system = (frames_max - frames_base_pointer as usize) /
+            (size_of::<CoreMapEntry>() + PAGE_FRAME_SIZE);
 
         // This should ALWAYS be the first global allocation to take place - should use dummy allocator
-        let mut core_map: Box<[CoreMapEntry]> = vec![CoreMapEntry::default(); num_frames_in_system]
+        let mut core_map: Box<[CoreMapEntry]> = vec![CoreMapEntry::DEFAULT; num_frames_in_system]
                                                 .into_boxed_slice();
 
         // With the core_map not initialized, we can now initialize the actual Frame Allocator
@@ -231,48 +230,81 @@ impl KernelAllocator {
 // - We never rely on allocations happening.
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if FIRST_ALLOCATION {
+        if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) == 0 {
             /*
-            TODO:
-            1. Check that kernel is in Uninitialized state (this should only happen for the first Box Allocation)
-            2. Perform the allocation as normal
+            TODO: Add has_room/has_space function in frame allocator for future implementation?
+            1. Check that kernel is in Uninitialized state, panic if not
+            2. Calculate the number of frames that have been requested in the layout
+            3. Call the dummy allocator alloc
+            4. Increment global statistics
+
+            TODO: Maybe change this?
+            If there is not enough room, just PANIC!!!
              */
-            std::ptr::null_mut()
+            let KernelAllocatorState::Uninitialized {
+                dummy_allocator
+            } = &mut *self.state.get() else {
+                halt!("Kernel initialized before Coremap entries were setup, abort")
+            };
+
+            let size = layout.size();
+            let align = layout.align();
+
+            // The alignment of the layout should never be larger than the size of a page
+            if align > MAX_SUPPORTED_ALIGN{
+                return null_mut();
+            }
+
+            let num_frames_requested = ((size + align).next_multiple_of(PAGE_FRAME_SIZE))
+                                                        / PAGE_FRAME_SIZE;
+
+            let Ok(region) = dummy_allocator.alloc(num_frames_requested) else {
+                halt!("Unable to allocate memory according to provided layout, PANIC!");
+            };
+
+            // At this point, we know the allocation was successful; increment global statistics
+            let new_total_allocs = TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) + 1;
+            TOTAL_NUM_ALLOCATIONS.store(new_total_allocs, Ordering::Relaxed);
+            let new_total_frames = TOTAL_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + num_frames_requested;
+            TOTAL_NUM_FRAMES_ALLOCATED.store(new_total_frames, Ordering::Relaxed);
+
+            region.as_ptr().cast::<u8>()
         } else {
+            // TODO: Change this later once subblock allocator is updated
             let KernelAllocatorState::Initialized {
                 frame_allocator,
-                subblock_allocators,
+                subblock_allocators: _subblock_allocators,
             } = &mut *self.state.get()
                 else {
                     halt!("alloc called before initialization of kernel allocator");
                 };
 
-            // First see if we have space in any of our existing subblock
-            // allocators, and if so return memory from there.
-            for (subblock_allocator, _) in subblock_allocators.iter() {
-                if let Ok(res) = subblock_allocator.allocate(layout) {
-                    return res.as_ptr().cast::<u8>();
-                }
+            let size = layout.size();
+            let align = layout.align();
+
+            // The alignment of the layout should never be larger than the size of a page
+            if align > MAX_SUPPORTED_ALIGN{
+                return null_mut();
             }
 
-            let Ok(region) = frame_allocator.alloc(
-                (layout.size() + layout.align() - 1 + BuddyAllocator::OVERHEAD)
-                    .next_multiple_of(PAGE_FRAME_SIZE)
-                    / PAGE_FRAME_SIZE,
-            ) else {
-                halt!("Out of virtual memory!");
+            let num_frames_requested = ((size + align).next_multiple_of(PAGE_FRAME_SIZE))
+                / PAGE_FRAME_SIZE;
+
+            let Ok(region) = frame_allocator.alloc(num_frames_requested) else {
+                halt!("Unable to allocate memory according to provided layout, PANIC!");
             };
 
-            let buddy_allocator = BuddyAllocator::new(region);
-            subblock_allocators.push((buddy_allocator, region));
-            buddy_allocator
-                .allocate(layout)
-                .expect("new buddy allocator created with sufficient region failed to fit planned allocation")
-                .as_ptr()
-                .cast::<u8>()
+            // At this point, we know the allocation was successful; increment global statistics
+            let new_total_allocs = TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) + 1;
+            TOTAL_NUM_ALLOCATIONS.store(new_total_allocs, Ordering::Relaxed);
+            let new_total_frames = TOTAL_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + num_frames_requested;
+            TOTAL_NUM_FRAMES_ALLOCATED.store(new_total_frames, Ordering::Relaxed);
+
+            region.as_ptr().cast::<u8>()
         }
     }
 
+    // TODO: Implement dealloc later
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let KernelAllocatorState::Initialized {
             frame_allocator,
