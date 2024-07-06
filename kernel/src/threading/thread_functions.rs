@@ -62,8 +62,9 @@ unsafe extern "C" fn run_thread(
     let mut switched_from = Box::from_raw(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
-        switched_from.reap();
-        drop(switched_from);
+        // TODO: bug when dropping the page manager because it is still loaded
+        // switched_from.reap();
+        // drop(switched_from);
     } else {
         SCHEDULER
             .as_mut()

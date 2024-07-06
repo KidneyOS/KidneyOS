@@ -49,7 +49,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     let kernel_tcb = unsafe { ThreadControlBlock::new_kernel_thread(kernel_page_manager) };
 
     // Create the idle thread.
-    let idle_tcb = ThreadControlBlock::new(idle_function, kernel_tcb.pid);
+    let idle_tcb = ThreadControlBlock::new(idle_function, 0);
 
     // Create the initial user program thread.
     let user_tcb = ProcessControlBlock::new(init_elf);
@@ -87,7 +87,6 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 /// Continually yields and should never die.
 extern "C" fn idle_function() -> i32 {
     loop {
-        println!("idle");
         scheduler_yield_and_continue();
     }
 }

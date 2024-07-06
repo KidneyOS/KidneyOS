@@ -49,8 +49,9 @@ pub unsafe fn switch_threads(
     RUNNING_THREAD = Some(Box::from_raw(switch_from));
 
     if previous.status == ThreadStatus::Dying {
-        previous.reap();
-        drop(previous);
+        // TODO: bug when dropping the page manager because it is still loaded
+        // previous.reap();
+        // drop(previous);
     } else {
         SCHEDULER
             .as_mut()
