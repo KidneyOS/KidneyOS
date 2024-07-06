@@ -1,5 +1,5 @@
 use super::{
-    scheduling::SCHEDULER,
+    scheduling::{SCHEDULER, scheduler_yield},
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
@@ -41,7 +41,7 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, .. } = *switched_to;
+    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
 
     // Reschedule our threads.
     RUNNING_THREAD = Some(switched_to);
@@ -54,32 +54,49 @@ unsafe extern "C" fn run_thread(
     // Every new thread should start with them enabled.
     outb(0x21, 0xfd);
     outb(0xa1, 0xff);
-    intr_enable(crate::sync::IntrLevel::IntrOn);
+    intr_enable(crate::sync::IntrLevel::IntrOn);;
 
-    // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
-    // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
+    // Kernel threads have no associated PCB, denoted by its PID being 0
+    if pid == 0 {
+        let entry_function= eip.as_ptr() as *const fn();
+        (*entry_function)();
+        loop { scheduler_yield(); }
+    } else {
+        // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
+        // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
+        asm!(
+            "
+            mov ds, {data_sel:x}
+            mov es, {data_sel:x}
+            mov fs, {data_sel:x}
+            mov gs, {data_sel:x} // SS and CS are handled by iret
 
-    asm!(
-        "
-        mov ds, {data_sel:x}
-        mov es, {data_sel:x}
-        mov fs, {data_sel:x}
-        mov gs, {data_sel:x} // SS and CS are handled by iret
+            // Set up the stack frame iret expects.
+            push {data_sel:e} // stack segment
+            push {esp} // esp
+            pushfd // eflags
+            push {code_sel} // code segment
+            push {eip} // eip
+            iretd
+            ",
+            data_sel = in(reg) USER_DATA_SELECTOR,
+            esp = in(reg) esp.as_ptr(),
+            code_sel = const USER_CODE_SELECTOR,
+            eip = in(reg) eip.as_ptr(),
+            options(noreturn),
+        );
+    }
+}
 
-        // Set up the stack frame iret expects.
-        push {data_sel:e} // stack segment
-        push {esp} // esp
-        pushfd // eflags
-        push {code_sel} // code segment
-        push {eip} // eip
-        iretd
-        ",
-        data_sel = in(reg) USER_DATA_SELECTOR,
-        esp = in(reg) esp.as_ptr(),
-        code_sel = const USER_CODE_SELECTOR,
-        eip = in(reg) eip.as_ptr(),
-        options(noreturn),
-    );
+#[repr(C, packed)]
+pub struct PrepareThreadContext {
+    entry_function: ThreadFunction,
+}
+
+impl PrepareThreadContext {
+    pub fn new(entry_function: ThreadFunction) -> Self {
+        Self { entry_function }
+    }
 }
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.

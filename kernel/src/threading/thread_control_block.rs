@@ -1,4 +1,4 @@
-use super::thread_functions::SwitchThreadsContext;
+use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
 use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::{
@@ -122,7 +122,7 @@ impl ProcessControlBlock {
             wait_list: Vec::new(),
             exit_code: None,
         };
-        let new_tcb = ThreadControlBlock::new(
+        let new_tcb = ThreadControlBlock::new_with_elf(
             NonNull::new(entrypoint as *mut u8).expect("fail to create PCB entry point"),
             pid,
             page_manager
@@ -157,7 +157,60 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-    pub fn new(entry_instruction: NonNull<u8>, ppid: Pid, mut page_manager: PageManager) -> Self {
+    pub fn new(entry_function: ThreadFunction, pid: Pid) -> Self {
+        // let eip = unsafe { transmute(entry_function) };
+        let eip= NonNull::new(entry_function as *mut u8).expect("Null entry function given!");
+        let mut new_thread = Self::new_(eip, pid, PageManager::default());
+
+        // Now, we must build the stack frames for our new thread.
+        // In order (of creation), we have:
+        //  * prepare_thread frame
+        //  * switch_threads
+        let prepare_thread_context = new_thread
+            .allocate_stack_space(size_of::<PrepareThreadContext>())
+            .expect("No Stack Space!");
+        let switch_threads_context = new_thread
+            .allocate_stack_space(size_of::<SwitchThreadsContext>())
+            .expect("No Stack Space!");
+
+        // SAFETY: Manually setting stack bytes a la C.
+        unsafe {
+            *prepare_thread_context
+                .as_ptr()
+                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(entry_function);
+            *switch_threads_context
+                .as_ptr()
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+        }
+
+        new_thread.eip = prepare_thread_context;
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
+    pub fn new_with_elf(entry_instruction: NonNull<u8>, pid: Pid, page_manager: PageManager) -> Self {
+        let mut new_thread = Self::new_(entry_instruction, pid, page_manager);
+
+        // Now, we must build the stack frames for our new thread.
+        let switch_threads_context = new_thread
+            .allocate_stack_space(size_of::<SwitchThreadsContext>())
+            .expect("No Stack Space!");
+
+        // SAFETY: Manually setting stack bytes a la C.
+        unsafe {
+            *switch_threads_context
+                .as_ptr()
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+        }
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
+    fn new_(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
         let tid: Tid = allocate_tid();
 
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
@@ -194,7 +247,7 @@ impl ThreadControlBlock {
         }
 
         // Create our new TCB.
-        let mut new_thread = Self {
+        Self {
             kernel_stack_pointer: kernel_stack_pointer_top,
             kernel_stack,
             eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
@@ -202,30 +255,10 @@ impl ThreadControlBlock {
                 .expect("failed to create esp"),
             user_stack,
             tid,
-            pid: ppid, // Potentially could be swapped to directly copy the ppid of the running thread
+            pid, // Potentially could be swapped to directly copy the pid of the running thread
             status: ThreadStatus::Invalid,
             page_manager,
-        };
-
-        // Now, we must build the stack frames for our new thread.
-        // In order (of creation), we have:
-        //  * prepare_thread frame
-        //  * switch_threads frame
-
-        let switch_threads_context = new_thread
-            .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
-
-        // SAFETY: Manually setting stack bytes a la C.
-        unsafe {
-            *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
-
-        // Our thread can now be run via the `switch_threads` method.
-        new_thread.status = ThreadStatus::Ready;
-        new_thread
     }
 
     /// Creates the 'kernel thread'.

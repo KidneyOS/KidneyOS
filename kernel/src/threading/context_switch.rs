@@ -36,8 +36,6 @@ pub unsafe fn switch_threads(
         "The thread to switch out of must be in the running state."
     );
 
-    println!("(TID) from: {} -> to: {}", (*switch_from).tid, (*switch_to).tid);
-
     // Update the status of the current thread.
     (*switch_from).status = status_for_current_thread;
 

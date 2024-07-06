@@ -4,10 +4,9 @@ mod thread_control_block;
 mod thread_functions;
 
 use crate::{
-    paging::{PageManager, PageManagerDefault},
+    paging::PageManager,
     sync::{intr_enable, intr_get_level, IntrLevel},
 };
-use core::ptr::NonNull;
 use alloc::boxed::Box;
 use kidneyos_shared::{
     println,
@@ -50,17 +49,11 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
     let kernel_tcb = unsafe { ThreadControlBlock::new_kernel_thread(kernel_page_manager) };
 
+    // Create the idle thread.
+    let idle_tcb = ThreadControlBlock::new(idle_function, kernel_tcb.pid);
+
     // Create the initial user program thread.
     let user_tcb = ProcessControlBlock::new(init_elf);
-
-    // Create the idle thread.
-    /* TODO: gets the following error when switched into in a context switch.
-     * page fault with error code 0b101 occurred when trying to access 0x80148D00 from instruction at 0x80148D00
-     */
-    let idle_func_ptr = NonNull::new(idle_function as *mut u8).expect("idle function pointer is null!");
-    let idle_tcb = ThreadControlBlock::new(idle_func_ptr, user_tcb.pid, PageManager::default());
-
-    println!("(TID) kernel: {:?}, user: {:?}, idle: {:?}", kernel_tcb.tid, user_tcb.tid, idle_tcb.tid);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
