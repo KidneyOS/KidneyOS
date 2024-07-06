@@ -54,7 +54,7 @@ unsafe extern "C" fn run_thread(
     // Every new thread should start with them enabled.
     outb(0x21, 0xfd);
     outb(0xa1, 0xff);
-    intr_enable(crate::sync::IntrLevel::IntrOn);;
+    intr_enable(crate::sync::IntrLevel::IntrOn);
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if pid == 0 {

@@ -64,6 +64,7 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(elf_data: &[u8]) -> ThreadControlBlock {
         let pid: Pid = allocate_pid();
 

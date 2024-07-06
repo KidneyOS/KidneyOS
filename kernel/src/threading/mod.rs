@@ -88,7 +88,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 
 /// The function run by the idle thread.
 /// Continually yields and should never die.
-extern "C" fn idle_function() -> () {
+extern "C" fn idle_function() {
     loop {
         println!("idle");
         scheduler_yield();

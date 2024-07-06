@@ -9,8 +9,6 @@ use super::{
     RUNNING_THREAD,
 };
 
-use kidneyos_shared::println;
-
 /// Public facing method to perform a context switch between two threads.
 /// # Safety
 /// This function should only be called by methods within the Scheduler crate.
