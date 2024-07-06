@@ -6,14 +6,14 @@ pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
-use crate::sync::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::sync::intr::{intr_disable, intr_enable, intr_get_level, IntrLevel};
 
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 
 pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
 
 pub fn initialize_scheduler() {
-    assert!(intr_get_level() == IntrLevel::IntrOff);
+    assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // SAFETY: Interrupts should be off.
     unsafe {
@@ -23,7 +23,7 @@ pub fn initialize_scheduler() {
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
 fn scheduler_yield(status_for_current_thread: ThreadStatus) {
-    let previous = intr_disable();
+    intr_disable();
 
     // SAFETY: Threads and Scheduler must be initialized and active.
     // Interrupts must be disabled.
@@ -38,7 +38,7 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
         }
     }
 
-    intr_enable(previous);
+    intr_enable();
 }
 
 // Voluntarily relinquishes control of the CPU and marks current thread as ready.

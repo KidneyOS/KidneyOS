@@ -1,9 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::threading::thread_functions;
 use kidneyos_shared::println;
-use crate::threading::{
-    thread_functions,
-};
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the

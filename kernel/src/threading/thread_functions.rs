@@ -1,24 +1,19 @@
-use crate::{
-    sync::{intr_disable, intr_enable},
-    threading::scheduling::scheduler_yield_and_die,
-};
-
 use super::{
     scheduling::SCHEDULER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
-use core::{
-    arch::asm,
-    ptr::NonNull,
+use crate::{
+    sync::intr::{intr_disable, intr_enable},
+    threading::scheduling::scheduler_yield_and_die,
 };
+use alloc::boxed::Box;
+use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    task_state_segment::TASK_STATE_SEGMENT,
     serial::outb,
+    task_state_segment::TASK_STATE_SEGMENT,
 };
-
-use alloc::boxed::Box;
 
 /// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 /// No arguments allowed for now.
@@ -26,21 +21,6 @@ use alloc::boxed::Box;
 /// A function that may be used for thread creation.
 /// The return value will be the exit code of this thread.
 pub type ThreadFunction = unsafe extern "C" fn() -> i32;
-
-// Returns the eip of the currently running thread.
-pub fn get_eip() -> NonNull<u8> {
-    unsafe {
-        RUNNING_THREAD.as_ref().expect("Why is nothing Running!?").eip
-    }
-}
-
-// Copies the user and kernel stack of the current thread to the passed target thread.
-pub fn copy_stack(target: &mut ThreadControlBlock) -> () {
-    unsafe {
-        let source = RUNNING_THREAD.as_ref().expect("Why is nothing running!?");
-        ThreadControlBlock::copy_stack(&source, target)
-    }
-}
 
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
@@ -74,7 +54,7 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, .. } = *switched_to;
+    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
 
     // Reschedule our threads.
     RUNNING_THREAD = Some(switched_to);
@@ -91,37 +71,44 @@ unsafe extern "C" fn run_thread(
             .push(switched_from);
     }
 
-    outb(0x21, 0xfd);
-    outb(0xa1, 0xff);
-
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    intr_enable(crate::sync::IntrLevel::IntrOn);
+    outb(0x21, 0xfd);
+    outb(0xa1, 0xff);
+    intr_enable();
 
-    // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
-    // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
+    // Kernel threads have no associated PCB, denoted by its PID being 0
+    if pid == 0 {
+        let entry_function = eip.as_ptr() as *const ThreadFunction;
+        let exit_code = (*entry_function)();
 
-    asm!(
-        "
-        mov ds, {data_sel:x}
-        mov es, {data_sel:x}
-        mov fs, {data_sel:x}
-        mov gs, {data_sel:x} // SS and CS are handled by iret
+        // Safely exit the thread.
+        exit_thread(exit_code);
+    } else {
+        // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
+        // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
+        asm!(
+            "
+            mov ds, {data_sel:x}
+            mov es, {data_sel:x}
+            mov fs, {data_sel:x}
+            mov gs, {data_sel:x} // SS and CS are handled by iret
 
-        // Set up the stack frame iret expects.
-        push {data_sel:e} // stack segment
-        push {esp} // esp
-        pushfd // eflags
-        push {code_sel} // code segment
-        push {eip} // eip
-        iretd
-        ",
-        data_sel = in(reg) USER_DATA_SELECTOR,
-        esp = in(reg) esp.as_ptr(),
-        code_sel = const USER_CODE_SELECTOR,
-        eip = in(reg) eip.as_ptr(),
-        options(noreturn),
-    );
+            // Set up the stack frame iret expects.
+            push {data_sel:e} // stack segment
+            push {esp} // esp
+            pushfd // eflags
+            push {code_sel} // code segment
+            push {eip} // eip
+            iretd
+            ",
+            data_sel = in(reg) USER_DATA_SELECTOR,
+            esp = in(reg) esp.as_ptr(),
+            code_sel = const USER_CODE_SELECTOR,
+            eip = in(reg) eip.as_ptr(),
+            options(noreturn),
+        );
+    }
 }
 
 #[repr(C, packed)]

@@ -1,4 +1,4 @@
-use crate::sync::{intr_get_level, IntrLevel};
+use crate::sync::intr::{intr_get_level, IntrLevel};
 use core::mem::offset_of;
 
 use alloc::boxed::Box;
@@ -17,7 +17,7 @@ pub unsafe fn switch_threads(
     status_for_current_thread: ThreadStatus,
     switch_to: Box<ThreadControlBlock>,
 ) {
-    assert!(intr_get_level() == IntrLevel::IntrOff);
+    assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
     let switch_to = Box::into_raw(switch_to);
