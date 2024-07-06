@@ -5,7 +5,7 @@ mod thread_functions;
 
 use crate::{
     paging::PageManager,
-    sync::{intr_enable, intr_get_level, IntrLevel},
+    sync::intr::{intr_enable, intr_get_level, IntrLevel},
 };
 use alloc::boxed::Box;
 use kidneyos_shared::{println, serial::outb};
@@ -71,7 +71,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         outb(0x21, 0xfd);
         outb(0xa1, 0xff);
     }
-    intr_enable(IntrLevel::IntrOn);
+    intr_enable();
 
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources (`thread_exit` would not work).

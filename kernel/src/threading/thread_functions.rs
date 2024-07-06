@@ -3,7 +3,7 @@ use super::{
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
-use crate::sync::intr_enable;
+use crate::sync::intr::intr_enable;
 use alloc::boxed::Box;
 use core::arch::asm;
 use kidneyos_shared::{
@@ -54,7 +54,7 @@ unsafe extern "C" fn run_thread(
     // Every new thread should start with them enabled.
     outb(0x21, 0xfd);
     outb(0xa1, 0xff);
-    intr_enable(crate::sync::IntrLevel::IntrOn);
+    intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if pid == 0 {
