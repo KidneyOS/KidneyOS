@@ -8,10 +8,7 @@ use crate::{
     sync::{intr_enable, intr_get_level, IntrLevel},
 };
 use alloc::boxed::Box;
-use kidneyos_shared::{
-    println,
-    serial::outb,
-};
+use kidneyos_shared::{println, serial::outb};
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ProcessControlBlock, ThreadControlBlock, Tid};
 

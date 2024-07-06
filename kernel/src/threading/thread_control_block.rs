@@ -7,12 +7,12 @@ use crate::{
     },
     KERNEL_ALLOCATOR,
 };
+use alloc::vec::Vec;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
     sync::atomic::{AtomicU16, Ordering},
 };
-use alloc::vec::Vec;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 pub type Pid = u16;
@@ -41,7 +41,6 @@ pub enum ThreadStatus {
     Dying,
 }
 
-
 pub fn allocate_pid() -> Pid {
     // SAFETY: Atomically accesses a shared variable.
     NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
@@ -59,7 +58,6 @@ pub struct ProcessControlBlock {
     pub wait_list: Vec<Tid>,
 
     // TODO: (file I/O) file descriptor table
-
     pub exit_code: Option<i32>,
 }
 
@@ -68,7 +66,8 @@ impl ProcessControlBlock {
     pub fn new(elf_data: &[u8]) -> ThreadControlBlock {
         let pid: Pid = allocate_pid();
 
-        let (entrypoint, vm_areas) = parse_elf(elf_data).expect("init process's ELF data was malformed");
+        let (entrypoint, vm_areas) =
+            parse_elf(elf_data).expect("init process's ELF data was malformed");
 
         let mut page_manager = PageManager::default();
         for VmAreaStruct {
@@ -126,7 +125,7 @@ impl ProcessControlBlock {
         let new_tcb = ThreadControlBlock::new_with_elf(
             NonNull::new(entrypoint as *mut u8).expect("fail to create PCB entry point"),
             pid,
-            page_manager
+            page_manager,
         );
         new_pcb.child_tids.push(new_tcb.tid);
 
@@ -160,7 +159,7 @@ pub struct ThreadControlBlock {
 impl ThreadControlBlock {
     pub fn new(entry_function: ThreadFunction, pid: Pid) -> Self {
         // let eip = unsafe { transmute(entry_function) };
-        let eip= NonNull::new(entry_function as *mut u8).expect("Null entry function given!");
+        let eip = NonNull::new(entry_function as *mut u8).expect("Null entry function given!");
         let mut new_thread = Self::new_(eip, pid, PageManager::default());
 
         // Now, we must build the stack frames for our new thread.
@@ -191,7 +190,11 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    pub fn new_with_elf(entry_instruction: NonNull<u8>, pid: Pid, page_manager: PageManager) -> Self {
+    pub fn new_with_elf(
+        entry_instruction: NonNull<u8>,
+        pid: Pid,
+        page_manager: PageManager,
+    ) -> Self {
         let mut new_thread = Self::new_(entry_instruction, pid, page_manager);
 
         // Now, we must build the stack frames for our new thread.
@@ -292,9 +295,8 @@ impl ThreadControlBlock {
     /// Check if `bytes` bytes will fit on the kernel stack.
     const fn has_stack_space(&self, bytes: usize) -> bool {
         // SAFETY: Calculates the distance between the top and bottom of the kernel stack pointers.
-        let available_space = unsafe {
-            self.kernel_stack_pointer.offset_from(self.kernel_stack) as usize
-        };
+        let available_space =
+            unsafe { self.kernel_stack_pointer.offset_from(self.kernel_stack) as usize };
 
         available_space >= bytes
     }

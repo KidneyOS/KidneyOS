@@ -1,16 +1,16 @@
 use super::{
-    scheduling::{SCHEDULER, scheduler_yield},
+    scheduling::{scheduler_yield, SCHEDULER},
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
 use crate::sync::intr_enable;
+use alloc::boxed::Box;
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    task_state_segment::TASK_STATE_SEGMENT,
     serial::outb,
+    task_state_segment::TASK_STATE_SEGMENT,
 };
-use alloc::boxed::Box;
 
 /// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 /// No arguments allowed for now.
@@ -58,9 +58,11 @@ unsafe extern "C" fn run_thread(
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if pid == 0 {
-        let entry_function= eip.as_ptr() as *const fn();
+        let entry_function = eip.as_ptr() as *const fn();
         (*entry_function)();
-        loop { scheduler_yield(); }
+        loop {
+            scheduler_yield();
+        }
     } else {
         // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
         // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
