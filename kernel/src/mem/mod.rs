@@ -24,10 +24,10 @@ use kidneyos_shared::{
 static TOTAL_NUM_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 static TOTAL_NUM_DEALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 static TOTAL_NUM_FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+static TOTAL_NUM_FRAMES_DEALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 // The alignment of the layout cannot be greater than the size of the page
 const MAX_SUPPORTED_ALIGN: usize = 4096;
-
 
 // Confirm that FrameAllocatorSolution has ::new_in and its result implements
 // FrameAllocator.
@@ -52,7 +52,8 @@ unsafe trait FrameAllocator
 
     /// Deallocate the previously allocated range of frames that begins at start.
     /// Input: Pointer to region of memory to be deallocated
-    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>);
+    /// Output: The number of frames deallocated
+    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize;
 }
 
 struct FrameAllocatorWrapper{
@@ -72,8 +73,8 @@ impl FrameAllocatorWrapper{
         self.frame_allocator.alloc(frames)
     }
 
-    pub fn dealloc(&mut self, ptr: NonNull<u8>) {
-        self.frame_allocator.dealloc(ptr);
+    pub fn dealloc(&mut self, ptr: NonNull<u8>) -> usize{
+        self.frame_allocator.dealloc(ptr)
     }
 }
 
@@ -187,9 +188,10 @@ impl KernelAllocator {
             halt!("dealloc called before initialization of kernel allocator");
         };
 
-        frame_allocator.dealloc(ptr)
+        frame_allocator.dealloc(ptr);
     }
 
+    // TODO: Need to fix this
     /// Deinitialize the kernel allocator, printing information about any leaks
     /// that have occurred. panics if any leaks are found.
     ///
@@ -276,7 +278,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 subblock_allocators: _subblock_allocators,
             } = &mut *self.state.get()
                 else {
-                    halt!("alloc called before initialization of kernel allocator");
+                    halt!("Second allocation should not be allocated by Dummy Allocator, abort");
                 };
 
             let size = layout.size();
@@ -304,44 +306,20 @@ unsafe impl GlobalAlloc for KernelAllocator {
         }
     }
 
-    // TODO: Implement dealloc later
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let KernelAllocatorState::Initialized {
             frame_allocator,
-            subblock_allocators,
+            subblock_allocators: _subblock_allocators,
         } = &mut *self.state.get()
         else {
-            halt!("dealloc called before initialization of kernel allocator");
+            halt!("Dealloc called before initialization of kernel allocator");
         };
 
-        // Scope ensures we drop subblock_allocator (which should be the only
-        // reference to it, or its memory) before dealloc'ing its backing frames
-        // out from under it.
-        let (at, ptr) = {
-            let Some((at, (subblock_allocator, region))) = subblock_allocators
-                .iter()
-                .enumerate()
-                .find(|(_, (_, region))| {
-                    let start = region.as_ptr().cast::<u8>();
-                    start <= ptr && ptr < start.add(region.len())
-                })
-            else {
-                halt!(
-                    "internal inconsistency detected in kernel allocator with ptr {:#X}",
-                    ptr as usize
-                )
-            };
+        let num_frames_deallocated = frame_allocator.dealloc(NonNull::new_unchecked(ptr));
 
-            subblock_allocator.deallocate(NonNull::new_unchecked(ptr), layout);
-
-            if !subblock_allocator.is_empty() {
-                return;
-            }
-
-            (at, region.cast::<u8>())
-        };
-
-        subblock_allocators.remove(at);
-        frame_allocator.dealloc(ptr);
+        let new_total_deallocs = TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) + 1;
+        TOTAL_NUM_DEALLOCATIONS.store(new_total_deallocs, Ordering::Relaxed);
+        let new_total_frames = TOTAL_NUM_FRAMES_DEALLOCATED.load(Ordering::Relaxed) + num_frames_deallocated;
+        TOTAL_NUM_FRAMES_DEALLOCATED.store(new_total_frames, Ordering::Relaxed);
     }
 }
