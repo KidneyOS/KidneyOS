@@ -130,7 +130,7 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
         ))
     }
 
-    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>){
+    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize{
         let start = (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
         let mut num_frames_to_free = 0;
 
@@ -149,6 +149,8 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
 
         let temp = CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) - num_frames_to_free;
         CURR_NUM_FRAMES_ALLOCATED.store(temp, Ordering::Relaxed);
+
+        num_frames_to_free
     }
 }
 
