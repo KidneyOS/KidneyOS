@@ -10,14 +10,14 @@ use crate::{
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
-    sync::atomic::{AtomicU16, Ordering},
+    // sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 pub type Tid = u16;
 
 // Current value marks the next avaliable TID value to use.
-static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
+// static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -29,7 +29,7 @@ pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
 #[allow(unused)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum ThreadStatus {
     Invalid,
     Running,
@@ -41,6 +41,7 @@ pub enum ThreadStatus {
 // TODO: Use enums so that we never have garbage data (i.e. stacks that don't
 // need be freed for the kernel thread, information that doesn't make sense when
 // the thread is in certain states, etc.)
+#[derive(Clone)]
 pub struct ThreadControlBlock {
     pub kernel_stack_pointer: NonNull<u8>,
     // Kept so we can free the kernel stack later.
@@ -59,13 +60,19 @@ pub struct ThreadControlBlock {
     pub page_manager: PageManager,
 }
 
-pub fn allocate_tid() -> Tid {
-    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
-}
+// pub fn allocate_tid() -> Tid {
+//     NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
+// }
 
 impl ThreadControlBlock {
     pub fn create(elf_data: &[u8]) -> Self {
-        let tid: Tid = allocate_tid();
+
+        // let tid: Tid = unsafe {
+        //     THREAD_MANAGER
+        //         .as_mut()
+        //         .expect("No Thread Manager set up!")
+        //         .allocate_tid()
+        // };
 
         let (entrypoint, vm_areas) =
             parse_elf(elf_data).expect("init process's ELF data was malformed");
@@ -152,7 +159,7 @@ impl ThreadControlBlock {
 
         // Create our new TCB.
         let mut new_thread = Self {
-            tid,
+            tid: 0,  // always invalid until added to thread manager.
             status: ThreadStatus::Invalid,
             kernel_stack_pointer: kernel_stack_pointer_top,
             kernel_stack,
@@ -189,13 +196,20 @@ impl ThreadControlBlock {
     /// # Safety
     /// Should only be used once while starting the threading system.
     pub unsafe fn create_kernel_thread(page_manager: PageManager) -> Self {
+        // let tid: Tid = unsafe {
+        //     THREAD_MANAGER
+        //         .as_mut()
+        //         .expect("No Thread Manager set up!")
+        //         .allocate_tid()
+        // };
+
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             user_stack: NonNull::dangling(),
-            tid: allocate_tid(),
+            tid: 0,  // always invalid until added to thread manager.
             status: ThreadStatus::Running,
             page_manager,
         }

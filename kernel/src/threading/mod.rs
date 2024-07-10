@@ -1,9 +1,8 @@
 mod context_switch;
 pub mod scheduling;
+pub mod thread_management;
 mod thread_control_block;
 mod thread_functions;
-pub mod thread_manager;
-// use core::arch::asm;   // remove from here 
 
 use crate::{
     paging::PageManager,
@@ -13,8 +12,11 @@ use alloc::boxed::Box;
 use kidneyos_shared::println;
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
+use thread_management::initialize_thread_manager;
 
 static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
+// Invalid until thread system intialized.
+// static mut RUNNING_THREAD_TID: Tid = 0;
 
 /// To be called before any other thread functions.
 /// To be called with interrupts disabled.
@@ -28,8 +30,10 @@ pub fn thread_system_initialization() {
 
     // Initialize the scheduler.
     initialize_scheduler();
-    // let all_set: u32 = u32::MAX;
-    
+
+    // Initialize thread manager.
+    initialize_thread_manager();
+
     // Create Idle thread.
 
     // SAFETY: Interrupts must be disabled.
