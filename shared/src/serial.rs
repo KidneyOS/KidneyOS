@@ -51,7 +51,10 @@ impl SerialWriter {
             const EXPECTED: u8 = 0xAE;
             outb(THR, EXPECTED);
             let actual = inb(RBR);
-            assert_eq!(actual, EXPECTED, "faulty serial, expected {EXPECTED:#X}, got {actual:#X}");
+            assert_eq!(
+                actual, EXPECTED,
+                "faulty serial, expected {EXPECTED:#X}, got {actual:#X}"
+            );
 
             outb(MCR, 0x0F); // Disable loopback.
 

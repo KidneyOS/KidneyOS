@@ -62,9 +62,12 @@ unsafe extern "C" fn run_thread(
     let mut switched_from = Box::from_raw(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
-        // TODO: bug when dropping the page manager because it is still loaded
-        // switched_from.reap();
-        // drop(switched_from);
+        switched_from.reap();
+
+        // Page manager must be loaded to be dropped.
+        switched_from.page_manager.load();
+        drop(switched_from);
+        RUNNING_THREAD.as_ref().unwrap().page_manager.load();
     } else {
         SCHEDULER
             .as_mut()
@@ -112,13 +115,14 @@ unsafe extern "C" fn run_thread(
     }
 }
 
+#[allow(unused)]
 #[repr(C, packed)]
 pub struct PrepareThreadContext {
-    entry_function: ThreadFunction,
+    entry_function: *const u8,
 }
 
 impl PrepareThreadContext {
-    pub fn new(entry_function: ThreadFunction) -> Self {
+    pub fn new(entry_function: *const u8) -> Self {
         Self { entry_function }
     }
 }

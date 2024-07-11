@@ -6,15 +6,13 @@ pub mod thread_functions;
 use crate::{
     paging::PageManager,
     sync::intr::{intr_enable, intr_get_level, IntrLevel},
-    threading::scheduling::{
-        initialize_scheduler, scheduler_yield_and_continue, scheduler_yield_and_die, SCHEDULER,
-    },
+    threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
-use kidneyos_shared::{println, serial::outb};
+use kidneyos_shared::serial::outb;
 use thread_control_block::{ProcessControlBlock, ThreadControlBlock, Tid};
 
-static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
+pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
 /// To be called before any other thread functions.
 /// To be called with interrupts disabled.
@@ -46,10 +44,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // This thread also does not need to enter the `run_thread` function.
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
-    let kernel_tcb = unsafe { ThreadControlBlock::new_kernel_thread(kernel_page_manager) };
-
-    // Create the idle thread.
-    let idle_tcb = ThreadControlBlock::new(idle_function, 0);
+    let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager);
 
     // Create the initial user program thread.
     let user_tcb = ProcessControlBlock::new(init_elf);
@@ -62,10 +57,6 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
             .as_mut()
             .expect("No Scheduler set up!")
             .push(Box::new(user_tcb));
-        SCHEDULER
-            .as_mut()
-            .expect("No Scheduler set up!")
-            .push(Box::new(idle_tcb));
     }
 
     // Enable preemptive scheduling.
@@ -77,15 +68,15 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources.
-    // For now we will just die.
-    scheduler_yield_and_die();
+    // For now, we will act as the idle thread.
+    idle_function()
 
     // This function never returns.
 }
 
 /// The function run by the idle thread.
 /// Continually yields and should never die.
-extern "C" fn idle_function() -> i32 {
+extern "C" fn idle_function() -> ! {
     loop {
         scheduler_yield_and_continue();
     }

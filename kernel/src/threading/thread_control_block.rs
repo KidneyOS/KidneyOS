@@ -1,4 +1,4 @@
-use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
+use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
 use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::{
@@ -32,7 +32,7 @@ pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
 #[allow(unused)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum ThreadStatus {
     Invalid,
     Running,
@@ -158,9 +158,9 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-    pub fn new(entry_function: ThreadFunction, pid: Pid) -> Self {
-        let eip = NonNull::new(entry_function as *mut u8).expect("Null entry function given!");
-        let mut new_thread = Self::new_(eip, pid, PageManager::default());
+    #[allow(unused)]
+    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid) -> Self {
+        let mut new_thread = Self::new(eip, pid, PageManager::default());
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -177,7 +177,7 @@ impl ThreadControlBlock {
         unsafe {
             *prepare_thread_context
                 .as_ptr()
-                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(entry_function);
+                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(eip.as_ptr());
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
@@ -195,7 +195,7 @@ impl ThreadControlBlock {
         pid: Pid,
         page_manager: PageManager,
     ) -> Self {
-        let mut new_thread = Self::new_(entry_instruction, pid, page_manager);
+        let mut new_thread = Self::new(entry_instruction, pid, page_manager);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -214,9 +214,28 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    fn new_(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
+    pub fn new(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
         let tid: Tid = allocate_tid();
 
+        let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
+
+        // Create our new TCB.
+        Self {
+            kernel_stack_pointer,
+            kernel_stack,
+            eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
+            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
+                .expect("failed to create esp"),
+            user_stack,
+            tid,
+            pid, // Potentially could be swapped to directly copy the pid of the running thread
+            status: ThreadStatus::Invalid,
+            exit_code: None,
+            page_manager,
+        }
+    }
+
+    fn map_stacks(page_manager: &mut PageManager) -> (NonNull<u8>, NonNull<u8>, NonNull<u8>) {
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
         // so we must pass in the top of this memory to the thread.
         let (kernel_stack, kernel_stack_pointer_top);
@@ -249,28 +268,14 @@ impl ThreadControlBlock {
                 true,
             );
         }
-
-        // Create our new TCB.
-        Self {
-            kernel_stack_pointer: kernel_stack_pointer_top,
-            kernel_stack,
-            eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
-            esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
-                .expect("failed to create esp"),
-            user_stack,
-            tid,
-            pid, // Potentially could be swapped to directly copy the pid of the running thread
-            status: ThreadStatus::Invalid,
-            exit_code: None,
-            page_manager,
-        }
+        (kernel_stack, kernel_stack_pointer_top, user_stack)
     }
 
     /// Creates the 'kernel thread'.
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub unsafe fn new_kernel_thread(page_manager: PageManager) -> Self {
+    pub fn new_kernel_thread(page_manager: PageManager) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -320,8 +325,9 @@ impl ThreadControlBlock {
     }
 
     pub fn reap(&mut self) {
-        assert!(
-            self.status == ThreadStatus::Dying,
+        assert_eq!(
+            self.status,
+            ThreadStatus::Dying,
             "A thread must be dying to be reaped."
         );
 
@@ -338,5 +344,44 @@ impl ThreadControlBlock {
         }
 
         self.status = ThreadStatus::Invalid;
+    }
+}
+
+impl Clone for ThreadControlBlock {
+    fn clone(&self) -> Self {
+        // TODO: figure out if we should use self.page_manager.clone() as the starting point instead
+        // page fault when allocating a new PAGE_DIRECTORY_LAYOUT
+
+        let mut page_manager = PageManager::default();
+
+        let (kernel_stack, _, user_stack) = ThreadControlBlock::map_stacks(&mut page_manager);
+
+        let tcb = ThreadControlBlock {
+            kernel_stack_pointer: self.kernel_stack_pointer,
+            kernel_stack,
+            eip: self.eip,
+            esp: self.esp,
+            user_stack,
+            tid: allocate_tid(),
+            pid: allocate_pid(),
+            status: ThreadStatus::Ready,
+            exit_code: self.exit_code,
+            page_manager,
+        };
+
+        unsafe {
+            copy_nonoverlapping(
+                self.kernel_stack.as_ptr(),
+                tcb.kernel_stack.as_ptr(),
+                KERNEL_THREAD_STACK_SIZE,
+            );
+            copy_nonoverlapping(
+                self.user_stack.as_ptr(),
+                tcb.user_stack.as_ptr(),
+                USER_THREAD_STACK_SIZE,
+            )
+        }
+
+        tcb
     }
 }

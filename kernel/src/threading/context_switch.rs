@@ -23,14 +23,16 @@ pub unsafe fn switch_threads(
     let switch_to = Box::into_raw(switch_to);
 
     // Ensure we are switching to a valid thread.
-    assert!(
-        (*switch_to).status == ThreadStatus::Ready,
+    assert_eq!(
+        (*switch_to).status,
+        ThreadStatus::Ready,
         "Cannot switch to a non-ready thread."
     );
 
     // Ensure that the previous thread is running.
-    assert!(
-        (*switch_from).status == ThreadStatus::Running,
+    assert_eq!(
+        (*switch_from).status,
+        ThreadStatus::Running,
         "The thread to switch out of must be in the running state."
     );
 
@@ -49,9 +51,12 @@ pub unsafe fn switch_threads(
     RUNNING_THREAD = Some(Box::from_raw(switch_from));
 
     if previous.status == ThreadStatus::Dying {
-        // TODO: bug when dropping the page manager because it is still loaded
-        // previous.reap();
-        // drop(previous);
+        previous.reap();
+
+        // Page manager must be loaded when dropped.
+        previous.page_manager.load();
+        drop(previous);
+        RUNNING_THREAD.as_ref().unwrap().page_manager.load();
     } else {
         SCHEDULER
             .as_mut()
