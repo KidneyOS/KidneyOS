@@ -55,7 +55,9 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         global_descriptor_table::load();
         println!("GDTR set up!");
 
+        println!("Initializing Thread System...");
         thread_system_initialization();
+        println!("Finished Thread System initialization. Ready to start threading.");
         thread_system_start(page_manager, INIT);
     }
 }

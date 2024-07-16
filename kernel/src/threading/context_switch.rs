@@ -17,7 +17,7 @@ pub unsafe fn switch_threads(
     status_for_current_thread: ThreadStatus,
     switch_to: Box<ThreadControlBlock>,
 ) {
-    assert!(intr_get_level() == IntrLevel::IntrOff);
+    assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
     let switch_to = Box::into_raw(switch_to);
@@ -40,17 +40,17 @@ pub unsafe fn switch_threads(
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
 
-    let previous = context_switch(switch_from, switch_to);
+    let previous = Box::from_raw(context_switch(switch_from, switch_to));
 
     // We must mark this thread as running once again.
     (*switch_from).status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switch_from));
+    RUNNING_THREAD = Some(Box::from_raw(switch_from));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
-        .push(Box::from_raw(previous));
+        .push(previous);
 }
 
 #[macro_export]
@@ -111,7 +111,7 @@ macro_rules! restore_registers {
 
 /// Performs a context switch between two threads.
 ///
-/// Must save the Callee's registers and restore the next's registers.
+/// Must save the callee's registers and restore the next's registers.
 ///
 /// The caller saved registers are: %eax, %ecx, and %edx.
 /// So we may use them freely.
@@ -119,7 +119,7 @@ macro_rules! restore_registers {
 ///
 /// Parameters are pushed to the stack the opposite order they are defined.
 /// The last is pushed to the stack first (higher address), and the first is pushed last (lower address).
-/// The caller is responisble to remove these from the stack.
+/// The caller is responsible to remove these from the stack.
 ///
 /// Our return value will need to be placed into the %eax register.
 #[naked]
