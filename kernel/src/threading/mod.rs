@@ -12,9 +12,9 @@ use alloc::boxed::Box;
 use kidneyos_shared::println;
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ThreadControlBlock, Tid};
-use thread_management::initialize_thread_manager;
+use thread_management::{initialize_thread_manager, THREAD_MANAGER};
 
-static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
+static mut RUNNING_THREAD: Option<&Box<ThreadControlBlock>> = None;
 // Invalid until thread system intialized.
 // static mut RUNNING_THREAD_TID: Tid = 0;
 
@@ -57,17 +57,28 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // never exit.
     // This thread also does not need to enter the `run_thread` function.
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
-    let tcb_kernel = unsafe { ThreadControlBlock::create_kernel_thread(kernel_page_manager) };
-
     let init_tcb = ThreadControlBlock::create(init_elf);
 
-    // SAFETY: Interrupts must be disabled.
     unsafe {
-        RUNNING_THREAD = Some(Box::new(tcb_kernel));
+        let tcb_kernel = ThreadControlBlock::create_kernel_thread(kernel_page_manager);
+        let tcb_kernel_ref =
+            THREAD_MANAGER
+                .as_mut()
+                .expect("No Thread Manager set up!")
+                .add(Box::new(tcb_kernel));
+
+    // SAFETY: Interrupts must be disabled.
+
+        let init_tcb_ref =
+            THREAD_MANAGER
+                .as_mut()
+                .expect("No Thread Manager set up!")
+                .add(Box::new(init_tcb));
+        RUNNING_THREAD = Some(tcb_kernel_ref);
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
-            .push(Box::new(init_tcb));
+            .push(init_tcb_ref);
     }
 
     // Enable preemptive scheduling.

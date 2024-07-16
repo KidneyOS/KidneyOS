@@ -5,6 +5,7 @@ use alloc::boxed::Box;
 
 use super::{
     scheduling::SCHEDULER,
+    thread_management::THREAD_MANAGER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
@@ -15,12 +16,20 @@ use super::{
 /// Interrupts must be disabled.
 pub unsafe fn switch_threads(
     status_for_current_thread: ThreadStatus,
-    switch_to: Box<ThreadControlBlock>,
+    switch_to: &Box<ThreadControlBlock>,
 ) {
     assert!(intr_get_level() == IntrLevel::IntrOff);
 
-    let switch_from = Box::into_raw(RUNNING_THREAD.take().expect("Why is nothing running!?"));
-    let switch_to = Box::into_raw(switch_to);
+    let tm = THREAD_MANAGER
+                                            .as_mut()
+                                            .expect("No Thread Manager set up!");
+
+    let switch_from = tm.get_clone_ptr(
+        RUNNING_THREAD
+            .expect("Why is nothing running!?")
+            .tid
+    );
+    let switch_to = tm.get_clone_ptr(switch_to.tid);
 
     // Ensure we are switching to a valid thread.
     assert!(
@@ -46,11 +55,24 @@ pub unsafe fn switch_threads(
     (*switch_from).status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    RUNNING_THREAD = Some(alloc::boxed::Box::from_raw(switch_from));
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(Box::from_raw(previous));
+
+    // ------------------------------------------------------
+    // Found switch_from being used, 
+    // should it not be switch_to ?
+    // Potential error / naming issue.
+    // ------------------------------------------------------
+    {
+        let switch_from_ref = tm.add_existing(Box::from_raw(switch_from));
+        RUNNING_THREAD = Some(switch_from_ref);
+    }
+    // ------------------------------------------------------
+    {
+        let previous_ref = tm.add_existing(Box::from_raw(previous));
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(previous_ref);
+    }
 }
 
 #[macro_export]

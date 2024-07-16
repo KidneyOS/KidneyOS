@@ -1,5 +1,6 @@
 use super::{
     scheduling::SCHEDULER,
+    thread_management::THREAD_MANAGER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD,
 };
@@ -44,11 +45,21 @@ unsafe extern "C" fn run_thread(
     let ThreadControlBlock { eip, esp, .. } = *switched_to;
 
     // Reschedule our threads.
-    RUNNING_THREAD = Some(switched_to);
+    let switched_to_ref =
+        THREAD_MANAGER
+            .as_mut()
+            .expect("No Thread Manager set up!")
+            .add_existing(switched_to);
+    RUNNING_THREAD = Some(switched_to_ref);
+    let switched_from_ref =
+        THREAD_MANAGER
+            .as_mut()
+            .expect("No Thread Manager set up!")
+            .add_existing(Box::from_raw(switched_from));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
-        .push(Box::from_raw(switched_from));
+        .push(switched_from_ref);
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
