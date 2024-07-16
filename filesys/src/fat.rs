@@ -20,7 +20,8 @@ pub struct File {pub name: String,
     pub file_size: u32,
     cache_offset: u32,
     cache_cluster: u16}
-pub struct Directory{pub name:String,
+pub struct Directory{
+    pub name:String,
     cluster: u16,
     pub children: Vec<Inode>}
 pub enum FSEntry{
@@ -33,6 +34,8 @@ pub struct Inode {
     file_size: u32,
     is_dir: bool
 }
+
+// NOTE: I haven't found directories without file size = 0
 
 impl<'a> Fat16<'a> {
     pub fn new(disk: &Disk) -> Result<Fat16, io::Error> {
@@ -55,7 +58,8 @@ impl<'a> Fat16<'a> {
         //let mut fat_counter = 0;
         for i in 0..num_sectors_per_fat {
             disk.read_at(&mut buf, (num_reserved_sectors + i) as usize)?;
-            for j in 0..(buf.len()/2) {fat_cache[(i*(bytes_per_sector/2)) as usize + j] = (buf[2 * j + 1] as u16 * u16::pow(2, 8)) + (buf[2 * j] as u16); }
+            for j in 0..(buf.len()/2) {fat_cache[(i*(bytes_per_sector/2)) as usize + j] = u16::from_le_bytes([buf[2*j], buf[2*j + 1]]); }
+
         }
         Ok( Fat16 {
             disk, 
@@ -72,7 +76,6 @@ impl<'a> Fat16<'a> {
         } )
     }
     pub fn get_root(&self) -> Result<Directory, io::Error> {
-        //let cluster: u16 = self.num_reserved_sectors + ((self.num_fats as u16) * self.num_sectors_per_fat);
         let file_size: u32 = (((self.num_root_dir_entries * 32) + (self.bytes_per_sector - 1)) / self.bytes_per_sector) as u32;
         let mut res  = self.get_dir(
             &Inode { name: String::from("root"), 
@@ -92,9 +95,9 @@ impl<'a> Fat16<'a> {
         }
     }
 
-    // why + 6? I have no idea
+    // why -2? I have no idea
     fn disk_read(&self, buf: &mut [u8], sector: usize) -> Result<usize, io::Error> { 
-        self.disk.read_at(buf, ((self.data_cluster_start + 6 - (self.num_root_dir_entries * 32 / self.bytes_per_sector / self.sectors_per_cluster as u16)) * self.sectors_per_cluster as u16) as usize + sector) 
+        self.disk.read_at(buf, ((self.data_cluster_start - 2) * self.sectors_per_cluster as u16) as usize + sector) 
     }
     pub fn read_file_at(&self, file: &mut FSEntry, offset: u32, out: &mut [u8], mut amount: u32) -> Result<u32, io::Error>{
         match file {
@@ -102,7 +105,7 @@ impl<'a> Fat16<'a> {
             FSEntry::F(file) => { 
                 let cluster = file.cluster;
                 let file_size: u32 = file.file_size;
-                if offset + amount > file_size { amount = file_size - offset; }
+                if offset + amount > file_size { amount = file_size - offset; } 
                 let mut curr_cluster: u16;
                 if offset == file.cache_offset { curr_cluster = file.cache_cluster; }
                 else { curr_cluster = self.get_curr_cluster(cluster, offset); }
@@ -114,12 +117,11 @@ impl<'a> Fat16<'a> {
                     //first, align to sector
                     self.disk_read(&mut buf, curr_sector as usize)?; 
                     for i in offset % self.bytes_per_sector as u32 .. self.bytes_per_sector as u32 { out[(i - offset) as usize]= buf[i as usize]; } 
-                    amount_read = self.bytes_per_sector as u32 - offset % self.bytes_per_sector as u32;
+                    amount_read = self.bytes_per_sector as u32 - (offset % self.bytes_per_sector as u32);
                     curr_sector += 1;
                     if curr_sector % self.sectors_per_cluster as u32 == 0 { curr_cluster = self.fat_cache[curr_cluster as usize]; curr_sector = curr_cluster as u32 * self.sectors_per_cluster as u32;}
                     
                     while (amount_read / self.bytes_per_sector as u32) < (amount / self.bytes_per_sector as u32) {
-                        //self.disk.read_at(&mut buf, curr_sector as usize)?;
                         self.disk_read(&mut buf, curr_sector as usize)?;
                         for i in 0..self.bytes_per_sector as u32 { out[(amount_read + i) as usize] = buf[i as usize];}
                         amount_read += self.bytes_per_sector as u32;
@@ -131,7 +133,7 @@ impl<'a> Fat16<'a> {
                 for i in 0..(amount - amount_read) { out[(amount_read + i) as usize] = buf[i as usize]; }
                 
                 if (amount + offset) % self.bytes_per_sector as u32 == 0 { curr_sector += 1; } 
-                if curr_sector % self.sectors_per_cluster as u32 == 0 { curr_cluster = self.fat_cache[curr_cluster as usize]; curr_sector = curr_cluster as u32 * self.sectors_per_cluster as u32; }
+                if curr_sector % self.sectors_per_cluster as u32 == 0 && curr_cluster != file.cluster { curr_cluster = self.fat_cache[curr_cluster as usize];}
                 file.cache_offset = offset + amount;
                 file.cache_cluster = curr_cluster;
                 Ok(amount)
@@ -141,7 +143,7 @@ impl<'a> Fat16<'a> {
     pub fn get_dir(&self, dir: &Inode) -> Result<Directory, io::Error>{
         let mut buf: [u8; MAX_SECTOR_SIZE as usize] = [0; MAX_SECTOR_SIZE as usize];
         if dir.name == "root" {self.disk.read_at(&mut buf, (self.data_cluster_start as usize * self.sectors_per_cluster as usize) - (self.num_root_dir_entries * 32 / self.bytes_per_sector) as usize)?; }
-        else {self.disk_read(&mut buf, dir.cluster as usize * self.sectors_per_cluster as usize)?;} // TODO: currently only reads 1 sector
+        else {self.disk_read(&mut buf, dir.cluster as usize * self.sectors_per_cluster as usize)?;} // TODO: currently only reads 1 sector, change to cluster chain
         let mut children: Vec<Inode> = Vec::new();
         let mut i = 0;
         while buf[i] != 0x00 { // last entry in dir table
@@ -161,7 +163,6 @@ impl<'a> Fat16<'a> {
 
     fn get_curr_cluster(&self, initial_cluster: u16, mut offset: u32) -> u16{
         let mut fat_offset = initial_cluster;
-        //let mut fat_offset = initial_cluster - ((self.num_reserved_sectors + (self.num_fats as u16 * self.num_sectors_per_fat) + self.num_root_dir_entries) / 16);
         while offset > (self.bytes_per_sector as u32 * self.sectors_per_cluster as u32){
             offset =  offset - (self.bytes_per_sector as u32 * self.sectors_per_cluster as u32);
             fat_offset = self.fat_cache[fat_offset as usize]; 
@@ -172,7 +173,6 @@ impl<'a> Fat16<'a> {
         assert_eq!(bytes.len(), 32);
         let name = CString::new(&bytes[0..11]).unwrap(); // put this into its own function
         let cluster = u16::from_le_bytes([bytes[26], bytes[27]]);
-        //spec says to also include file size for directories, but I'm not sure it's actually used
         let file_size = u32::from_le_bytes([bytes[28], bytes[29], bytes[30], bytes[31]]); 
         if bytes[11] & 0b00010000 == 0b00010000 { Inode { name: CString::into_string(name).expect("failed to create string"), cluster, file_size, is_dir: true } }
         else {Inode { name: CString::into_string(name).expect("failed to create string"), cluster, file_size, is_dir: false }}
