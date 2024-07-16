@@ -30,7 +30,7 @@ impl ThreadManager for ThreadManager128 {
         }
     }
     
-    fn add(self: &mut Self, thread:Box<ThreadControlBlock>) -> Tid {
+    fn add(&mut self, thread:Box<ThreadControlBlock>) -> Tid {
         intr_disable();
         let mut tid: Tid = 128;
         // TZCNT, LZCNT not available, thus treated as BSF -> bit of the first available 1
@@ -91,21 +91,21 @@ impl ThreadManager for ThreadManager128 {
     }
 
     // NOTE: We assume tid valid.
-    fn remove(self: &mut Self, tid: Tid) -> Box<ThreadControlBlock> {
+    fn remove(&mut self, tid: Tid) -> Box<ThreadControlBlock> {
         intr_disable();
         let cache_num = tid / 32;
         let rel_ind = tid % 32;
         if cache_num == 0 {
-            self.pid_cache_1 = self.pid_cache_1 ^ (1 << rel_ind);
+            self.pid_cache_1 ^= (1 << rel_ind);
         }
         else if cache_num == 1 {
-            self.pid_cache_2 = self.pid_cache_2 ^ (1 << rel_ind);
+            self.pid_cache_2 ^= (1 << rel_ind);
         }
         else if cache_num == 2 {
-            self.pid_cache_3 = self.pid_cache_3 ^ (1 << rel_ind);
+            self.pid_cache_3 ^= (1 << rel_ind);
         }
         else {
-            self.pid_cache_4 = self.pid_cache_4 ^ (1 << rel_ind);
+            self.pid_cache_4 ^= (1 << rel_ind);
         }
         let thread: Box<ThreadControlBlock> = {
             <Option<Box<ThreadControlBlock>> as Clone>::clone(

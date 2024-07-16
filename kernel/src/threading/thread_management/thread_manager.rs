@@ -5,6 +5,6 @@ pub trait ThreadManager {
     fn new() -> Self
     where 
         Self: Sized;
-    fn add(self: &mut Self, thread:Box<ThreadControlBlock>) -> Tid;
-    fn remove(self: &mut Self,  tid: Tid) -> Box<ThreadControlBlock>;
+    fn add(&mut self, thread:Box<ThreadControlBlock>) -> Tid;
+    fn remove(&mut self,  tid: Tid) -> Box<ThreadControlBlock>;
 }
