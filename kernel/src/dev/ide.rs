@@ -3,7 +3,6 @@
 
 use kidneyos_shared::println;
 use alloc::{format, string::String};
-use core::time;
 const NUM_CHANNELS: usize = 2;
 
 
@@ -24,6 +23,11 @@ const CMD_WRITE_SECTOR_RETRY: u8 = 0x30;
 
 const BLOCK_SECTOR_SIZE: usize=512;
 
+fn msleep(t :usize){
+    for i in 0..10{
+        usleep(t);
+    }
+}
 fn usleep(t :usize){
     for i in 0..10{
         nsleep(t);
@@ -31,9 +35,10 @@ fn usleep(t :usize){
 }
 fn nsleep(t: usize){
     for i in 0..100*t{
-        unsafe{asm!("noop");
+        unsafe{asm!("nop");}
     }
 }
+
 
 
 fn byte_enumerator(s:String) -> impl Iterator<Item=(usize,u8)>{
@@ -115,27 +120,27 @@ impl ATAChannel{
         if dev_num == 1{
             dev |= DEV_DEV;
         }
-        outb(dev, self.reg_device()) ;
+        outb(self.reg_device(),dev) ;
         inb(self.reg_alt_status());
         
         nsleep(400);
 
     }
-    fn reset_channel(&mut self, dev_num: u8) {
-        let mut present: [bool; 2];
+    fn reset_channel(&mut self) {
+        let mut present: [bool; 2] = [false; 2];
 
         for dev_num in 0..2{
-            self.select_device(self, dev_num);
-            outb(self.reg_nselect(),0x55)
+            self.select_device(dev_num);
+            outb(self.reg_nsect(),0x55);
             outb(self.reg_lbal(), 0xaa);
 
-            outb(self.reg_nselect(),0xaa)
+            outb(self.reg_nsect(),0xaa);
             outb(self.reg_lbal(), 0x55);
 
-            outb(self.reg_nselect(),0x55)
+            outb(self.reg_nsect(),0x55);
             outb(self.reg_lbal(), 0xaa);
 
-            present[dev_no] = ((inb (self.reg_nsect()) == 0x55) 
+            present[dev_num as usize] = ((inb (self.reg_nsect()) == 0x55) 
                                 && inb(self.reg_lbal()) == 0xaa);
 
         }
@@ -186,12 +191,19 @@ impl ATAChannel{
             true
         }
     }
+
+    fn wait_while_busy(&self, dev_num: u8) {
+        msleep(10);
+    }
 }
 
 //call with interupts enabled
 pub fn ide_init(){
     println!("Initialziing ATA driver in PIO mode");
     let mut channels: [ATAChannel; NUM_CHANNELS] = [ATAChannel::new(0), ATAChannel::new(1)];
+    channels[0].reset_channel();
+    channels[1].reset_channel();
+
 }
 
 
@@ -213,7 +225,7 @@ fn inb(port: u16)->u8{
     let mut ret: u8 = 0;
     unsafe {
         asm!(
-            "inb %al, %dx",
+            "inb %dx, %al",
             in("dx") port,
             out("al") ret,
             options(att_syntax)
