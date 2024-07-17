@@ -61,5 +61,6 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         thread_system_initialization();
         thread_system_start(page_manager, INIT);
+    
     }
 }

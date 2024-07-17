@@ -1,0 +1,1 @@
+qemu-system-i386 -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom build/kidneyos.iso

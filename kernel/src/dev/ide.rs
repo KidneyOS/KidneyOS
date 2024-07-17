@@ -3,7 +3,9 @@
 
 use kidneyos_shared::println;
 use alloc::{format, string::String};
+use core::time;
 const NUM_CHANNELS: usize = 2;
+
 
 // Alternate Status Register Bits
 const STA_BSY: u8 = 0x80;
@@ -21,6 +23,18 @@ const CMD_READ_SECTOR_RETRY: u8 = 0x20;
 const CMD_WRITE_SECTOR_RETRY: u8 = 0x30;
 
 const BLOCK_SECTOR_SIZE: usize=512;
+
+fn usleep(t :usize){
+    for i in 0..10{
+        nsleep(t);
+    }
+}
+fn nsleep(t: usize){
+    for i in 0..100*t{
+        unsafe{asm!("noop");
+    }
+}
+
 
 fn byte_enumerator(s:String) -> impl Iterator<Item=(usize,u8)>{
     s.into_bytes().into_iter().enumerate()
@@ -96,25 +110,81 @@ impl ATAChannel{
         }
     }
 
-    fn check_device_type(&mut self, dev_num: u8) -> bool{
+    fn select_device(&mut self, dev_num: u8) {
+        let mut dev: u8 = DEV_MBS;
+        if dev_num == 1{
+            dev |= DEV_DEV;
+        }
+        outb(dev, self.reg_device()) ;
+        inb(self.reg_alt_status());
         
+        nsleep(400);
+
     }
+    fn reset_channel(&mut self, dev_num: u8) {
+        let mut present: [bool; 2];
 
+        for dev_num in 0..2{
+            self.select_device(self, dev_num);
+            outb(self.reg_nselect(),0x55)
+            outb(self.reg_lbal(), 0xaa);
 
-    fn identify_ata_device(&mut self, dev_num: u8){
-        
-        let mut id[char; BLOCK_SECTOR_SIZE]
+            outb(self.reg_nselect(),0xaa)
+            outb(self.reg_lbal(), 0x55);
 
+            outb(self.reg_nselect(),0x55)
+            outb(self.reg_lbal(), 0xaa);
 
-        if dev_num == 0{
-
-
-
-        }else{
+            present[dev_no] = ((inb (self.reg_nsect()) == 0x55) 
+                                && inb(self.reg_lbal()) == 0xaa);
 
         }
+        outb(self.reg_ctl(), 0);
+        usleep(10);
+        outb(self.reg_ctl(), CTL_SRST);
+        usleep(10);
+        outb(self.reg_ctl(), 0);
+        msleep(150);
 
+        if present[0] {
+            self.select_device(0);
+            self.wait_while_busy(0);
+        }
+        if present[1] {
+            self.select_device(1);
+            for i in 0..3000{
+                if inb(self.reg_nsect()) == 1 && inb(self.reg_lbal()) == 1 {
+                    break;
+                }
+                msleep(10);
+            } self.wait_while_busy(1);
+        }
+    }
+    
+    fn set_is_ata(&mut self, dev_no: u8, is_ata: bool){
+        if dev_no == 0{
+            self.d0_is_ata = is_ata;
+        }else{
+            self.d1_is_ata = is_ata;
+        }
+    }
 
+    fn check_device_type(&mut self, dev_num: u8) -> bool{
+        self.select_device(dev_num);
+        let error = inb(self.reg_error());
+        let lbam = inb(self.reg_lbam());
+        let lbah = inb(self.reg_lbah());
+        let status = inb(self.reg_status());
+        if (error != 1 && (error != 0x81 || dev_num== 1)) 
+            || (status & STA_DRDY)==0 
+            || (status & STA_BSY) == 0 {
+            
+            self.set_is_ata(dev_num, false);
+            error != 0x81
+        }else{
+            self.set_is_ata(dev_num, true);
+            true
+        }
     }
 }
 
@@ -127,7 +197,7 @@ pub fn ide_init(){
 
 
 use core::arch::asm;
-fn outb(value :u8, port: u16){
+fn outb(port: u16, value: u8){
     unsafe {
     asm!(
         "outb %al, %dx",
