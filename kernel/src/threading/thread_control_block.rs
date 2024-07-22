@@ -29,7 +29,7 @@ pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
 #[allow(unused)]
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq)]
 pub enum ThreadStatus {
     Invalid,
     Running,
@@ -41,7 +41,6 @@ pub enum ThreadStatus {
 // TODO: Use enums so that we never have garbage data (i.e. stacks that don't
 // need be freed for the kernel thread, information that doesn't make sense when
 // the thread is in certain states, etc.)
-#[derive(Clone)]
 pub struct ThreadControlBlock {
     pub kernel_stack_pointer: NonNull<u8>,
     // Kept so we can free the kernel stack later.

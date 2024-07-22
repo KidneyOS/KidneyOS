@@ -28,8 +28,10 @@ pub fn scheduler_yield() {
     // SAFETY: Threads and Scheduler must be initialized and active.
     // Interrupts must be disabled.
     unsafe {
-        let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
-        let switch_to = scheduler.pop().expect("No threads to run!");
+        let switch_to = SCHEDULER.as_mut()
+                                .expect("No Scheduler set up!")
+                                .pop()
+                                .expect("No threads to run!");
 
         // Switch to this other thread.
         // Since this is a voluntary switch, the current thread will be ready to run again.

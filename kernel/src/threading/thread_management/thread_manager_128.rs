@@ -1,15 +1,15 @@
-use super::super::{ThreadControlBlock, Tid, IntrLevel};
+use super::super::{ThreadControlBlock, Tid};
 use super::thread_manager::ThreadManager;
-use crate::sync::intr::{intr_disable, intr_enable, intr_get_level};
-use alloc::boxed::Box;
+use crate::sync::intr::{intr_disable, intr_enable};
 use core::arch::asm;
-use core::ops::Index;
+use core::mem::replace;
+use core::ops::IndexMut;
 
-const ARRAY_REPEAT_VALUE: Option<Box<ThreadControlBlock>> = None;
+const ARRAY_REPEAT_VALUE: Option<ThreadControlBlock> = None;
 
 pub struct ThreadManager128 {
     // list of threads being handled
-    thread_list: [Option<Box<ThreadControlBlock>>; 128],
+    thread_list: [Option<ThreadControlBlock>; 128],
 
     // 4 x 32 = 128 TIDs maximum available
     pid_cache_1: u32,
@@ -29,7 +29,7 @@ impl ThreadManager for ThreadManager128 {
         }
     }
     
-    fn add(&mut self, thread:Box<ThreadControlBlock>) -> &Box<ThreadControlBlock> {
+    fn add(&mut self, mut thread:ThreadControlBlock) -> Tid {
         intr_disable();
         let mut tid: Tid = 128;
         // TZCNT, LZCNT not available, thus treated as BSF -> bit of the first available 1
@@ -83,34 +83,15 @@ impl ThreadManager for ThreadManager128 {
         if tid > 127{
             panic!("No PID available!");
         }
+        thread.tid = tid;
         (self.thread_list)
             .as_mut()[tid as usize] = Some(thread);
-        let thread_ref: &Box<ThreadControlBlock> = 
-            (self.thread_list)
-                .index(tid as usize)
-                .as_ref()
-                .expect("Impossible.");
         intr_enable();
-        thread_ref
-    }
-
-    // wrapper to allow box update post box consumption
-    // assumes valid thread tid.
-    fn add_existing(&mut self, thread:Box<ThreadControlBlock>) -> &Box<ThreadControlBlock> {
-        assert!(intr_get_level() == IntrLevel::IntrOff);
-        let tid: usize = thread.tid as usize;
-        (self.thread_list)
-            .as_mut()[tid] = Some(thread);
-        let thread_ref: &Box<ThreadControlBlock> = 
-            (self.thread_list)
-                .index(tid)
-                .as_ref()
-                .expect("Impossible.");
-        thread_ref
+        tid
     }
 
     // NOTE: We assume tid valid.
-    fn remove(&mut self, tid: Tid) -> Box<ThreadControlBlock> {
+    fn remove(&mut self, tid: Tid) -> ThreadControlBlock {
         intr_disable();
         let cache_num = tid / 32;
         let rel_ind = tid % 32;
@@ -126,24 +107,27 @@ impl ThreadManager for ThreadManager128 {
         else {
             self.pid_cache_4 ^= 1 << rel_ind;
         }
-        let thread: Box<ThreadControlBlock> = {
-            <Option<Box<ThreadControlBlock>> as Clone>::clone(
-                (self.thread_list)
-                .index(tid as usize)).expect("Attempted removing unallocated TID.")
-        };
-        (self.thread_list)
-            .as_mut()[tid as usize] = ARRAY_REPEAT_VALUE;
+        let thread: ThreadControlBlock = replace(
+            (self.thread_list)
+                    .index_mut(tid as usize),
+             ARRAY_REPEAT_VALUE)
+            .expect("Invalid Tid, thread doesn't exist");
         intr_enable();
         thread
     }
 
-    // NOTE: We assume tid valid.
-    unsafe fn get_clone_ptr(&mut self, tid: Tid) -> *mut ThreadControlBlock {
-        Box::into_raw(
-            <Option<Box<ThreadControlBlock>> as Clone>::clone(
-                (self.thread_list)
-                .index(tid as usize)).expect("Attempted removing unallocated TID.")
-        )
+    fn get(&mut self, tid: Tid) -> ThreadControlBlock {
+        replace(
+            (self.thread_list)
+                    .index_mut(tid as usize),
+             ARRAY_REPEAT_VALUE)
+            .expect("Invalid Tid, thread doesn't exist")
+    }
+
+    fn set(&mut self, thread: ThreadControlBlock) -> Tid {
+        let tid = thread.tid;
+        (self.thread_list)[tid as usize] =  Some(thread);
+        tid
     }
 }
 

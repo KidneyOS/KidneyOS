@@ -1,29 +1,29 @@
-use alloc::{boxed::Box, collections::VecDeque};
+use alloc::collections::VecDeque;
 
-use super::super::{ThreadControlBlock, Tid};
+use super::super::Tid;
 
 use super::scheduler::Scheduler;
 
-pub struct FIFOScheduler<'a> {
-    ready_queue: VecDeque<&'a Box<ThreadControlBlock>>,
+pub struct FIFOScheduler {
+    ready_queue: VecDeque<Tid>,
 }
 
 // TODO: Will be removed, requires a change to stack type.
 // SAFETY: Schedulers should be run with interrupts disabled.
-unsafe impl Sync for FIFOScheduler<'_> {}
+unsafe impl Sync for FIFOScheduler {}
 
-impl<'a> Scheduler<'a> for FIFOScheduler<'a> {
-    fn new() -> FIFOScheduler<'a> {
+impl Scheduler for FIFOScheduler {
+    fn new() -> FIFOScheduler {
         FIFOScheduler {
             ready_queue: VecDeque::new(),
         }
     }
 
-    fn push(&mut self, thread: &'a Box<ThreadControlBlock>) {
-        self.ready_queue.push_back(thread);
+    fn push(&mut self, thread_tid: Tid) {
+        self.ready_queue.push_back(thread_tid);
     }
 
-    fn pop(&mut self) -> Option<&Box<ThreadControlBlock>> {
+    fn pop(&mut self) -> Option<Tid> {
         self.ready_queue.pop_front()
     }
 

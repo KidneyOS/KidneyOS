@@ -2,7 +2,7 @@ use super::{
     scheduling::SCHEDULER,
     thread_management::THREAD_MANAGER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
-    RUNNING_THREAD,
+    RUNNING_THREAD_TID,
 };
 use crate::sync::intr::intr_enable;
 use core::arch::asm;
@@ -45,21 +45,18 @@ unsafe extern "C" fn run_thread(
     let ThreadControlBlock { eip, esp, .. } = *switched_to;
 
     // Reschedule our threads.
-    let switched_to_ref =
-        THREAD_MANAGER
-            .as_mut()
-            .expect("No Thread Manager set up!")
-            .add_existing(switched_to);
-    RUNNING_THREAD = Some(switched_to_ref);
-    let switched_from_ref =
-        THREAD_MANAGER
-            .as_mut()
-            .expect("No Thread Manager set up!")
-            .add_existing(Box::from_raw(switched_from));
+    let tm = 
+            THREAD_MANAGER
+                .as_mut()
+                .expect("No Thread Manager set up!");
+    
+    RUNNING_THREAD_TID = tm.set(*switched_to);
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
-        .push(switched_from_ref);
+        .push(
+            tm.set(*(Box::from_raw(switched_from)))
+        );
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.

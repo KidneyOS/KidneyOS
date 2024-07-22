@@ -1,13 +1,11 @@
-use crate::sync::intr::{intr_get_level, IntrLevel};
+use crate::{sync::intr::{intr_get_level, IntrLevel}, threading::RUNNING_THREAD_TID};
 use core::mem::offset_of;
-
 use alloc::boxed::Box;
 
 use super::{
     scheduling::SCHEDULER,
     thread_management::THREAD_MANAGER,
-    thread_control_block::{ThreadControlBlock, ThreadStatus},
-    RUNNING_THREAD,
+    thread_control_block::{ThreadControlBlock, ThreadStatus, Tid},
 };
 
 /// Public facing method to perform a context switch between two threads.
@@ -16,7 +14,7 @@ use super::{
 /// Interrupts must be disabled.
 pub unsafe fn switch_threads(
     status_for_current_thread: ThreadStatus,
-    switch_to: &Box<ThreadControlBlock>,
+    switch_to: Tid,
 ) {
     assert!(intr_get_level() == IntrLevel::IntrOff);
 
@@ -24,12 +22,11 @@ pub unsafe fn switch_threads(
                                             .as_mut()
                                             .expect("No Thread Manager set up!");
 
-    let switch_from = tm.get_clone_ptr(
-        RUNNING_THREAD
-            .expect("Why is nothing running!?")
-            .tid
-    );
-    let switch_to = tm.get_clone_ptr(switch_to.tid);
+    let mut switch_from_tcb = tm.get(RUNNING_THREAD_TID);
+    let switch_from: *mut ThreadControlBlock = &mut switch_from_tcb;
+
+    let mut switch_to_tcb = tm.get(switch_to);
+    let switch_to: *mut ThreadControlBlock = &mut switch_to_tcb;
 
     // Ensure we are switching to a valid thread.
     assert!(
@@ -56,23 +53,13 @@ pub unsafe fn switch_threads(
 
     // After threads have switched, we must update the scheduler and running thread.
 
-    // ------------------------------------------------------
-    // Found switch_from being used, 
-    // should it not be switch_to ?
-    // Potential error / naming issue.
-    // ------------------------------------------------------
-    {
-        let switch_from_ref = tm.add_existing(Box::from_raw(switch_from));
-        RUNNING_THREAD = Some(switch_from_ref);
-    }
-    // ------------------------------------------------------
-    {
-        let previous_ref = tm.add_existing(Box::from_raw(previous));
-        SCHEDULER
-            .as_mut()
-            .expect("Scheduler not set up!")
-            .push(previous_ref);
-    }
+    RUNNING_THREAD_TID = tm.set(*(Box::from_raw(switch_from)));
+    SCHEDULER
+        .as_mut()
+        .expect("Scheduler not set up!")
+        .push(
+            tm.set(*(Box::from_raw(previous)))
+        );
 }
 
 #[macro_export]
@@ -145,7 +132,7 @@ macro_rules! restore_registers {
 ///
 /// Our return value will need to be placed into the %eax register.
 #[naked]
-unsafe extern "C" fn context_switch(
+pub unsafe extern "C" fn context_switch(
     _switch_from: *mut ThreadControlBlock,
     _switch_to: *mut ThreadControlBlock,
 ) -> *mut ThreadControlBlock {
