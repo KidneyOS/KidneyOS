@@ -11,7 +11,8 @@ pub struct Fat16<'a> {
     total_sectors: u32,
     num_sectors_per_fat: u16, 
     num_hidden_sectors: u32, // might be needed to locate FAT table
-    data_cluster_start: u16,
+    //data_cluster_start: u16,
+    data_sector_start: u16,
     fat_cache: Vec<u16>,
 }
 pub struct File {pub name: String,
@@ -54,10 +55,11 @@ impl<'a> Fat16<'a> {
         let num_root_dir_entries = u16::from_le_bytes([buf[17], buf[18]]);
         let num_hidden_sectors = u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]);
 
-        let mut fat_cache: Vec<u16> = vec![1 as u16; (total_sectors / sectors_per_cluster as u32) as usize];
+        //let mut fat_cache: Vec<u16> = vec![1 as u16; (total_sectors / sectors_per_cluster as u32) as usize];
+        let mut fat_cache: Vec<u16> = vec![1 as u16; (num_sectors_per_fat as usize * bytes_per_sector as usize / 2 ) as usize];
         for i in 0..num_sectors_per_fat {
             disk.read_at(&mut buf, (num_reserved_sectors + i) as usize)?;
-            for j in 0..(buf.len()/2) {fat_cache[(i*(bytes_per_sector/2)) as usize + j] = u16::from_le_bytes([buf[2*j], buf[2*j + 1]]); }
+            for j in 0..(bytes_per_sector as usize/2) {fat_cache[(i*(bytes_per_sector/2)) as usize + j] = u16::from_le_bytes([buf[2*j], buf[2*j + 1]]); }
 
         }
         Ok( Fat16 {
@@ -70,7 +72,8 @@ impl<'a> Fat16<'a> {
             total_sectors,
             num_sectors_per_fat,
             num_hidden_sectors,
-            data_cluster_start: (num_reserved_sectors + ((num_fats as u16) * num_sectors_per_fat)) / sectors_per_cluster as u16 + (num_root_dir_entries * 32 / bytes_per_sector / sectors_per_cluster as u16), 
+            //data_cluster_start: (num_reserved_sectors + ((num_fats as u16) * num_sectors_per_fat)) / sectors_per_cluster as u16 + (num_root_dir_entries * 32 / bytes_per_sector / sectors_per_cluster as u16), 
+            data_sector_start: (num_reserved_sectors + ((num_fats as u16) * num_sectors_per_fat))  + (num_root_dir_entries * 32 / bytes_per_sector), 
             fat_cache,
         } )
     }
@@ -93,11 +96,10 @@ impl<'a> Fat16<'a> {
             Ok(FSEntry::F(self.get_file(location)?))
         }
     }
-
-    // why -2? I have no idea
+    // why -2 clusters, I don't know
     // for fat16, total sectors can't exceed 31 bits
     fn disk_read(&self, buf: &mut [u8], sector: isize) -> Result<usize, io::Error> { 
-        self.disk.read_at(buf, (((self.data_cluster_start - 2) * self.sectors_per_cluster as u16) as isize + sector) as usize) 
+        self.disk.read_at(buf, (((self.data_sector_start - self.sectors_per_cluster as u16 * 2)) as isize + sector) as usize) 
     }
     pub fn read_file_at(&self, file: &mut FSEntry, offset: u32, out: &mut [u8], mut amount: u32) -> Result<u32, io::Error>{
         match file {
@@ -160,7 +162,7 @@ impl<'a> Fat16<'a> {
         }
 
         let mut buf = vec![0 as u8; self.bytes_per_sector as usize]; 
-        let mut curr_sector: isize = match dir.name.as_str() { "root" => -((self.num_root_dir_entries * 32 / self.bytes_per_sector - self.sectors_per_cluster as u16 * 2) as isize),
+        let mut curr_sector: isize = match dir.name.as_str() { "root" => -(self.num_root_dir_entries as isize * 32 / self.bytes_per_sector as isize) + (self.sectors_per_cluster as isize * 2) ,
             _ => dir.cluster as isize * self.sectors_per_cluster as isize };
         self.disk_read(&mut buf, curr_sector)?;
         let mut children: Vec<Inode> = Vec::new();
@@ -195,7 +197,6 @@ impl<'a> Fat16<'a> {
                     i -= 32;
                 }
                 for _ in (old_i/32)..(i/32 ) {
-                    println!("{}", i);
                     add_to_name(&mut name, &bufs[0][i..(i+32)]);
                     i -= 32;
                 }
