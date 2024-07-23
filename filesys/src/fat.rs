@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::{ffi::CString, mem::transmute};
 use std::io;
 use crate::disk_device::{DiskDevice, Disk};
 pub struct Fat16<'a> {
@@ -55,7 +55,6 @@ impl<'a> Fat16<'a> {
         let num_root_dir_entries = u16::from_le_bytes([buf[17], buf[18]]);
         let num_hidden_sectors = u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]);
 
-        //let mut fat_cache: Vec<u16> = vec![1 as u16; (total_sectors / sectors_per_cluster as u32) as usize];
         let mut fat_cache: Vec<u16> = vec![1 as u16; (num_sectors_per_fat as usize * bytes_per_sector as usize / 2 ) as usize];
         for i in 0..num_sectors_per_fat {
             disk.read_at(&mut buf, (num_reserved_sectors + i) as usize)?;
@@ -72,7 +71,6 @@ impl<'a> Fat16<'a> {
             total_sectors,
             num_sectors_per_fat,
             num_hidden_sectors,
-            //data_cluster_start: (num_reserved_sectors + ((num_fats as u16) * num_sectors_per_fat)) / sectors_per_cluster as u16 + (num_root_dir_entries * 32 / bytes_per_sector / sectors_per_cluster as u16), 
             data_sector_start: (num_reserved_sectors + ((num_fats as u16) * num_sectors_per_fat))  + (num_root_dir_entries * 32 / bytes_per_sector), 
             fat_cache,
         } )
@@ -143,6 +141,17 @@ impl<'a> Fat16<'a> {
         }
     }
     pub fn get_dir(&self, dir: &Inode) -> Result<Directory, io::Error>{
+        fn add_to_name_unsafe(name: &mut String, buf: &[u8]) {
+            // the more efficient way
+            assert_eq!(buf.len(), 32);
+            // align seems to stick to even boundaries when we specifically want an odd boundary. 
+            // transmute reads ahead, but it's not an issue here because it's still within buf
+            let u16buf: &[u16] = unsafe { transmute(&buf[1..11]) };
+            name.push_str(&String::from_utf16_lossy(&u16buf[0..5]));
+            let (_, u16buf, _) = unsafe { buf.align_to::<u16>() };
+            name.push_str(&String::from_utf16_lossy(&u16buf[7..13]));
+            name.push_str(&String::from_utf16_lossy(&u16buf[14..16]));
+        }
         fn add_to_name(name: &mut String, buf: &[u8]){
             // couldn't think of a cleaner way without unsafe/nightly rust
             assert_eq!(buf.len(), 32);
@@ -189,15 +198,15 @@ impl<'a> Fat16<'a> {
                     bufs[j] = buf;
                 }
                 for _ in (2 * self.bytes_per_sector as usize / 32)..(i/32 + 1) {
-                    add_to_name(&mut name, &bufs[2][(i - 2 * self.bytes_per_sector as usize)..(i - 2 * self.bytes_per_sector as usize + 32)]);
+                    add_to_name_unsafe(&mut name, &bufs[2][(i - 2 * self.bytes_per_sector as usize)..(i - 2 * self.bytes_per_sector as usize + 32)]);
                     i -= 32;
                 } 
                 for _ in (self.bytes_per_sector as usize / 32)..(i/32 + 1){
-                    add_to_name(&mut name, &bufs[1][(i - self.bytes_per_sector as usize)..(i - self.bytes_per_sector as usize + 32)]);
+                    add_to_name_unsafe(&mut name, &bufs[1][(i - self.bytes_per_sector as usize)..(i - self.bytes_per_sector as usize + 32)]);
                     i -= 32;
                 }
                 for _ in (old_i/32)..(i/32 ) {
-                    add_to_name(&mut name, &bufs[0][i..(i+32)]);
+                    add_to_name_unsafe(&mut name, &bufs[0][i..(i+32)]);
                     i -= 32;
                 }
                 for j in 0..12 {
@@ -215,7 +224,7 @@ impl<'a> Fat16<'a> {
                 long_name = Some(name);
             } 
             else {
-                children.push(self.build_inode(&buf[i..i+32])); // 32 bytes 
+                children.push(self.build_inode(&buf[i..i+32])); 
                 let last = children.len() - 1;
                 if let Some(name) = long_name { children[last].name = name; long_name = None; }
             }
