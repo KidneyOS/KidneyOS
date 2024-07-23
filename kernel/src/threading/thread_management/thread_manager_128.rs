@@ -2,7 +2,6 @@ use super::super::{ThreadControlBlock, Tid};
 use super::thread_manager::ThreadManager;
 use crate::sync::intr::{intr_disable, intr_enable};
 use core::arch::asm;
-use core::mem::replace;
 use core::ops::IndexMut;
 
 const ARRAY_REPEAT_VALUE: Option<ThreadControlBlock> = None;
@@ -107,20 +106,19 @@ impl ThreadManager for ThreadManager128 {
         else {
             self.pid_cache_4 ^= 1 << rel_ind;
         }
-        let thread: ThreadControlBlock = replace(
+        let thread: ThreadControlBlock = 
             (self.thread_list)
-                    .index_mut(tid as usize),
-             ARRAY_REPEAT_VALUE)
-            .expect("Invalid Tid, thread doesn't exist");
+                .index_mut(tid as usize)
+                .take()
+                .expect("Invalid Tid, thread doesn't exist");
         intr_enable();
         thread
     }
 
     fn get(&mut self, tid: Tid) -> ThreadControlBlock {
-        replace(
-            (self.thread_list)
-                    .index_mut(tid as usize),
-             ARRAY_REPEAT_VALUE)
+        (self.thread_list)
+            .index_mut(tid as usize)
+            .take()
             .expect("Invalid Tid, thread doesn't exist")
     }
 
