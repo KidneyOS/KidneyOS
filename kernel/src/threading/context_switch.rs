@@ -1,6 +1,7 @@
 use crate::{sync::intr::{intr_get_level, IntrLevel}, threading::RUNNING_THREAD_TID};
 use core::mem::offset_of;
 use alloc::boxed::Box;
+use kidneyos_shared::println;
 
 use super::{
     scheduling::SCHEDULER,
@@ -22,11 +23,8 @@ pub unsafe fn switch_threads(
                                             .as_mut()
                                             .expect("No Thread Manager set up!");
 
-    let mut switch_from_tcb = tm.get(RUNNING_THREAD_TID);
-    let switch_from: *mut ThreadControlBlock = &mut switch_from_tcb;
-
-    let mut switch_to_tcb = tm.get(switch_to);
-    let switch_to: *mut ThreadControlBlock = &mut switch_to_tcb;
+    let switch_from = Box::into_raw(tm.get(RUNNING_THREAD_TID));
+    let switch_to = Box::into_raw(tm.get(switch_to));
 
     // Ensure we are switching to a valid thread.
     assert!(
@@ -45,20 +43,22 @@ pub unsafe fn switch_threads(
 
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
+    println!("{} -> {}", (*switch_from).tid, (*switch_to).tid);
 
     let previous = Box::from_raw(context_switch(switch_from, switch_to));
+    println!("{} -> {}", (*switch_from).tid, previous.tid);
 
     // We must mark this thread as running once again.
     (*switch_from).status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
 
-    RUNNING_THREAD_TID = tm.set(*(Box::from_raw(switch_from)));
+    RUNNING_THREAD_TID = tm.set(Box::from_raw(switch_from));
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
         .push(
-            tm.set(*previous)
+            tm.set(previous)
         );
 }
 

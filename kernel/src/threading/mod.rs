@@ -8,6 +8,7 @@ use crate::{
     paging::PageManager,
     sync::intr::{intr_enable, intr_get_level, IntrLevel},
 };
+use alloc::boxed::Box;
 use kidneyos_shared::{println, serial::outb};
 use scheduling::{initialize_scheduler, scheduler_yield, SCHEDULER};
 use thread_control_block::{ProcessControlBlock, ThreadControlBlock, Tid};
@@ -20,8 +21,6 @@ pub static mut RUNNING_THREAD_TID: Tid = 0;
 /// To be called with interrupts disabled.
 static mut THREAD_SYSTEM_INITIALIZED: bool = false;
 pub fn thread_system_initialization() {
-    println!("Initializing Thread System...");
-
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // Initialize the scheduler.
@@ -34,12 +33,11 @@ pub fn thread_system_initialization() {
     unsafe {
         THREAD_SYSTEM_INITIALIZED = true;
     }
-    println!("Finished Thread System initialization.");
 }
 
-const INIT_A: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
-const INIT_B: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
-const INIT_C: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
+// const INIT_A: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
+// const INIT_B: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
+// const INIT_C: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
 
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
@@ -51,11 +49,11 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     );
 
     // Create the initial user program thread.
-    let _user_tcb = ProcessControlBlock::new(init_elf);
+    let user_tcb = ProcessControlBlock::new(init_elf);
 
-    let init_tcb_a = ProcessControlBlock::new(INIT_A);
-    let init_tcb_b = ProcessControlBlock::new(INIT_B);
-    let init_tcb_c = ProcessControlBlock::new(INIT_C);
+    // let init_tcb_a = ProcessControlBlock::new(INIT_A);
+    // let init_tcb_b = ProcessControlBlock::new(INIT_B);
+    // let init_tcb_c = ProcessControlBlock::new(INIT_C);
 
     unsafe {
         let tm = 
@@ -75,32 +73,38 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 
     // SAFETY: Interrupts must be disabled.
 
-        RUNNING_THREAD_TID = tm.add(kernel_tcb);
+        RUNNING_THREAD_TID = tm.add(Box::new(kernel_tcb));
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
             .push(
-                tm.add(idle_tcb)
+                tm.add(Box::new(idle_tcb))
+            );
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(
+                tm.add(Box::new(user_tcb))
             );
 
-        SCHEDULER
-            .as_mut()
-            .expect("No Scheduler set up!")
-            .push(
-                tm.add(init_tcb_a)
-            );
-        SCHEDULER
-            .as_mut()
-            .expect("No Scheduler set up!")
-            .push(
-                tm.add(init_tcb_b)
-            );
-        SCHEDULER
-            .as_mut()
-            .expect("No Scheduler set up!")
-            .push(
-                tm.add(init_tcb_c)
-            );
+        // SCHEDULER
+        //     .as_mut()
+        //     .expect("No Scheduler set up!")
+        //     .push(
+        //         tm.add(init_tcb_a)
+        //     );
+        // SCHEDULER
+        //     .as_mut()
+        //     .expect("No Scheduler set up!")
+        //     .push(
+        //         tm.add(init_tcb_b)
+        //     );
+        // SCHEDULER
+        //     .as_mut()
+        //     .expect("No Scheduler set up!")
+        //     .push(
+        //         tm.add(init_tcb_c)
+        //     );
         outb(0x21, 0xfd);
         outb(0xa1, 0xff);
     }

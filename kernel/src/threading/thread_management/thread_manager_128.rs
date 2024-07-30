@@ -1,13 +1,14 @@
 use super::super::{ThreadControlBlock, Tid};
 use super::thread_manager::ThreadManager;
+use alloc::boxed::Box;
 use core::arch::asm;
 use core::ops::IndexMut;
 
-const ARRAY_REPEAT_VALUE: Option<ThreadControlBlock> = None;
+const ARRAY_REPEAT_VALUE: Option<Box<ThreadControlBlock>> = None;
 
 pub struct ThreadManager128 {
     // list of threads being handled
-    thread_list: [Option<ThreadControlBlock>; 128],
+    thread_list: [Option<Box<ThreadControlBlock>>; 128],
 
     // 4 x 32 = 128 TIDs maximum available
     pid_cache_1: u32,
@@ -26,9 +27,9 @@ impl ThreadManager for ThreadManager128 {
             pid_cache_4: u32::MAX,
         }
     }
-    
+
     // NOTE: We assume interrupts disabled
-    fn add(&mut self, mut thread:ThreadControlBlock) -> Tid {
+    fn add(&mut self, mut thread: Box<ThreadControlBlock>) -> Tid {
         let mut tid: Tid = 128;
         // TZCNT, LZCNT not available, thus treated as BSF -> bit of the first available 1
         // https://www.amd.com/content/dam/amd/en/documents/processor-tech-docs/programmer-references/24594.pdf#page=394
@@ -88,7 +89,7 @@ impl ThreadManager for ThreadManager128 {
     }
 
     // NOTE: We assume tid valid, interrupts disabled
-    fn remove(&mut self, tid: Tid) -> ThreadControlBlock {
+    fn remove(&mut self, tid: Tid) -> Box<ThreadControlBlock> {
         let cache_num = tid / 32;
         let rel_ind = tid % 32;
         if cache_num == 0 {
@@ -103,22 +104,20 @@ impl ThreadManager for ThreadManager128 {
         else {
             self.pid_cache_4 ^= 1 << rel_ind;
         }
-        let thread: ThreadControlBlock = 
-            (self.thread_list)
-                .index_mut(tid as usize)
-                .take()
-                .expect("Invalid Tid, thread doesn't exist");
-        thread
-    }
-
-    fn get(&mut self, tid: Tid) -> ThreadControlBlock {
         (self.thread_list)
             .index_mut(tid as usize)
             .take()
             .expect("Invalid Tid, thread doesn't exist")
     }
 
-    fn set(&mut self, thread: ThreadControlBlock) -> Tid {
+    fn get(&mut self, tid: Tid) -> Box<ThreadControlBlock> {
+        (self.thread_list)
+            .index_mut(tid as usize)
+            .take()
+            .expect("Invalid Tid, thread doesn't exist")
+    }
+
+    fn set(&mut self, thread: Box<ThreadControlBlock>) -> Tid {
         let tid = thread.tid;
         (self.thread_list)[tid as usize] =  Some(thread);
         tid

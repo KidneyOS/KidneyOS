@@ -50,12 +50,12 @@ unsafe extern "C" fn run_thread(
                 .as_mut()
                 .expect("No Thread Manager set up!");
     
-    RUNNING_THREAD_TID = tm.set(*switched_to);
+    RUNNING_THREAD_TID = tm.set(switched_to);
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
         .push(
-            tm.set(*(Box::from_raw(switched_from)))
+            tm.set(Box::from_raw(switched_from))
         );
 
     // Our scheduler will operate without interrupts.
