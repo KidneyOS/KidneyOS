@@ -14,7 +14,7 @@ use thread_control_block::{ThreadControlBlock, Tid};
 use thread_management::{initialize_thread_manager, THREAD_MANAGER};
 
 // Invalid until thread system intialized.
-static mut RUNNING_THREAD_TID: Tid = 0;
+pub static mut RUNNING_THREAD_TID: Tid = 0;
 
 /// To be called before any other thread functions.
 /// To be called with interrupts disabled.
@@ -41,6 +41,10 @@ pub fn thread_system_initialization() {
     println!("Finished Thread System initialization. Ready to start threading.");
 }
 
+const INIT_A: &[u8] = include_bytes!("../../programs/loop/loop").as_slice();
+const INIT_B: &[u8] = include_bytes!("../../programs/loop/loop").as_slice();
+const INIT_C: &[u8] = include_bytes!("../../programs/loop/loop").as_slice();
+
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
 pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) -> ! {
@@ -57,6 +61,9 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
     
     let init_tcb = ThreadControlBlock::create(init_elf);
+    let init_tcb_a = ThreadControlBlock::create(INIT_A);
+    let init_tcb_b = ThreadControlBlock::create(INIT_B);
+    let init_tcb_c = ThreadControlBlock::create(INIT_C);
 
     unsafe {
         let tm = 
@@ -74,7 +81,19 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
             .as_mut()
             .expect("No Scheduler set up!")
             .push(
-                tm.add(init_tcb)
+                tm.add(init_tcb_a)
+            );
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(
+                tm.add(init_tcb_b)
+            );
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(
+                tm.add(init_tcb_c)
             );
     }
 
