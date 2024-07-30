@@ -29,7 +29,6 @@ pub fn thread_system_initialization() {
     }
 }
 
-/// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
 pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) -> ! {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
@@ -59,11 +58,6 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
             .push(Box::new(user_tcb));
     }
 
-    // Enable preemptive scheduling.
-    unsafe {
-        outb(0x21, 0xfd);
-        outb(0xa1, 0xff);
-    }
     intr_enable();
 
     // Eventually, the scheduler may run the kernel thread again.

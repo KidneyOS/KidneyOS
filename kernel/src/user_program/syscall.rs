@@ -34,6 +34,13 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }
+        SYS_NANOSLEEP => {
+            todo!("nanosleep syscall")
+        }
+        SYS_SCHED_YIELD => {
+            scheduler_yield_and_continue();
+            0
+        }
         _ => 1,
     }
 }
@@ -42,3 +49,5 @@ pub const SYS_EXIT: usize = 0x1;
 pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;
 pub const SYS_WAITPID: usize = 0x7;
+pub const SYS_NANOSLEEP: usize = 0xa2;
+pub const SYS_SCHED_YIELD: usize = 0x9e;

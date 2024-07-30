@@ -7,6 +7,9 @@ use arbitrary_int::{u2, u4};
 use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
 
+use crate::pic;
+use crate::threading::scheduling;
+
 #[repr(align(8))]
 #[bitfield(u64, default = 0)]
 struct GateDescriptor {
@@ -93,6 +96,25 @@ unsafe extern "C" fn syscall_handler() -> ! {
     );
 }
 
+#[naked]
+unsafe extern "C" fn timer_interrupt_handler() -> ! {
+    asm!(
+        "
+        // Push IRQ0 value onto the stack.
+        push 0x0
+        call {} // Yield process
+        add esp, 4 // Drop arguments from stack
+
+        call {} // send EOI signal to PICs
+        iretd
+        ",
+        sym scheduling::scheduler_yield_and_continue,
+        sym pic::send_eoi,
+        options(noreturn),
+    );
+}
+
+
 static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
     size: size_of::<[GateDescriptor; IDT_LEN]>() as u16 - 1,
     offset: 0, // Will fetch pointer and set at runtime below.
@@ -113,7 +135,8 @@ pub unsafe fn load() {
             .with_descriptor_privilege_level(u2::new(3))
             .with_present(true);
     }
-    IDT[0xE] = IDT[0xE].with_offset(page_fault_handler as usize as u32);
+    IDT[0xe] = IDT[0xe].with_offset(page_fault_handler as usize as u32);
+    IDT[0x20] = IDT[0x20].with_offset(timer_interrupt_handler as usize as u32); // PIC1_OFFSET (IRQ0)
     IDT[0x80] = IDT[0x80].with_offset(syscall_handler as usize as u32);
 
     asm!("lidt [{}]", sym IDT_DESCRIPTOR);
