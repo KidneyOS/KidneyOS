@@ -58,7 +58,7 @@ pub unsafe fn switch_threads(
         .as_mut()
         .expect("Scheduler not set up!")
         .push(
-            tm.set(*(Box::from_raw(previous)))
+            tm.set(*previous)
         );
 }
 

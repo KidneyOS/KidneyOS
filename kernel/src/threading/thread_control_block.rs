@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
-    // sync::atomic::{AtomicU16, Ordering},
+    sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
@@ -20,7 +20,6 @@ pub type Tid = u16;
 
 // Current value marks the next available PID & TID values to use.
 static NEXT_UNRESERVED_PID: AtomicU16 = AtomicU16::new(0);
-static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -44,10 +43,6 @@ pub enum ThreadStatus {
 pub fn allocate_pid() -> Pid {
     // SAFETY: Atomically accesses a shared variable.
     NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
-}
-pub fn allocate_tid() -> Tid {
-    // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
 }
 
 pub struct ProcessControlBlock {
@@ -215,8 +210,6 @@ impl ThreadControlBlock {
     }
 
     fn new_(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
-        let tid: Tid = allocate_tid();
-
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
         // so we must pass in the top of this memory to the thread.
         let (kernel_stack, kernel_stack_pointer_top);
@@ -258,7 +251,7 @@ impl ThreadControlBlock {
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
             user_stack,
-            tid,
+            tid: 0,
             pid, // Potentially could be swapped to directly copy the pid of the running thread
             status: ThreadStatus::Invalid,
             page_manager,
@@ -276,7 +269,7 @@ impl ThreadControlBlock {
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             user_stack: NonNull::dangling(),
-            tid: allocate_tid(),
+            tid: 0,
             pid: allocate_pid(),
             status: ThreadStatus::Running,
             page_manager,

@@ -26,7 +26,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         0xf => {
             // custom syscall
-            unsafe {println!("{}", RUNNING_THREAD_TID);}
+            println!("{}", RUNNING_THREAD_TID);
             0
         }
         _ => 1,

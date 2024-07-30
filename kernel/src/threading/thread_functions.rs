@@ -1,5 +1,5 @@
 use super::{
-    scheduling::SCHEDULER,
+    scheduling::{SCHEDULER, scheduler_yield},
     thread_management::THREAD_MANAGER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     RUNNING_THREAD_TID,
