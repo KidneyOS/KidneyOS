@@ -1,6 +1,5 @@
 use super::super::{ThreadControlBlock, Tid};
 use super::thread_manager::ThreadManager;
-use crate::sync::intr::{intr_disable, intr_enable};
 use core::arch::asm;
 use core::ops::IndexMut;
 
@@ -28,8 +27,8 @@ impl ThreadManager for ThreadManager128 {
         }
     }
     
+    // NOTE: We assume interrupts disabled
     fn add(&mut self, mut thread:ThreadControlBlock) -> Tid {
-        intr_disable();
         let mut tid: Tid = 128;
         // TZCNT, LZCNT not available, thus treated as BSF -> bit of the first available 1
         // https://www.amd.com/content/dam/amd/en/documents/processor-tech-docs/programmer-references/24594.pdf#page=394
@@ -85,13 +84,11 @@ impl ThreadManager for ThreadManager128 {
         thread.tid = tid;
         (self.thread_list)
             .as_mut()[tid as usize] = Some(thread);
-        intr_enable();
         tid
     }
 
-    // NOTE: We assume tid valid.
+    // NOTE: We assume tid valid, interrupts disabled
     fn remove(&mut self, tid: Tid) -> ThreadControlBlock {
-        intr_disable();
         let cache_num = tid / 32;
         let rel_ind = tid % 32;
         if cache_num == 0 {
@@ -111,7 +108,6 @@ impl ThreadManager for ThreadManager128 {
                 .index_mut(tid as usize)
                 .take()
                 .expect("Invalid Tid, thread doesn't exist");
-        intr_enable();
         thread
     }
 

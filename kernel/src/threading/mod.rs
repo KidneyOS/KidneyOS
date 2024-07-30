@@ -41,9 +41,9 @@ pub fn thread_system_initialization() {
     println!("Finished Thread System initialization. Ready to start threading.");
 }
 
-const INIT_A: &[u8] = include_bytes!("../../programs/loop/loop").as_slice();
-const INIT_B: &[u8] = include_bytes!("../../programs/loop/loop").as_slice();
-const INIT_C: &[u8] = include_bytes!("../../programs/loop/loop").as_slice();
+const INIT_A: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
+const INIT_B: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
+const INIT_C: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
 
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
