@@ -102,18 +102,17 @@ unsafe extern "C" fn timer_interrupt_handler() -> ! {
         "
         // Push IRQ0 value onto the stack.
         push 0x0
+        call {} // Send EOI signal to PICs
         call {} // Yield process
-        add esp, 4 // Drop arguments from stack
 
-        call {} // send EOI signal to PICs
+        add esp, 4 // Drop arguments from stack
         iretd
         ",
-        sym scheduling::scheduler_yield_and_continue,
         sym pic::send_eoi,
+        sym scheduling::scheduler_yield_and_continue,
         options(noreturn),
     );
 }
-
 
 static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
     size: size_of::<[GateDescriptor; IDT_LEN]>() as u16 - 1,

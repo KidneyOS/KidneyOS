@@ -9,7 +9,6 @@ use crate::{
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
-use kidneyos_shared::serial::outb;
 use thread_control_block::{ProcessControlBlock, ThreadControlBlock, Tid};
 
 pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
@@ -63,7 +62,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources.
     // For now, we will act as the idle thread.
-    idle_function()
+    idle_function();
 
     // This function never returns.
 }

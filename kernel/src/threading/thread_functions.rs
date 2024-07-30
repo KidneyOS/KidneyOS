@@ -100,10 +100,10 @@ unsafe extern "C" fn run_thread(
 
             // Set up the stack frame iret expects.
             push {data_sel:e} // stack segment
-            push {esp} // esp
+            push {esp}
             pushfd // eflags
             push {code_sel} // code segment
-            push {eip} // eip
+            push {eip}
             iretd
             ",
             data_sel = in(reg) USER_DATA_SELECTOR,

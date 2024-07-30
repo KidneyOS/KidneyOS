@@ -1,7 +1,5 @@
 use core::arch::asm;
-use kidneyos_shared::serial::outb;
-
-use kidneyos_shared::println;
+use kidneyos_shared::serial::{inb, outb};
 
 pub const PIC1_OFFSET: u8 = 0x20;
 pub const PIC2_OFFSET: u8 = PIC1_OFFSET + 8;
@@ -44,24 +42,42 @@ pub unsafe fn pic_remap(offset1: u8, offset2: u8) {
     io_wait();
 }
 
-pub unsafe fn init_pit() {
-    // Program the PIT channel
+pub unsafe fn init_pit() -> () {
+    // program the PIT
+    // channel 0 (bit 6-7), lo/hi-byte (bit 4-5), rate generator (bit 1-3)
+    outb(0x43, 0b00110100);
+
     asm!(
         "
-        mov al,00110100b
-        out 0x43, al
-
-        mov ax, 0x1234DC
-        out 0x40, al
+        mov ax, 0xffffffff // reload value
+        out 0x40, al // set low byte of PIT reload value
         mov al, ah
-        out 0x40, al
-        ", // generates one timer interrupt per second
-    )
+        out 0x40, al // set high byte of PIT reload value
+        ",
+    );
+
+    // unmask and activate all IRQs
+    outb(PIC1_DATA, 0x0);
+    outb(PIC2_DATA, 0x0);
+}
+
+pub unsafe fn irq_mask(mut irq: u8) -> () {
+    let port = if irq < 8 { PIC1_DATA } else { PIC2_DATA };
+    if !(irq < 8) { irq -= 8 };
+    let mask = inb(port) | (1 << irq);
+
+    outb(port, mask);
+}
+
+pub unsafe fn irq_unmask(mut irq: u8) -> () {
+    let port = if irq < 8 { PIC1_DATA } else { PIC2_DATA };
+    if !(irq < 8) { irq -= 8 };
+    let mask = inb(port) & !(1 << irq);
+
+    outb(port, mask);
 }
 
 pub unsafe fn send_eoi(irq: u8) -> () {
-    println!("(timer) signal EOI - {}", irq);
-
     if irq >= 8 {
         outb(PIC2_CMD, PIC_EOI);
     }

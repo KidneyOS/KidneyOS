@@ -2,6 +2,8 @@
 
 use crate::threading::{thread_functions, RUNNING_THREAD};
 use kidneyos_shared::println;
+use crate::threading::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
+use core::arch::asm;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -17,19 +19,29 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             thread_functions::exit_thread(arg0 as i32);
         }
         SYS_FORK => {
-            let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
-            let parent_tid = running_tcb.tid;
-
-            let child_tcb = (**running_tcb).clone();
-
-            if parent_tid == running_tcb.tid {
-                child_tcb.tid as usize
-            } else {
-                0
-            }
+            todo!("fork syscall");
+        //
+        //     let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
+        //     let parent_tid = running_tcb.tid;
+        //
+        //     let child_tcb = (**running_tcb).clone();
+        //
+        //     if parent_tid == running_tcb.tid {
+        //         child_tcb.tid as usize
+        //     } else {
+        //         0
+        //     }
         }
         SYS_READ => {
-            todo!("read syscall")
+            println!("(syscall) starting read");
+
+            unsafe { timer(); }
+
+            scheduler_yield_and_block();
+
+            // Should only reach here if read is completed
+            println!("(syscall) completed read");
+            2048
         }
         SYS_WAITPID => {
             todo!("waitpid syscall")
@@ -43,6 +55,23 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         _ => 1,
     }
+}
+
+pub unsafe extern "C" fn timer() {
+    println!("(interrupt) caught timer!");
+    let mut count: usize = 100;
+    asm!(
+        "
+        in {count}, 0x40
+        mov ebx, {count}
+        test eax, ebx
+        jz $2f
+        dec eax
+        mov {count}, eax
+2:
+        ",
+        count = out(reg) count
+    );
 }
 
 pub const SYS_EXIT: usize = 0x1;
