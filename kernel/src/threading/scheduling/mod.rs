@@ -13,7 +13,7 @@ use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
 
 pub fn initialize_scheduler() {
-    assert!(intr_get_level() == IntrLevel::IntrOff);
+    assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // SAFETY: Interrupts should be off.
     unsafe {

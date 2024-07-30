@@ -1,4 +1,4 @@
-use super::thread_functions::SwitchThreadsContext;
+use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
 use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::{
@@ -7,6 +7,7 @@ use crate::{
     },
     KERNEL_ALLOCATOR,
 };
+use alloc::vec::Vec;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
@@ -14,10 +15,12 @@ use core::{
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
+pub type Pid = u16;
 pub type Tid = u16;
 
-// Current value marks the next avaliable TID value to use.
-// static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
+// Current value marks the next available PID & TID values to use.
+static NEXT_UNRESERVED_PID: AtomicU16 = AtomicU16::new(0);
+static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -38,40 +41,30 @@ pub enum ThreadStatus {
     Dying,
 }
 
-// TODO: Use enums so that we never have garbage data (i.e. stacks that don't
-// need be freed for the kernel thread, information that doesn't make sense when
-// the thread is in certain states, etc.)
-pub struct ThreadControlBlock {
-    pub kernel_stack_pointer: NonNull<u8>,
-    // Kept so we can free the kernel stack later.
-    pub kernel_stack: NonNull<u8>,
-
-    // The user virtual address containing the user instruction pointer to
-    // switch to next time this thread is run.
-    pub eip: NonNull<u8>,
-    // Like above, but the stack pointer.
-    pub esp: NonNull<u8>,
-    // The kernel virtual address of the user stack, so it can be freed later.
-    pub user_stack: NonNull<u8>,
-
-    pub tid: Tid,
-    pub status: ThreadStatus,
-    pub page_manager: PageManager,
+pub fn allocate_pid() -> Pid {
+    // SAFETY: Atomically accesses a shared variable.
+    NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
+}
+pub fn allocate_tid() -> Tid {
+    // SAFETY: Atomically accesses a shared variable.
+    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
 }
 
-// pub fn allocate_tid() -> Tid {
-//     NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
-// }
+pub struct ProcessControlBlock {
+    pub pid: Pid,
+    // The TIDs of this process' children threads
+    pub child_tids: Vec<Tid>,
+    // The TIDs of the threads waiting on this process to end
+    pub wait_list: Vec<Tid>,
 
-impl ThreadControlBlock {
-    pub fn create(elf_data: &[u8]) -> Self {
+    // TODO: (file I/O) file descriptor table
+    pub exit_code: Option<i32>,
+}
 
-        // let tid: Tid = unsafe {
-        //     THREAD_MANAGER
-        //         .as_mut()
-        //         .expect("No Thread Manager set up!")
-        //         .allocate_tid()
-        // };
+impl ProcessControlBlock {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(elf_data: &[u8]) -> ThreadControlBlock {
+        let pid: Pid = allocate_pid();
 
         let (entrypoint, vm_areas) =
             parse_elf(elf_data).expect("init process's ELF data was malformed");
@@ -123,6 +116,107 @@ impl ThreadControlBlock {
             }
         }
 
+        let mut new_pcb = Self {
+            pid,
+            child_tids: Vec::new(),
+            wait_list: Vec::new(),
+            exit_code: None,
+        };
+        let new_tcb = ThreadControlBlock::new_with_elf(
+            NonNull::new(entrypoint as *mut u8).expect("fail to create PCB entry point"),
+            pid,
+            page_manager,
+        );
+        new_pcb.child_tids.push(new_tcb.tid);
+
+        new_tcb
+    }
+}
+
+// TODO: Use enums so that we never have garbage data (i.e. stacks that don't
+// need be freed for the kernel thread, information that doesn't make sense when
+// the thread is in certain states, etc.)
+pub struct ThreadControlBlock {
+    pub kernel_stack_pointer: NonNull<u8>,
+    // Kept so we can free the kernel stack later.
+    pub kernel_stack: NonNull<u8>,
+
+    // The user virtual address containing the user instruction pointer to
+    // switch to next time this thread is run.
+    pub eip: NonNull<u8>,
+    // Like above, but the stack pointer.
+    pub esp: NonNull<u8>,
+    // The kernel virtual address of the user stack, so it can be freed later.
+    pub user_stack: NonNull<u8>,
+
+    pub tid: Tid,
+    // The PID of the parent PCB.
+    pub pid: Pid,
+    pub status: ThreadStatus,
+    pub page_manager: PageManager,
+}
+
+impl ThreadControlBlock {
+    pub fn new(entry_function: ThreadFunction, pid: Pid) -> Self {
+        // let eip = unsafe { transmute(entry_function) };
+        let eip = NonNull::new(entry_function as *mut u8).expect("Null entry function given!");
+        let mut new_thread = Self::new_(eip, pid, PageManager::default());
+
+        // Now, we must build the stack frames for our new thread.
+        // In order (of creation), we have:
+        //  * prepare_thread frame
+        //  * switch_threads
+        let prepare_thread_context = new_thread
+            .allocate_stack_space(size_of::<PrepareThreadContext>())
+            .expect("No Stack Space!");
+        let switch_threads_context = new_thread
+            .allocate_stack_space(size_of::<SwitchThreadsContext>())
+            .expect("No Stack Space!");
+
+        // SAFETY: Manually setting stack bytes a la C.
+        unsafe {
+            *prepare_thread_context
+                .as_ptr()
+                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(entry_function);
+            *switch_threads_context
+                .as_ptr()
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+        }
+
+        new_thread.eip = prepare_thread_context;
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
+    pub fn new_with_elf(
+        entry_instruction: NonNull<u8>,
+        pid: Pid,
+        page_manager: PageManager,
+    ) -> Self {
+        let mut new_thread = Self::new_(entry_instruction, pid, page_manager);
+
+        // Now, we must build the stack frames for our new thread.
+        let switch_threads_context = new_thread
+            .allocate_stack_space(size_of::<SwitchThreadsContext>())
+            .expect("No Stack Space!");
+
+        // SAFETY: Manually setting stack bytes a la C.
+        unsafe {
+            *switch_threads_context
+                .as_ptr()
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+        }
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
+    fn new_(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
+        let tid: Tid = allocate_tid();
+
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
         // so we must pass in the top of this memory to the thread.
         let (kernel_stack, kernel_stack_pointer_top);
@@ -157,58 +251,33 @@ impl ThreadControlBlock {
         }
 
         // Create our new TCB.
-        let mut new_thread = Self {
-            tid: 0,  // always invalid until added to thread manager.
-            status: ThreadStatus::Invalid,
+        Self {
             kernel_stack_pointer: kernel_stack_pointer_top,
             kernel_stack,
-            eip: NonNull::new(entrypoint as *mut u8).expect("failed to create eip"),
+            eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
             user_stack,
+            tid,
+            pid, // Potentially could be swapped to directly copy the pid of the running thread
+            status: ThreadStatus::Invalid,
             page_manager,
-        };
-
-        // Now, we must build the stack frames for our new thread.
-        // In order (of creation), we have:
-        //  * prepare_thread frame
-        //  * switch_threads frame
-
-        let switch_threads_context = new_thread
-            .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
-
-        // SAFETY: Manually setting stack bytes a la C.
-        unsafe {
-            *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
-
-        // Our thread can now be run via the `switch_threads` method.
-        new_thread.status = ThreadStatus::Ready;
-        new_thread
     }
 
     /// Creates the 'kernel thread'.
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub unsafe fn create_kernel_thread(page_manager: PageManager) -> Self {
-        // let tid: Tid = unsafe {
-        //     THREAD_MANAGER
-        //         .as_mut()
-        //         .expect("No Thread Manager set up!")
-        //         .allocate_tid()
-        // };
-
+    pub unsafe fn new_kernel_thread(page_manager: PageManager) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             user_stack: NonNull::dangling(),
-            tid: 0,  // always invalid until added to thread manager.
+            tid: allocate_tid(),
+            pid: allocate_pid(),
             status: ThreadStatus::Running,
             page_manager,
         }
@@ -223,13 +292,13 @@ impl ThreadControlBlock {
         Some(self.shift_stack_pointer_down(bytes))
     }
 
-    /// Check if `bytes` bytes will fit on the stack.
+    /// Check if `bytes` bytes will fit on the kernel stack.
     const fn has_stack_space(&self, bytes: usize) -> bool {
-        // SAFETY: Calculates the distance between the top and bottom of the stack pointers.
-        let avaliable_space =
+        // SAFETY: Calculates the distance between the top and bottom of the kernel stack pointers.
+        let available_space =
             unsafe { self.kernel_stack_pointer.offset_from(self.kernel_stack) as usize };
 
-        avaliable_space >= bytes
+        available_space >= bytes
     }
 
     /// Moves the stack pointer down and returns the new position.
