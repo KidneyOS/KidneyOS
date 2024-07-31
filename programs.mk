@@ -1,14 +1,14 @@
 AS = i686-unknown-linux-gnu-as
 LD = i686-unknown-linux-gnu-ld
 
-PROGRAMS := programs/exit/exit
+PROGRAMS := programs/syscall/syscall
 
-programs/exit/exit: programs/exit/exit.o
+programs/syscall/syscall: programs/syscall/syscall.o
 	$(LD) -o $@ $^
 
-programs/exit/exit.o: programs/exit/exit.S
+programs/syscall/syscall.o: programs/syscall/syscall.S
 	$(AS) -o $@ $<
 
 .PHONY: clean
 clean::
-	rm -f programs/exit/exit programs/exit/exit.o
+	rm -f programs/syscall/syscall programs/syscall/syscall.o

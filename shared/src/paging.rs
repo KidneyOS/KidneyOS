@@ -231,12 +231,14 @@ impl<A: Allocator> PageManager<A> {
     /// there's nothing in the TLB for the virtual addresses included in this
     /// mapping, the mapping may take effect without the call to `load`.
     pub unsafe fn map(&mut self, phys_addr: usize, virt_addr: usize, write: bool, user: bool) {
-        assert!(
-            phys_addr % PAGE_FRAME_SIZE == 0,
+        assert_eq!(
+            phys_addr % PAGE_FRAME_SIZE,
+            0,
             "phys_addr was not page-frame-aligned"
         );
-        assert!(
-            virt_addr % PAGE_FRAME_SIZE == 0,
+        assert_eq!(
+            virt_addr % PAGE_FRAME_SIZE,
+            0,
             "virt_addr was not page-frame-aligned"
         );
 
@@ -298,12 +300,14 @@ impl<A: Allocator> PageManager<A> {
     /// Same as `map`.
     pub unsafe fn huge_map(&mut self, phys_addr: usize, virt_addr: usize, write: bool, user: bool) {
         assert!(*PSE_ENABLED, "PSE was not enabled");
-        assert!(
-            phys_addr % PAGE_FRAME_SIZE == 0,
+        assert_eq!(
+            phys_addr % PAGE_FRAME_SIZE,
+            0,
             "phys_addr was not page-frame-aligned"
         );
-        assert!(
-            virt_addr % HUGE_PAGE_SIZE == 0,
+        assert_eq!(
+            virt_addr % HUGE_PAGE_SIZE,
+            0,
             "virt_addr was not properly aligned"
         );
 
@@ -343,16 +347,19 @@ impl<A: Allocator> PageManager<A> {
         write: bool,
         user: bool,
     ) {
-        assert!(
-            phys_start % PAGE_FRAME_SIZE == 0,
+        assert_eq!(
+            phys_start % PAGE_FRAME_SIZE,
+            0,
             "phys_start was not page-frame-aligned"
         );
-        assert!(
-            virt_start % PAGE_FRAME_SIZE == 0,
+        assert_eq!(
+            virt_start % PAGE_FRAME_SIZE,
+            0,
             "virt_start was not page-frame-aligned"
         );
-        assert!(
-            len % PAGE_FRAME_SIZE == 0,
+        assert_eq!(
+            len % PAGE_FRAME_SIZE,
+            0,
             "len was not a multiple of PAGE_FRAME_SIZE"
         );
 
