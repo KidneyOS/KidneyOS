@@ -9,12 +9,11 @@ const PIC1_DATA: u16 = 0x21;
 const PIC2_CMD: u16 = 0xa0;
 const PIC2_DATA: u16 = 0xa1;
 
-const ICW1_ICW4: u8 = 0x01;   /* Indicates that ICW4 will be present */
-const ICW1_INIT: u8 = 0x10;   /* Initialization - required! */
-const ICW4_8086: u8 = 0x01;   /* 8086/88 (MCS-80/85) mode */
+const ICW1_ICW4: u8 = 0x01; /* Indicates that ICW4 will be present */
+const ICW1_INIT: u8 = 0x10; /* Initialization - required! */
+const ICW4_8086: u8 = 0x01; /* 8086/88 (MCS-80/85) mode */
 
-const PIC_EOI: u8 = 0x20;     /* End-of-interrupt command code */
-
+const PIC_EOI: u8 = 0x20; /* End-of-interrupt command code */
 
 pub unsafe fn pic_remap(offset1: u8, offset2: u8) {
     // Send command: Begin 3-byte initialization sequence.
@@ -42,7 +41,7 @@ pub unsafe fn pic_remap(offset1: u8, offset2: u8) {
     io_wait();
 }
 
-pub unsafe fn init_pit() -> () {
+pub unsafe fn init_pit() {
     // program the PIT
     // channel 0 (bit 6-7), lo/hi-byte (bit 4-5), rate generator (bit 1-3)
     outb(0x43, 0b00110100);
@@ -61,23 +60,29 @@ pub unsafe fn init_pit() -> () {
     outb(PIC2_DATA, 0x0);
 }
 
-pub unsafe fn irq_mask(mut irq: u8) -> () {
+#[allow(unused)]
+pub unsafe fn irq_mask(mut irq: u8) {
     let port = if irq < 8 { PIC1_DATA } else { PIC2_DATA };
-    if !(irq < 8) { irq -= 8 };
+    if irq >= 8 {
+        irq -= 8
+    };
     let mask = inb(port) | (1 << irq);
 
     outb(port, mask);
 }
 
-pub unsafe fn irq_unmask(mut irq: u8) -> () {
+#[allow(unused)]
+pub unsafe fn irq_unmask(mut irq: u8) {
     let port = if irq < 8 { PIC1_DATA } else { PIC2_DATA };
-    if !(irq < 8) { irq -= 8 };
+    if irq >= 8 {
+        irq -= 8
+    };
     let mask = inb(port) & !(1 << irq);
 
     outb(port, mask);
 }
 
-pub unsafe fn send_eoi(irq: u8) -> () {
+pub unsafe fn send_eoi(irq: u8) {
     if irq >= 8 {
         outb(PIC2_CMD, PIC_EOI);
     }

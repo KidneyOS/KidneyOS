@@ -1,9 +1,9 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::threading::{thread_functions, RUNNING_THREAD};
-use kidneyos_shared::println;
 use crate::threading::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
+use crate::threading::thread_functions;
 use core::arch::asm;
+use kidneyos_shared::println;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -20,22 +20,24 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         SYS_FORK => {
             todo!("fork syscall");
-        //
-        //     let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
-        //     let parent_tid = running_tcb.tid;
-        //
-        //     let child_tcb = (**running_tcb).clone();
-        //
-        //     if parent_tid == running_tcb.tid {
-        //         child_tcb.tid as usize
-        //     } else {
-        //         0
-        //     }
+            //
+            //     let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
+            //     let parent_tid = running_tcb.tid;
+            //
+            //     let child_tcb = (**running_tcb).clone();
+            //
+            //     if parent_tid == running_tcb.tid {
+            //         child_tcb.tid as usize
+            //     } else {
+            //         0
+            //     }
         }
         SYS_READ => {
             println!("(syscall) starting read");
 
-            unsafe { timer(); }
+            unsafe {
+                timer();
+            }
 
             scheduler_yield_and_block();
 
@@ -57,6 +59,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     }
 }
 
+#[allow(unused)]
 pub unsafe extern "C" fn timer() {
     println!("(interrupt) caught timer!");
     let mut count: usize = 100;

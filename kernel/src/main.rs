@@ -11,10 +11,10 @@
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
+mod pic;
 mod sync;
 mod threading;
 mod user_program;
-mod pic;
 
 extern crate alloc;
 
