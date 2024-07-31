@@ -77,8 +77,6 @@ unsafe extern "C" fn run_thread(
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    outb(0x21, 0xfd);
-    outb(0xa1, 0xff);
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
