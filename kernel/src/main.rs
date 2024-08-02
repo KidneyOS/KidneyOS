@@ -11,6 +11,7 @@
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
+mod pic;
 mod sync;
 mod threading;
 mod user_program;
@@ -54,6 +55,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up GDTR");
         global_descriptor_table::load();
         println!("GDTR set up!");
+
+        println!("Setting up PIT");
+        pic::pic_remap(pic::PIC1_OFFSET, pic::PIC2_OFFSET);
+        pic::init_pit();
+        println!("PIT set up!");
 
         println!("Initializing Thread System...");
         thread_system_initialization();
