@@ -6,7 +6,7 @@ pub trait Scheduler {
         Self: Sized,
         Self: Sync;
 
-    fn push(&mut self, thread_tid: Tid);
+    fn push(&mut self, tid: Tid);
     fn pop(&mut self) -> Option<Tid>;
     fn remove(&mut self, tid: Tid) -> bool;
 }

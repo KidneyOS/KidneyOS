@@ -19,8 +19,8 @@ impl Scheduler for FIFOScheduler {
         }
     }
 
-    fn push(&mut self, thread_tid: Tid) {
-        self.ready_queue.push_back(thread_tid);
+    fn push(&mut self, tid: Tid) {
+        self.ready_queue.push_back(tid);
     }
 
     fn pop(&mut self) -> Option<Tid> {
