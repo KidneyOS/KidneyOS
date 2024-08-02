@@ -46,7 +46,7 @@ unsafe extern "C" fn run_thread(
 
     // Reschedule our threads.
     let tm = THREAD_MANAGER.as_mut().expect("No Thread Manager set up!");
-    
+
     RUNNING_THREAD_TID = tm.set(switched_to);
     SCHEDULER
         .as_mut()

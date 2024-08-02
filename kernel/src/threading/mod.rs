@@ -46,7 +46,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 
     unsafe {
         let tm = THREAD_MANAGER.as_mut().expect("No Thread Manager set up!");
-        
+
         // We must 'turn the kernel thread into a thread'.
         // This amounts to just making a TCB that will be in control of the kernel stack and will
         // never exit.
