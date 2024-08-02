@@ -8,7 +8,6 @@ use crate::sync::intr::intr_enable;
 use alloc::boxed::Box;
 use core::arch::asm;
 use kidneyos_shared::{
-    println,
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     serial::outb,
     task_state_segment::TASK_STATE_SEGMENT,
@@ -51,8 +50,6 @@ unsafe extern "C" fn run_thread(
                 .as_mut()
                 .expect("No Thread Manager set up!");
     
-    println!("{} --> {}", (*switched_from).tid, switched_to.tid);
-
     RUNNING_THREAD_TID = tm.set(switched_to);
     SCHEDULER
         .as_mut()
@@ -66,8 +63,6 @@ unsafe extern "C" fn run_thread(
     outb(0x21, 0xfd);
     outb(0xa1, 0xff);
     intr_enable();
-
-    println!("{}", pid);
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if pid == 0 {

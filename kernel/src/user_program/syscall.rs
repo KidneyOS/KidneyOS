@@ -1,7 +1,5 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-// use super::super::threading::RUNNING_THREAD_TID;
-
 use kidneyos_shared::println;
 
 /// This function is responsible for processing syscalls made by user programs.
@@ -24,11 +22,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         0x7 => {
             todo!("waitpid syscall")
         }
-        // 0xf => {
-        //     // custom syscall
-        //     println!("{}", RUNNING_THREAD_TID);
-        //     0
-        // }
         _ => 1,
     }
 }

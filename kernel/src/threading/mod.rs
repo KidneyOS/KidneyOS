@@ -35,10 +35,6 @@ pub fn thread_system_initialization() {
     }
 }
 
-// const INIT_A: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
-// const INIT_B: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
-// const INIT_C: &[u8] = include_bytes!("../../../programs/loop/loop").as_slice();
-
 /// Enables preemptive scheduling.
 /// Thread system must have been previously enabled.
 pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) -> ! {
@@ -47,13 +43,6 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         unsafe { THREAD_SYSTEM_INITIALIZED },
         "Cannot start threading without initializing the threading system."
     );
-
-    // Create the initial user program thread.
-    let user_tcb = ProcessControlBlock::new(init_elf);
-
-    // let init_tcb_a = ProcessControlBlock::new(INIT_A);
-    // let init_tcb_b = ProcessControlBlock::new(INIT_B);
-    // let init_tcb_c = ProcessControlBlock::new(INIT_C);
 
     unsafe {
         let tm = 
@@ -70,8 +59,10 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager);
         // Create the idle thread.
         let idle_tcb = ThreadControlBlock::new(idle_function, kernel_tcb.pid);
+        // Create the initial user program thread.
+        let user_tcb = ProcessControlBlock::new(init_elf);
 
-    // SAFETY: Interrupts must be disabled.
+        // SAFETY: Interrupts must be disabled.
 
         RUNNING_THREAD_TID = tm.add(Box::new(kernel_tcb));
         SCHEDULER
@@ -87,24 +78,6 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
                 tm.add(Box::new(user_tcb))
             );
 
-        // SCHEDULER
-        //     .as_mut()
-        //     .expect("No Scheduler set up!")
-        //     .push(
-        //         tm.add(init_tcb_a)
-        //     );
-        // SCHEDULER
-        //     .as_mut()
-        //     .expect("No Scheduler set up!")
-        //     .push(
-        //         tm.add(init_tcb_b)
-        //     );
-        // SCHEDULER
-        //     .as_mut()
-        //     .expect("No Scheduler set up!")
-        //     .push(
-        //         tm.add(init_tcb_c)
-        //     );
         outb(0x21, 0xfd);
         outb(0xa1, 0xff);
     }

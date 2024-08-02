@@ -1,7 +1,6 @@
 use crate::{sync::intr::{intr_get_level, IntrLevel}, threading::RUNNING_THREAD_TID};
 use core::mem::offset_of;
 use alloc::boxed::Box;
-use kidneyos_shared::println;
 
 use super::{
     scheduling::SCHEDULER,
@@ -43,10 +42,8 @@ pub unsafe fn switch_threads(
 
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
-    println!("{} -> {}", (*switch_from).tid, (*switch_to).tid);
 
     let previous = Box::from_raw(context_switch(switch_from, switch_to));
-    println!("{} -> {}", (*switch_from).tid, previous.tid);
 
     // We must mark this thread as running once again.
     (*switch_from).status = ThreadStatus::Running;
