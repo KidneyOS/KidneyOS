@@ -1,8 +1,8 @@
 mod context_switch;
 pub mod scheduling;
-pub mod thread_management;
 mod thread_control_block;
 mod thread_functions;
+pub mod thread_management;
 
 use crate::{
     paging::PageManager,
@@ -45,10 +45,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     );
 
     unsafe {
-        let tm = 
-            THREAD_MANAGER
-                .as_mut()
-                .expect("No Thread Manager set up!");
+        let tm = THREAD_MANAGER.as_mut().expect("No Thread Manager set up!");
         
         // We must 'turn the kernel thread into a thread'.
         // This amounts to just making a TCB that will be in control of the kernel stack and will
@@ -68,15 +65,11 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
-            .push(
-                tm.add(Box::new(idle_tcb))
-            );
+            .push(tm.add(Box::new(idle_tcb)));
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
-            .push(
-                tm.add(Box::new(user_tcb))
-            );
+            .push(tm.add(Box::new(user_tcb)));
 
         outb(0x21, 0xfd);
         outb(0xa1, 0xff);

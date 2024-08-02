@@ -79,12 +79,11 @@ impl ThreadManager for ThreadManager128 {
                 msk = out(reg) _,
             );
         }
-        if tid > 127{
+        if tid > 127 {
             panic!("No PID available!");
         }
         thread.tid = tid;
-        (self.thread_list)
-            .as_mut()[tid as usize] = Some(thread);
+        (self.thread_list).as_mut()[tid as usize] = Some(thread);
         tid
     }
 
@@ -94,14 +93,11 @@ impl ThreadManager for ThreadManager128 {
         let rel_ind = tid % 32;
         if cache_num == 0 {
             self.pid_cache_1 ^= 1 << rel_ind;
-        }
-        else if cache_num == 1 {
+        } else if cache_num == 1 {
             self.pid_cache_2 ^= 1 << rel_ind;
-        }
-        else if cache_num == 2 {
+        } else if cache_num == 2 {
             self.pid_cache_3 ^= 1 << rel_ind;
-        }
-        else {
+        } else {
             self.pid_cache_4 ^= 1 << rel_ind;
         }
         (self.thread_list)
@@ -119,7 +115,7 @@ impl ThreadManager for ThreadManager128 {
 
     fn set(&mut self, thread: Box<ThreadControlBlock>) -> Tid {
         let tid = thread.tid;
-        (self.thread_list)[tid as usize] =  Some(thread);
+        (self.thread_list)[tid as usize] = Some(thread);
         tid
     }
 }

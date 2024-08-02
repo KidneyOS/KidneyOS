@@ -1,26 +1,24 @@
-use crate::{sync::intr::{intr_get_level, IntrLevel}, threading::RUNNING_THREAD_TID};
-use core::mem::offset_of;
+use crate::{
+    sync::intr::{intr_get_level, IntrLevel},
+    threading::RUNNING_THREAD_TID,
+};
 use alloc::boxed::Box;
+use core::mem::offset_of;
 
 use super::{
     scheduling::SCHEDULER,
-    thread_management::THREAD_MANAGER,
     thread_control_block::{ThreadControlBlock, ThreadStatus, Tid},
+    thread_management::THREAD_MANAGER,
 };
 
 /// Public facing method to perform a context switch between two threads.
 /// # Safety
 /// This function should only be called by methods within the Scheduler crate.
 /// Interrupts must be disabled.
-pub unsafe fn switch_threads(
-    status_for_current_thread: ThreadStatus,
-    switch_to: Tid,
-) {
+pub unsafe fn switch_threads(status_for_current_thread: ThreadStatus, switch_to: Tid) {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
-    let tm = THREAD_MANAGER
-                                            .as_mut()
-                                            .expect("No Thread Manager set up!");
+    let tm = THREAD_MANAGER.as_mut().expect("No Thread Manager set up!");
 
     let switch_from = Box::into_raw(tm.get(RUNNING_THREAD_TID));
     let switch_to = Box::into_raw(tm.get(switch_to));
@@ -54,9 +52,7 @@ pub unsafe fn switch_threads(
     SCHEDULER
         .as_mut()
         .expect("Scheduler not set up!")
-        .push(
-            tm.set(previous)
-        );
+        .push(tm.set(previous));
 }
 
 #[macro_export]
