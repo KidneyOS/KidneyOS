@@ -7,8 +7,8 @@ use arbitrary_int::{u2, u4};
 use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
 
-use crate::pic;
 use crate::threading::scheduling;
+use crate::timer;
 
 #[repr(align(8))]
 #[bitfield(u64, default = 0)]
@@ -102,13 +102,15 @@ unsafe extern "C" fn timer_interrupt_handler() -> ! {
         "
         // Push IRQ0 value onto the stack.
         push 0x0
+        call {} // Update system clock
         call {} // Send EOI signal to PICs
         call {} // Yield process
 
         add esp, 4 // Drop arguments from stack
         iretd
         ",
-        sym pic::send_eoi,
+        sym timer::step_sys_clock,
+        sym timer::send_eoi,
         sym scheduling::scheduler_yield_and_continue,
         options(noreturn),
     );

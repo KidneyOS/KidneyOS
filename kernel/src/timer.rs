@@ -1,4 +1,6 @@
+use crate::threading::scheduling::scheduler_yield_and_continue;
 use core::arch::asm;
+use core::time::Duration;
 use kidneyos_shared::serial::{inb, outb};
 
 pub const PIC1_OFFSET: u8 = 0x20;
@@ -14,6 +16,14 @@ const ICW1_INIT: u8 = 0x10; /* Initialization - required! */
 const ICW4_8086: u8 = 0x01; /* 8086/88 (MCS-80/85) mode */
 
 const PIC_EOI: u8 = 0x20; /* End-of-interrupt command code */
+
+// PIT generates 3579545 / 3 Hz input signal which we wait to receive 0xffff (65535) of before sending a timer interrupt.
+// This gives us an interval of 0xffff * 3 / 3579545 seconds between each timer interrupt
+// https://wiki.osdev.org/Programmable_Interval_Timer
+pub const TIMER_INTERRUPT_INTERVAL: Duration =
+    Duration::from_micros((10u64).pow(6) * 0xffff * 3 / 3579545);
+
+pub static mut SYS_CLOCK: Duration = Duration::new(0, 0);
 
 pub unsafe fn pic_remap(offset1: u8, offset2: u8) {
     // Send command: Begin 3-byte initialization sequence.
@@ -48,7 +58,7 @@ pub unsafe fn init_pit() {
 
     asm!(
         "
-        mov ax, 0xffffffff // reload value
+        mov ax, 0xffff // (reload value)
         out 0x40, al // set low byte of PIT reload value
         mov al, ah
         out 0x40, al // set high byte of PIT reload value
@@ -93,4 +103,26 @@ pub unsafe fn send_eoi(irq: u8) {
 unsafe fn io_wait() {
     // http://wiki.osdev.org/Inline_Assembly/Examples#IO_WAIT
     outb(0x80, 0);
+}
+
+pub fn step_sys_clock() {
+    match unsafe { SYS_CLOCK.checked_add(TIMER_INTERRUPT_INTERVAL) } {
+        Some(update) => unsafe {
+            SYS_CLOCK = update;
+        },
+        None => panic!("System clock overflowed!"),
+    }
+}
+
+#[allow(unused)]
+pub fn sleep(time: Duration) -> usize {
+    match unsafe { SYS_CLOCK.checked_add(time) } {
+        Some(end) => {
+            while unsafe { SYS_CLOCK < end } {
+                scheduler_yield_and_continue();
+            }
+            0
+        }
+        None => panic!("Wakeup time is too far into the future!"),
+    }
 }
