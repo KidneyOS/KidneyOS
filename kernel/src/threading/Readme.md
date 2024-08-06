@@ -13,16 +13,12 @@ A TCB for a thread must remain in memory for the entire duration of the threads 
 
 ### Ownership of Threads
 
-Each thread, more specifically it's TCB, will have exactly one owner at any given time.
-The kernel itself can own a single thread at any given time.
-This is the TCB stored within `RUNNING_THREAD`.
-This is also the thread that should be currently executing.
+Each thread, more specifically it's TCB, will have exactly one owner at any given time. The ownership primarily exists with the Thread Manager outside of thread switching section (see notes on [Thread Manager](#the-thread-manager) for information on state during context switching).
+The kernel itself can own a single thread at any given time. This thread's ID is stored within `RUNNING_THREAD_TID`, and is the thread that should be currently executing.
 Notably, while a thread is running, it's TCB does not accurately reflect it's state; the state is only updated on context switches.
 
-Every non-running thread must be owned by the scheduler (`SCHEDULER`).
 The scheduler is responsible for determining the order of thread's to be run and provides a simple interface for the kernel to interact with.
-These ownership rules allow for a large degree of freedom for the implementation of the scheduler (which is desirable since that is a student facing assignment).
-The scheduler, when asked, will relinquish ownership of a thread to the kernel and may be given new threads from the kernel.
+Instead of handling the ownership directly, it handles the IDs of threads existing in the Thread Manager. This ensures the scheduling system's independence with respect to the thread management system. This also means for example when adding threads, explicit calls to both the Thread Manager and the Scheduler are required, one for creating and transferring ownership to the manager, and other for adding the allocated ID to the scheduler.
 
 ### Thread Creation
 
@@ -184,13 +180,31 @@ The scheduler, found within [`scheduling`](./scheduling/), is the main attractio
 Implementing this will be an assignment that students must tackle.
 The simple interface provides the kernel with three main touch points:
 
-* `push` for adding a TCB into the scheduler.
-* `pop` for retrieving the next TCB to run.
+* `push` for adding the thread ID of a TCB into the scheduler.
+* `pop` for retrieving the thread ID of the next TCB to run.
 * `remove` for killing a thread within the scheduler.
     * This must use the thread ID rather than a TCB due to our (and Rust's) [ownership rules](#ownership-of-threads).
 
 The intentionally bare interface provides ample opportunity for different schedulers behind the scenes.
 Notably, students will likely be implementing a MLFQ or similar scheduler.
-The kernel will not need to make any assumptions about scheduling order.
+The kernel will not need to make any assumptions about scheduling order, but assumes the IDs passed are valid i.e. a thread with that ID exists in the Thread Manager.
 
-The implementation found within the kernel currently (the [FIFOScheduler](./scheduling/fifo_scheduler.rs)) is an incomplete scheduler that simply maintains a FIFO queue of threads.
+The implementation found within the kernel currently (the [FIFOScheduler](./scheduling/fifo_scheduler.rs)) is scheduler that simply maintains a FIFO queue of threads.
+
+## The Thread Manager
+
+The thread manager, found within [`thread_management`](./thread_management), is the owner of all TCBs, respecting ownership oriented design under Rust.
+It's unit of handling is Box<ThreadControlBlock>, and has the following functionality:
+
+* `add` for adding a unit of TCB, returns the allocated thread ID. Thus, the TID stored in the passed TCB is ignored.
+* `remove` for removing a unit of TCB, returns the unit with ownership.
+* `get` for getting ownership to a unit given a valid thread ID, but not freeing the thread ID. Necessary requirement for thread switching section.
+* `set` for passing back ownership of a unit which was passed away by `get`, necessary requirement for thread switching section again. The TID stored in the passed TCB is always trusted.
+
+Context switching requires raw mutable pointers to the two involved TCBs, switch_to & switch_from.
+Thus, the functionality to temporarily pass away ownership specifc to this case was introduced. Only in thread swtiching is the ownership thus given away, and expected to be returned before the `switch_threads` finishes execution to ensure the ownership constraint.
+
+The implementation found within the kernel currently (the [ThreadManager128](./scheduling/thread_manager_128.rs)) is a simple thread manager working on a 128 size array of Option<Box<ThreadControlBlock>>, and a 0-127 inclusive O(1) thread ID allocator utilizing BSF (Bit Scan Forward) assembly instruction & 4 x 32 bit unsigned integers.
+
+
+TODO: Need to decide how scheduler and TM are in sync. 
