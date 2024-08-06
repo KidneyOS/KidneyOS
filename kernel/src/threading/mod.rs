@@ -59,7 +59,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         // Create the initial user program thread.
         let user_tcb = ProcessControlBlock::new(init_elf);
 
-        // SAFETY: Interrupts must be disabled. The order of addition to the Thread Manager is 
+        // SAFETY: Interrupts must be disabled. The order of addition to the Thread Manager is
         // important. First allocated TID: 0 and second allocated TID: 1 are both ensured, and
         // must be given to kernel_tcb & idle_tcb respectively.
 
