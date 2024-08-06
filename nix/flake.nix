@@ -20,8 +20,8 @@
           overlays = [ (import rust-overlay) ];
           inherit system;
         };
-        inherit (pkgs) bochs gdb gnumake grcov mkShell mtools qemu rust-bin
-          unixtools xorriso;
+        inherit (pkgs) bochs gdb gnumake grcov mdbook mdsh mkShell mtools qemu
+          rust-bin shellcheck unixtools xorriso;
         inherit (unixtools) xxd;
         rust = rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
         i686-pkgs = import nixpkgs {
@@ -43,18 +43,29 @@
       in
       {
         packages.kidneyos-builder = pkgs.dockerTools.buildNixShellImage {
-          name = "kidneyos-builder";
+          name = "ghcr.io/kidneyos/kidneyos-builder";
           tag = "latest";
           drv = self.devShells.${system}.build;
         };
 
         devShells = {
+          # If you make changes to this, once they're merged be sure to push
+          # updated Docker containers to the GitHub container registry by
+          # running:
+          #
+          # ```sh
+          # scripts/build-container.bash && scripts/push-container.bash
+          # ```
+          #
+          # ...on a x86_64-linux host and the same commands but with the `--arm`
+          # flags added on a aarch64-linux host.
           build = mkShell {
             packages = [
               gnumake
               grcov
               grub2
               i686-cc
+              mdbook
               mtools
               qemu
               rust
@@ -73,6 +84,8 @@
             nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
               bochs
               gdb
+              mdsh
+              shellcheck
               xxd
             ];
           });
