@@ -1,9 +1,12 @@
 result
 /.direnv
 
+/target/
 /build/
 bx_enh_dbg.ini
 *.core
 /local.mk
 *.profraw
 rustc-ice-*.txt
+kidneyos-builder.tar.gz
+.DS_Store
