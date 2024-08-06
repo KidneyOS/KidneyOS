@@ -1,6 +1,9 @@
 use super::super::{ThreadControlBlock, Tid};
 use alloc::boxed::Box;
 
+// CONSTRAINT: First allocated TID: 0, Second allocated TID: 1; Always from state
+// of no allocated TIDs.
+
 pub trait ThreadManager {
     fn new() -> Self
     where
