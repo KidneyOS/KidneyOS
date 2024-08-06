@@ -6,7 +6,7 @@ pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
-use crate::sync::intr::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::sync::intr::{hold_interrupts, intr_get_level, IntrLevel};
 
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 
@@ -23,7 +23,7 @@ pub fn initialize_scheduler() {
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
 fn scheduler_yield(status_for_current_thread: ThreadStatus) {
-    intr_disable();
+    let _guard = hold_interrupts();
 
     // SAFETY: Threads and Scheduler must be initialized and active.
     // Interrupts must be disabled.
@@ -38,7 +38,7 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
         }
     }
 
-    intr_enable();
+    // Note: _guard falls out of scope and re-enables interrupts if previously enabled
 }
 
 // Voluntarily relinquishes control of the CPU and marks current thread as ready.
