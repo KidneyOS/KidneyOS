@@ -1,8 +1,12 @@
 #![feature(new_uninit)]
 mod buddy_allocator;
 mod frame_allocator;
+mod subblock_allocator;
 
-use alloc::vec::Vec;
+use alloc::{
+    boxed::Box,
+    vec::Vec
+};
 use buddy_allocator::BuddyAllocator;
 use core::{
     alloc::{AllocError, Allocator, GlobalAlloc, Layout},
@@ -10,7 +14,7 @@ use core::{
     ptr::NonNull,
     mem::size_of,
 };
-use std::ptr::null_mut;
+use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution, DummyAllocatorSolution};
 use kidneyos_shared::{
@@ -18,6 +22,7 @@ use kidneyos_shared::{
     println,
     sizes::{KB, MB},
 };
+use crate::mem::subblock_allocator::SubblockAllocator;
 
 
 // Global variables to keep track of allocation statistics
@@ -28,14 +33,6 @@ static TOTAL_NUM_FRAMES_DEALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 // The alignment of the layout cannot be greater than the size of the page
 const MAX_SUPPORTED_ALIGN: usize = 4096;
-
-// Confirm that FrameAllocatorSolution has ::new_in and its result implements
-// FrameAllocator.
-fn __(start: NonNull<u8>,
-      core_map: Box<[CoreMapEntry]>,
-      num_frames_in_system: usize) -> impl FrameAllocator{
-    FrameAllocatorSolution::new_in(start, core_map, num_frames_in_system);
-}
 
 unsafe trait FrameAllocator
 {
@@ -84,7 +81,7 @@ enum KernelAllocatorState {
     },
     Initialized {
         frame_allocator: FrameAllocatorWrapper,
-        subblock_allocators: Vec<(BuddyAllocator, NonNull<[u8]>), BuddyAllocator>,
+        subblock_allocators: SubblockAllocator
     },
 }
 
@@ -165,7 +162,8 @@ impl KernelAllocator {
                 core_map,
                 num_frames_in_system,
             ),
-            subblock_allocators: Vec::new_in(bootstrap_allocator),
+            // TODO: Add the constructor for the subblock allocator here
+            subblock_allocators: SubblockAllocator::new()
         };
     }
 
@@ -191,13 +189,6 @@ impl KernelAllocator {
         frame_allocator.dealloc(ptr);
     }
 
-    // TODO: Need to fix this
-    /// Deinitialize the kernel allocator, printing information about any leaks
-    /// that have occurred. panics if any leaks are found.
-    ///
-    /// # Safety
-    ///
-    /// This function can only be called when the allocator is initialized.
     pub unsafe fn deinit(&mut self) {
         let KernelAllocatorState::Initialized {
             subblock_allocators,
@@ -207,18 +198,22 @@ impl KernelAllocator {
             panic!("deinit called before initialization of kernel allocator");
         };
 
-        let mut leaked = false;
-        for (subblock_allocator, _) in subblock_allocators.iter() {
-            leaked |= subblock_allocator.detect_leaks();
+        let mut incorrect_num_allocs = false;
+        let mut incorrect_num_frames_allocs = false;
+
+        if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) != TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) {
+            incorrect_num_allocs = true;
         }
 
-        assert!(leaked || subblock_allocators.is_empty());
+        if TOTAL_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) != TOTAL_NUM_FRAMES_DEALLOCATED.load(Ordering::Relaxed){
+            incorrect_num_frames_allocs = true;
+        }
 
-        // We can't successfully deinitialize because there are still references
-        // to the memory that we would lose by deinitializing.
-        if leaked {
+        // TODO: Do subblock allocator deinitialization here
+
+        if incorrect_num_allocs || incorrect_num_frames_allocs{
             println!();
-            panic!("leaks detected");
+            panic!("Leaks detected");
         }
 
         *self.state.get_mut() = KernelAllocatorState::Uninitialized;
@@ -234,14 +229,10 @@ unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) == 0 {
             /*
-            TODO: Add has_room/has_space function in frame allocator for future implementation?
             1. Check that kernel is in Uninitialized state, panic if not
             2. Calculate the number of frames that have been requested in the layout
             3. Call the dummy allocator alloc
             4. Increment global statistics
-
-            TODO: Maybe change this?
-            If there is not enough room, just PANIC!!!
              */
             let KernelAllocatorState::Uninitialized {
                 dummy_allocator
@@ -254,7 +245,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
             // The alignment of the layout should never be larger than the size of a page
             if align > MAX_SUPPORTED_ALIGN{
-                return null_mut();
+                return ptr::null_mut();
             }
 
             let num_frames_requested = ((size + align).next_multiple_of(PAGE_FRAME_SIZE))
@@ -272,7 +263,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
             region.as_ptr().cast::<u8>()
         } else {
-            // TODO: Change this later once subblock allocator is updated
             let KernelAllocatorState::Initialized {
                 frame_allocator,
                 subblock_allocators: _subblock_allocators,
@@ -286,15 +276,14 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
             // The alignment of the layout should never be larger than the size of a page
             if align > MAX_SUPPORTED_ALIGN{
-                return null_mut();
+                return ptr::null_mut();
             }
 
             let num_frames_requested = ((size + align).next_multiple_of(PAGE_FRAME_SIZE))
                 / PAGE_FRAME_SIZE;
 
-            let Ok(region) = frame_allocator.alloc(num_frames_requested) else {
-                halt!("Unable to allocate memory according to provided layout, PANIC!");
-            };
+            // TODO: At this point, try to service the request in the subblock allocator
+            // TODO: If not possible, subblock allocator should call frame_allocator, and then retry the request (this time it should succeed)
 
             // At this point, we know the allocation was successful; increment global statistics
             let new_total_allocs = TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) + 1;
@@ -302,7 +291,8 @@ unsafe impl GlobalAlloc for KernelAllocator {
             let new_total_frames = TOTAL_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + num_frames_requested;
             TOTAL_NUM_FRAMES_ALLOCATED.store(new_total_frames, Ordering::Relaxed);
 
-            region.as_ptr().cast::<u8>()
+            // Replace this once the subblock allocator is complete
+            ptr::null_mut()
         }
     }
 
@@ -315,6 +305,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
             halt!("Dealloc called before initialization of kernel allocator");
         };
 
+        // TODO: Replace this call with a call to subblock allocators free function
         let num_frames_deallocated = frame_allocator.dealloc(NonNull::new_unchecked(ptr));
 
         let new_total_deallocs = TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) + 1;
@@ -323,3 +314,41 @@ unsafe impl GlobalAlloc for KernelAllocator {
         TOTAL_NUM_FRAMES_DEALLOCATED.store(new_total_frames, Ordering::Relaxed);
     }
 }
+
+// Run tests to see if GlobalAllocator is working properly
+pub fn run_allocation_tests(){
+    // Test 1
+    let heap_val_1 = Box::new(10);
+    let heap_val_2 = Box::new(3.2);
+    let heap_val_3 = Box::new(String::from("Hello World"));
+    assert_eq!(*heap_val_1, 10);
+    assert_eq!(*heap_val_2, 3.2);
+    assert_eq!(*heap_val_3, "Hello World");
+
+    // Test 2
+    let n = 100;
+    let mut test_vec = Vec::new();
+    for i in 1..=n {
+        test_vec.push(i)
+    }
+
+    assert_eq!(test_vec[10], 11);
+    assert_eq!(test_vec[67], 68);
+    assert_eq!(test_vec.iter().sum::<u64>(), 101 * 50);
+
+    // Test 3
+    let large_n = 1000000;
+    let mut large_test_vec = Vec::new();
+    for i in 1..=large_n{
+        large_test_vec.push(i)
+    }
+
+    assert_eq!(test_vec[10], 11);
+    assert_eq!(test_vec[67], 68);
+    assert_eq!(test_vec.iter().sum::<u64>(), 1000001 * 500000);
+
+}
+
+
+
+
