@@ -18,7 +18,7 @@ The kernel itself can own a single thread at any given time. This thread's ID is
 Notably, while a thread is running, it's TCB does not accurately reflect it's state; the state is only updated on context switches.
 
 The scheduler is responsible for determining the order of thread's to be run and provides a simple interface for the kernel to interact with.
-Instead of handling the ownership directly, it handles the IDs of threads existing in the Thread Manager. This ensures the scheduling system's independence with respect to the thread management system. This also means for example when adding threads, explicit calls to both the Thread Manager and the Scheduler are required, one for creating and transferring ownership to the manager, and other for adding the allocated ID to the scheduler.
+Instead of handling the ownership directly, it handles the IDs of threads existing in the Thread Manager. This ensures the scheduling system's independence with respect to the thread management system. This also means for example when adding threads, explicit calls to both the Thread Manager and the Scheduler are required, one for creating and transferring ownership to the manager, and other for adding the allocated ID to the scheduler. Similar will apply when removing threads.
 
 ### Thread Creation
 
@@ -202,9 +202,6 @@ It's unit of handling is Box\<ThreadControlBlock\>, and has the following functi
 * `set` for passing back ownership of a unit which was passed away by `get`, necessary requirement for thread switching section again. The TID stored in the passed TCB is always trusted.
 
 Context switching requires raw mutable pointers to the two involved TCBs, switch_to & switch_from.
-Thus, the functionality to temporarily pass away ownership specifc to this case was introduced. Only in thread swtiching is the ownership thus given away, and expected to be returned before the `switch_threads` finishes execution to ensure the ownership constraint.
+Thus, the functionality to temporarily pass away ownership specifc to this case was introduced. Only in thread swtiching is the ownership thus given away, and expected to be returned before the `switch_threads` finishes execution to ensure the ownership constraint. It is recommeneded not to use `get` & `set` functions elsewhere unless absolutely necessary and aware of handling.
 
 The implementation found within the kernel currently (the [ThreadManager128](./scheduling/thread_manager_128.rs)) is a simple thread manager working on a 128 size array of Option\<Box\<ThreadControlBlock\>\>, and a 0-127 inclusive O(1) thread ID allocator utilizing BSF (Bit Scan Forward) assembly instruction & 4 x 32 bit unsigned integers.
-
-
-TODO: Need to decide how scheduler and TM are in sync. 
