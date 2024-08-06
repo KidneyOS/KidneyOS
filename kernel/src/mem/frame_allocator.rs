@@ -160,6 +160,40 @@ impl FrameAllocatorSolution{
         self.placement_policy = new_placement_policy;
     }
 
+    fn has_room(&self, frames_requested: usize) -> bool{
+        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested > self.total_number_of_frames{
+            return false
+        };
+
+        let mut i = 0;
+        let mut largest_chunk = 0;
+
+        while i < self.total_number_of_frames{
+            if !self.core_map[i].bit0(){
+                let start_index = i;
+                let mut chunk_size = 0;
+
+                while i < self.total_number_of_frames {
+                    if self.core_map[i].bit0(){
+                        break;
+                    }
+
+                    chunk_size += 1;
+                    i += 1;
+                }
+
+                if chunk_size > largest_chunk{
+                    largest_chunk = chunk_size
+                }
+
+            } else {
+                i += 1;
+            }
+        }
+
+        largest_chunk >= frames_requested
+    }
+
     fn next_fit(&mut self, frames_requested: usize) -> Option<Range<usize>>{
         for index in CURR_POSITION.load(Ordering::Relaxed)..
             CURR_POSITION.load(Ordering::Relaxed) + self.total_number_of_frames {
