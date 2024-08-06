@@ -194,7 +194,7 @@ The implementation found within the kernel currently (the [FIFOScheduler](./sche
 ## The Thread Manager
 
 The thread manager, found within [`thread_management`](./thread_management), is the owner of all TCBs, respecting ownership oriented design under Rust.
-It's unit of handling is Box<ThreadControlBlock>, and has the following functionality:
+It's unit of handling is Box\<ThreadControlBlock\>, and has the following functionality:
 
 * `add` for adding a unit of TCB, returns the allocated thread ID. Thus, the TID stored in the passed TCB is ignored.
 * `remove` for removing a unit of TCB, returns the unit with ownership.
@@ -204,7 +204,7 @@ It's unit of handling is Box<ThreadControlBlock>, and has the following function
 Context switching requires raw mutable pointers to the two involved TCBs, switch_to & switch_from.
 Thus, the functionality to temporarily pass away ownership specifc to this case was introduced. Only in thread swtiching is the ownership thus given away, and expected to be returned before the `switch_threads` finishes execution to ensure the ownership constraint.
 
-The implementation found within the kernel currently (the [ThreadManager128](./scheduling/thread_manager_128.rs)) is a simple thread manager working on a 128 size array of Option<Box<ThreadControlBlock>>, and a 0-127 inclusive O(1) thread ID allocator utilizing BSF (Bit Scan Forward) assembly instruction & 4 x 32 bit unsigned integers.
+The implementation found within the kernel currently (the [ThreadManager128](./scheduling/thread_manager_128.rs)) is a simple thread manager working on a 128 size array of Option\<Box\<ThreadControlBlock\>\>, and a 0-127 inclusive O(1) thread ID allocator utilizing BSF (Bit Scan Forward) assembly instruction & 4 x 32 bit unsigned integers.
 
 
 TODO: Need to decide how scheduler and TM are in sync. 
