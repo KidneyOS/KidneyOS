@@ -23,14 +23,16 @@ pub unsafe fn switch_threads(
     let switch_to = Box::into_raw(switch_to);
 
     // Ensure we are switching to a valid thread.
-    assert!(
-        (*switch_to).status == ThreadStatus::Ready,
+    assert_eq!(
+        (*switch_to).status,
+        ThreadStatus::Ready,
         "Cannot switch to a non-ready thread."
     );
 
     // Ensure that the previous thread is running.
-    assert!(
-        (*switch_from).status == ThreadStatus::Running,
+    assert_eq!(
+        (*switch_from).status,
+        ThreadStatus::Running,
         "The thread to switch out of must be in the running state."
     );
 
@@ -40,17 +42,27 @@ pub unsafe fn switch_threads(
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
 
-    let previous = Box::from_raw(context_switch(switch_from, switch_to));
+    let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
 
     // We must mark this thread as running once again.
     (*switch_from).status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
     RUNNING_THREAD = Some(Box::from_raw(switch_from));
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(previous);
+
+    if previous.status == ThreadStatus::Dying {
+        previous.reap();
+
+        // Page manager must be loaded when dropped.
+        previous.page_manager.load();
+        drop(previous);
+        RUNNING_THREAD.as_ref().unwrap().page_manager.load();
+    } else {
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(previous);
+    }
 }
 
 #[macro_export]

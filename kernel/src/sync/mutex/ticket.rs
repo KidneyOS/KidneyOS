@@ -4,7 +4,6 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{
     cell::UnsafeCell,
     fmt,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
 };
 
