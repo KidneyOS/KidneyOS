@@ -91,7 +91,7 @@ $(ISO): build/isofiles/boot/kernel.bin build/isofiles/boot/grub/grub.cfg
 run-bochs: $(ISO)
 	bochs -q -f bochsrc.txt
 
-QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
+QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) -drive format=qcow2,file=drive.img,if=ide
 
 .PHONY: run-qemu
 run-qemu: $(ISO)
