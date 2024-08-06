@@ -57,6 +57,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         global_descriptor_table::load();
         println!("GDTR set up!");
         
+
         ide::ide_init();
 
         thread_system_initialization();

@@ -9,7 +9,7 @@ use alloc::{format, string::String};
 use super::super::sync::InterruptLock;
 use super::block::{BlockDevice, BlockSector, BLOCK_SECTOR_SIZE, BlockType};
 
-use core::{arch::asm};
+use core::{arch::asm, ptr};
 
 
 
@@ -83,12 +83,22 @@ impl BlockDevice for ATADrive {
         let c : &mut ATAChannel = &mut self.channel.lock();
             
         c.select_sector(self.dev_no, sec_no);
-        c.issue_pio_command ( CMD_WRITE_SECTOR_RETRY);
-
+        c.issue_pio_command ( CMD_READ_SECTOR_RETRY);
+        unsafe{
+            c.read_sector(buf);
+        } 
         // self.channel.unlock();
     }
 
     fn block_write(&self, sec_no: BlockSector, buf: &[u8]){
+        let c : &mut ATAChannel = &mut self.channel.lock();
+            
+        c.select_sector(self.dev_no, sec_no);
+        c.issue_pio_command ( CMD_WRITE_SECTOR_RETRY);
+        unsafe{
+            c.write_sector(buf);
+        }; 
+
         
     }
 
@@ -270,12 +280,15 @@ impl ATAChannel{
     }
 
     unsafe fn read_sector(&self, buf: &mut [u8]){
-        // let ptr: *mut u8 = buf;
-
+        let ptr: *mut u8 = buf.as_mut_ptr();    
+        
+        insw (self.reg_data(), ptr, BLOCK_SECTOR_SIZE/2); 
     }
 
     unsafe fn write_sector(&mut self, buf: &[u8]){
-        // let ptr: *const u8 = buf;
+        let ptr: *const u8 = buf.as_ptr();
+
+        outsw (self.reg_data(), ptr, BLOCK_SECTOR_SIZE/2);
 
     }
 
@@ -289,6 +302,8 @@ impl ATAChannel{
 
 //call with interupts enabled
 pub fn ide_init(){
+
+    unsafe{core::arch::asm!("cli", options(nomem, nostack))};
     println!("Initialziing ATA driver in PIO mode");
     let mut channels: [ATAChannel; NUM_CHANNELS] = [ATAChannel::new(0), ATAChannel::new(1)];
     for ( i,c ) in channels.iter_mut().enumerate(){
@@ -298,13 +313,43 @@ pub fn ide_init(){
         }
         for j in 0..2{
             if c.is_ata(j){
-                println!("channel {} device {} is ata", i,j );
+                // println!("channel {} device {} is ata", i,j );
             }else {
-                println!("channel {} device {} is not ata", i,j );
+                // println!("channel {} device {} is not ata", i,j );
             }
         }
     }
+    println!("hi");
+
+    let test_sector :[u8; 512] = [10; 512];
+    block_write_test(&mut channels[0], 0, 0, &test_sector);
+    let mut recieved_sector :[u8; 512] = [0; 512];
+    block_read_test(&mut channels[0], 0,0, &mut recieved_sector);
+    // println!("recieved {}", recieved_sector[0
+    // println!("rw test result: {}", recieved_sector == test_sector);
+
+    println!("hi1");
     // register interrupt handler 
+}
+
+fn block_read_test(c: &mut ATAChannel, dev_no: u8, sec_no: BlockSector, buf: &mut [u8]){
+        
+    c.select_sector(dev_no, sec_no);
+    // c.issue_pio_command ( CMD_READ_SECTOR_RETRY);
+    unsafe{
+        c.read_sector( buf);
+    } 
+    // self.channel.unlock();
+}
+
+fn block_write_test(c: &mut ATAChannel, dev_no: u8, sec_no: BlockSector, buf: &[u8]){
+        
+    c.select_sector(dev_no, sec_no);
+    // c.issue_pio_command ( CMD_WRITE_SECTOR_RETRY);
+    unsafe{
+        c.write_sector(buf);
+    }; 
+    
 }
 
 
@@ -338,12 +383,9 @@ fn inb(port: u16)->u8{
 unsafe fn insw(port: u16, buf: *mut u8, count: usize) {
    
    asm!(
-        "push si",
-        "mov eax si",
         "rep outsw",
-        "pop si",
         in("dx") port,
-        in("eax") buf, 
+        in("es") buf, 
         in("cx") count,
     );
 
@@ -351,12 +393,9 @@ unsafe fn insw(port: u16, buf: *mut u8, count: usize) {
 
 unsafe fn outsw(port: u16, buf: *const u8, count: usize){
     asm!(
-        "push si",
-        "mov eax si",
         "rep insw",
-        "pop si",
         in("dx") port,
-        in("eax") buf,
+        in("es") buf,
         in("cx") count,
     );
 }
