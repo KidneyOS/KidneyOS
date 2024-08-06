@@ -6,6 +6,7 @@ pub mod util;
 mod subblock_allocator;
 
 
+
 use alloc::{
     boxed::Box,
     vec::Vec
@@ -25,7 +26,6 @@ use kidneyos_shared::{
     println,
     sizes::{KB, MB},
 };
-use crate::mem::subblock_allocator::SubblockAllocator;
 
 
 // Global variables to keep track of allocation statistics
@@ -166,7 +166,7 @@ impl KernelAllocator {
                 num_frames_in_system,
             ),
             // TODO: Add the constructor for the subblock allocator here
-            subblock_allocators: SubblockAllocator::new()
+            subblock_allocators:
         };
     }
 
