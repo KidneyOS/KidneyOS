@@ -1,6 +1,5 @@
-use crate::threading::scheduling::scheduler_yield_and_continue;
-use core::arch::asm;
-use core::time::Duration;
+use crate::{sync::irq::MutexIrq, threading::scheduling::scheduler_yield_and_continue};
+use core::{arch::asm, time::Duration};
 use kidneyos_shared::serial::{inb, outb};
 
 pub const PIC1_OFFSET: u8 = 0x20;
@@ -23,7 +22,7 @@ const PIC_EOI: u8 = 0x20; /* End-of-interrupt command code */
 pub const TIMER_INTERRUPT_INTERVAL: Duration =
     Duration::from_micros((10u64).pow(6) * 0xffff * 3 / 3579545);
 
-pub static mut SYS_CLOCK: Duration = Duration::new(0, 0);
+static SYS_CLOCK: MutexIrq<Duration> = MutexIrq::new(Duration::new(0, 0));
 
 pub unsafe fn pic_remap(offset1: u8, offset2: u8) {
     // Send command: Begin 3-byte initialization sequence.
@@ -106,19 +105,22 @@ unsafe fn io_wait() {
 }
 
 pub fn step_sys_clock() {
-    match unsafe { SYS_CLOCK.checked_add(TIMER_INTERRUPT_INTERVAL) } {
-        Some(update) => unsafe {
-            SYS_CLOCK = update;
-        },
+    let mut clock = SYS_CLOCK.lock();
+    match clock.checked_add(TIMER_INTERRUPT_INTERVAL) {
+        Some(update) => {
+            *clock = update;
+        }
         None => panic!("System clock overflowed!"),
     }
 }
 
 #[allow(unused)]
+#[allow(clippy::while_immutable_condition)]
 pub fn sleep(time: Duration) -> usize {
-    match unsafe { SYS_CLOCK.checked_add(time) } {
+    let clock = SYS_CLOCK.lock();
+    match clock.checked_add(time) {
         Some(end) => {
-            while unsafe { SYS_CLOCK < end } {
+            while *clock < end {
                 scheduler_yield_and_continue();
             }
             0
