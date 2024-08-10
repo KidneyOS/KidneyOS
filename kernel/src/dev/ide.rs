@@ -44,12 +44,10 @@ fn usleep(t :usize){
     }
 }
 fn nsleep(t: usize){
-    for _ in 0..100*t{
+    for _ in 0..400*t{
         unsafe { asm!("nop"); }
     }
 }
-
-
 
 fn byte_enumerator(s:String) -> impl Iterator<Item=(usize,u8)>{
     s.into_bytes().into_iter().enumerate()
@@ -77,8 +75,6 @@ struct ATADrive{
 }
 
 impl BlockDevice for ATADrive {
-
-
     fn block_read(&self, sec_no: BlockSector, buf: &mut [u8]){
         let c : &mut ATAChannel = &mut self.channel.lock();
             
@@ -98,17 +94,11 @@ impl BlockDevice for ATADrive {
         unsafe{
             c.write_sector(buf);
         }; 
-
-        
     }
-
     fn get_block_type(&self) -> BlockType{
         BlockType::BlockKernel
     }
-
-
 }
-
 
 
 impl ATAChannel{
@@ -281,15 +271,12 @@ impl ATAChannel{
 
     unsafe fn read_sector(&self, buf: &mut [u8]){
         let ptr: *mut u8 = buf.as_mut_ptr();    
-        
         insw (self.reg_data(), ptr, BLOCK_SECTOR_SIZE/2); 
     }
 
     unsafe fn write_sector(&mut self, buf: &[u8]){
         let ptr: *const u8 = buf.as_ptr();
-
         outsw (self.reg_data(), ptr, BLOCK_SECTOR_SIZE/2);
-
     }
 
 
@@ -321,14 +308,15 @@ pub fn ide_init(){
     }
     println!("hi");
 
-    let test_sector :[u8; 512] = [10; 512];
-    block_write_test(&mut channels[0], 0, 0, &test_sector);
-    let mut recieved_sector :[u8; 512] = [0; 512];
-    block_read_test(&mut channels[0], 0,0, &mut recieved_sector);
-    // println!("recieved {}", recieved_sector[0
+    let mut test_sector :[u8; 512] = [10; 512];
+    block_write_test(&mut channels[0], 0, 1024, &test_sector);
+    println!("hi1");
+    test_sector[0] = 2;
+    block_read_test(&mut channels[0], 0,1024, &mut test_sector);
+    println!("hi2");
+    println!("recieved {}", test_sector[0]);
     // println!("rw test result: {}", recieved_sector == test_sector);
 
-    println!("hi1");
     // register interrupt handler 
 }
 
@@ -352,7 +340,6 @@ fn block_write_test(c: &mut ATAChannel, dev_no: u8, sec_no: BlockSector, buf: &[
     
 }
 
-
 fn outb(port: u16, value: u8){
     unsafe {
     asm!(
@@ -363,7 +350,6 @@ fn outb(port: u16, value: u8){
      );
     };
 }   
-
 
 fn inb(port: u16)->u8{
     let mut ret: u8;
@@ -378,25 +364,27 @@ fn inb(port: u16)->u8{
     ret
 }
 
-
-
 unsafe fn insw(port: u16, buf: *mut u8, count: usize) {
-   
    asm!(
-        "rep outsw",
+        "push edi",
+        "mov edi, eax",
+        "rep insw",
+        "pop edi",
         in("dx") port,
-        in("es") buf, 
-        in("cx") count,
+        in("eax") buf, 
+        in("ecx") count,
     );
-
 }
 
 unsafe fn outsw(port: u16, buf: *const u8, count: usize){
-    asm!(
-        "rep insw",
+   asm!(
+        "push esi",
+        "mov esi, eax",
+        "rep outsw",
+        "pop esi",
         in("dx") port,
-        in("es") buf,
-        in("cx") count,
+        in("eax") buf, 
+        in("ecx") count,
     );
 }
 
