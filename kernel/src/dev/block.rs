@@ -1,10 +1,7 @@
-
-
-
-pub const BLOCK_SECTOR_SIZE:usize =  512;
+pub const BLOCK_SECTOR_SIZE: usize = 512;
 pub type BlockSector = u32;
 
-pub enum BlockType{
+pub enum BlockType {
     BlockKernel,
     // BlockFilesys,
     // BlockScratch,
@@ -13,14 +10,8 @@ pub enum BlockType{
     // BlockForeign,
 }
 
-
-pub trait BlockDevice{
+pub trait BlockDevice {
     fn block_read(&self, sector: BlockSector, buf: &mut [u8]);
     fn block_write(&self, sector: BlockSector, buf: &[u8]);
     fn get_block_type(&self) -> BlockType;
 }
-
-
-
-
-

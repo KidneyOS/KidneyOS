@@ -13,11 +13,17 @@ const LCR: u16 = IO_BASE + 3; // Line Control Register
 const MCR: u16 = IO_BASE + 4; // MODEM Control Register
 const LSR: u16 = IO_BASE + 5; // Line Status Register (read-only)
 
-unsafe fn outb(port: u16, byte: u8) {
+/// # Safety
+///
+/// Wrapper for the assembly function out.
+pub unsafe fn outb(port: u16, byte: u8) {
     asm!("out dx, al", in("dx") port, in("al") byte)
 }
 
-unsafe fn inb(port: u16) -> u8 {
+/// # Safety
+///
+/// Wrapper for the assembly function in.
+pub unsafe fn inb(port: u16) -> u8 {
     let res: u8;
     asm!("in al, dx", in("dx") port, out("al") res);
     res
@@ -48,8 +54,8 @@ impl SerialWriter {
             const EXPECTED: u8 = 0xAE;
             outb(THR, EXPECTED);
             let actual = inb(RBR);
-            assert!(
-                actual == EXPECTED,
+            assert_eq!(
+                actual, EXPECTED,
                 "faulty serial, expected {EXPECTED:#X}, got {actual:#X}"
             );
 

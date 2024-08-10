@@ -7,21 +7,23 @@
 #![feature(slice_ptr_get)]
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
+#![feature(negative_impls)]
 
+mod dev;
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
 mod sync;
 mod threading;
+mod timer;
 mod user_program;
-mod dev;
 
 extern crate alloc;
 
+use dev::ide;
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
-use dev::ide;
 
 #[cfg_attr(target_os = "none", global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -56,12 +58,17 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up GDTR");
         global_descriptor_table::load();
         println!("GDTR set up!");
-        
 
         ide::ide_init();
 
+        println!("Setting up PIT");
+        timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);
+        timer::init_pit();
+        println!("PIT set up!");
+
+        println!("Initializing Thread System...");
         thread_system_initialization();
+        println!("Finished Thread System initialization. Ready to start threading.");
         thread_system_start(page_manager, INIT);
-    
     }
 }
