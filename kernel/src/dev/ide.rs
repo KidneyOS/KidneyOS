@@ -300,9 +300,9 @@ pub fn ide_init(){
         }
         for j in 0..2{
             if c.is_ata(j){
-                // println!("channel {} device {} is ata", i,j );
+                println!("channel {} device {} is ata", i,j );
             }else {
-                // println!("channel {} device {} is not ata", i,j );
+                println!("channel {} device {} is not ata", i,j );
             }
         }
     }
