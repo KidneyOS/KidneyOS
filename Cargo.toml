@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel", "trampoline"]
+members = [ "filesys","kernel", "trampoline"]
 resolver = "2"
 
 [workspace.lints.clippy]
