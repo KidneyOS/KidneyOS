@@ -7,6 +7,8 @@ use arbitrary_int::{u2, u4};
 use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
 
+// use super::dev::ide::ide_interrupt_handler;
+
 use crate::threading::scheduling;
 use crate::timer;
 
@@ -116,6 +118,19 @@ unsafe extern "C" fn timer_interrupt_handler() -> ! {
     );
 }
 
+#[naked]
+pub unsafe extern "C" fn ide_interrupt_handler() -> ! {
+    fn inner() -> ! {
+        panic!("PIO Interrupt");
+    }
+
+    asm!(
+        "call {}",
+        sym inner,
+        options(noreturn),
+    );
+}
+
 static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
     size: size_of::<[GateDescriptor; IDT_LEN]>() as u16 - 1,
     offset: 0, // Will fetch pointer and set at runtime below.
@@ -138,7 +153,8 @@ pub unsafe fn load() {
     }
     IDT[0xe] = IDT[0xe].with_offset(page_fault_handler as usize as u32);
     IDT[0x20] = IDT[0x20].with_offset(timer_interrupt_handler as usize as u32); // PIC1_OFFSET (IRQ0)
+    IDT[0x2E] = IDT[0x2E].with_offset(ide_interrupt_handler as usize as u32);
+    IDT[0x2F] = IDT[0x2F].with_offset(ide_interrupt_handler as usize as u32);
     IDT[0x80] = IDT[0x80].with_offset(syscall_handler as usize as u32);
-
     asm!("lidt [{}]", sym IDT_DESCRIPTOR);
 }
