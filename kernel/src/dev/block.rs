@@ -1,12 +1,15 @@
 pub const BLOCK_SECTOR_SIZE: usize = 512;
 pub type BlockSector = u32;
 
+
+// static MutexIrq<VecDeque<Box<dyn BlockDevice>>
+
 pub enum BlockType {
-    BlockKernel,
+    // BlockKernel,
     // BlockFilesys,
     // BlockScratch,
     // BlockSwap,
-    // BlockRaw,
+    BlockRaw,
     // BlockForeign,
 }
 

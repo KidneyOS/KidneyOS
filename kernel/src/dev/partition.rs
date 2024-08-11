@@ -1,5 +1,13 @@
 #![allow(unused_variables)]
+#![allow(unused_imports)]
 #![allow(dead_code)]
+
+use super::block::{BlockSector, BlockType, BlockDevice };
+use alloc::boxed::Box;
+
 pub struct Partition {
-    name: [u8; 8],
+    block: Box<dyn BlockDevice>,
+    start: BlockSector, 
 }
+
+

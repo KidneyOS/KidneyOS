@@ -5,7 +5,7 @@
 
 use super::super::sync::irq::MutexIrq;
 use super::block::{BlockDevice, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
-use alloc::{format, string::String};
+use alloc::{format, string::String, str};
 use core::{arch::asm, ptr};
 use kidneyos_shared::println;
 
@@ -30,21 +30,19 @@ static CHANNEL_0: MutexIrq<ATAChannel> = MutexIrq::new(ATAChannel::new(0));
 static CHANNEL_1: MutexIrq<ATAChannel> = MutexIrq::new(ATAChannel::new(1));
 
 fn msleep(t: usize) {
-    for _ in 0..10 {
+    for _ in 0..9 {
         usleep(t);
     }
 }
 
 fn usleep(t: usize) {
-    for _ in 0..10 {
+    for _ in 0..9 {
         nsleep(t);
     }
 }
 fn nsleep(t: usize) {
-    for _ in 0..100 * t {
-        unsafe {
-            asm!("nop");
-        }
+    unsafe {
+        asm!("nop");
     }
 }
 
@@ -79,16 +77,18 @@ struct ATAChannel {
     d1_is_ata: bool,
 }
 
-struct ATADrive {
-    channel: MutexIrq<ATAChannel>,
+pub struct ATADrive<'a> {
+    channel: &'a MutexIrq<ATAChannel>,
     dev_no: u8,
 }
 
-impl BlockDevice for ATADrive {
+impl BlockDevice for ATADrive<'_> {
     fn block_read(&self, sec_no: BlockSector, buf: &mut [u8]) {
         let c: &mut ATAChannel = &mut self.channel.lock();
         c.select_sector(self.dev_no, sec_no);
         c.issue_pio_command(CMD_READ_SECTOR_RETRY);
+        c.wait_until_ready();
+        c.wait_while_busy();
         unsafe {
             c.read_sector(buf);
         }
@@ -99,17 +99,77 @@ impl BlockDevice for ATADrive {
         let c: &mut ATAChannel = &mut self.channel.lock();
         c.select_sector(self.dev_no, sec_no);
         c.issue_pio_command(CMD_WRITE_SECTOR_RETRY);
+        c.wait_until_ready();
+        c.wait_while_busy();
         unsafe {
             c.write_sector(buf);
         };
     }
     fn get_block_type(&self) -> BlockType {
-        BlockType::BlockKernel
+        BlockType::BlockRaw
     }
 }
 
 impl ATAChannel {
     /* ATA command block port addresses */
+    const fn new(channel_num: u8) -> ATAChannel {
+        let name: [u8; 8] = [0; 8];
+        let reg_base = match channel_num {
+            0 => 0x1f0,
+            1 => 0x170,
+            _ => panic!(),
+        };
+        let irq = match channel_num {
+            0 => 14 + 0x20,
+            1 => 15 + 0x20,
+            _ => panic!(),
+        };
+        //initialize disks
+        let d0_name: [u8; 8] = [0; 8];
+        let d1_name: [u8; 8] = [0; 8];
+        ATAChannel {
+            name,
+            reg_base,
+            irq,
+            channel_num,
+            expecting_interrupt: false,
+            d0_name,
+            d0_is_ata: false,
+            d1_name,
+            d1_is_ata: false,
+        }
+    }
+
+    fn set_names(&mut self) {
+        for (j, c) in byte_enumerator(format!("ide{}zu\0", self.channel_num)) {
+            self.name[j] = c;
+        }
+        for (j, c) in byte_enumerator(format!("hd{}\0", (0x61 + self.channel_num * 2) as char)) {
+            self.d0_name[j] = c;
+        }
+        for (j, c) in byte_enumerator(format!("hd{}\0", (0x61 + 1 + self.channel_num * 2) as char)) {
+            self.d1_name[j] = c;
+        }
+    }
+    
+    fn set_is_ata(&mut self, dev_no: u8, is_ata: bool) {
+        if dev_no == 0 {
+            self.d0_is_ata = is_ata;
+        } else {
+            self.d1_is_ata = is_ata;
+        }
+    }
+
+    fn is_ata(&self, dev_no: u8) -> bool {
+        if dev_no == 0 {
+            self.d0_is_ata
+        } else {
+            self.d1_is_ata
+        }
+    }
+    
+    // ATA Registers
+
     fn reg_data(&self) -> u16 {
         self.reg_base
     }
@@ -144,61 +204,37 @@ impl ATAChannel {
     fn reg_alt_status(&self) -> u16 {
         self.reg_base + 0x206
     }
-    const fn new(channel_num: u8) -> ATAChannel {
-        let name: [u8; 8] = [0; 8];
-        let reg_base = match channel_num {
-            0 => 0x1f0,
-            1 => 0x170,
-            _ => panic!(),
-        };
-        let irq = match channel_num {
-            0 => 14 + 0x20,
-            1 => 15 + 0x20,
-            _ => panic!(),
-        };
-        //initialize disks
-        let d0_name: [u8; 8] = [0; 8];
-        let d1_name: [u8; 8] = [0; 8];
-        ATAChannel {
-            name,
-            reg_base,
-            irq,
-            channel_num,
-            expecting_interrupt: false,
-            d0_name,
-            d0_is_ata: false,
-            d1_name,
-            d1_is_ata: false,
+    fn issue_pio_command(&mut self, command: u8) {
+        self.expecting_interrupt = true;
+        outb(self.reg_command(), command);
+    }
+
+
+    // Basic ATA Functionality    
+    fn wait_while_busy(&self) -> bool {
+        for i in 0..3000 {
+            if (inb(self.reg_alt_status()) & STA_BSY) == 0 {
+                // println!("ok");
+                return (inb(self.reg_alt_status()) & STA_DRQ) != 0;
+            }
+            usleep(10);
+        }
+        println!("failed with status {}", inb(self.reg_alt_status()));
+        false
+    }
+
+    // polls device until idle
+    fn wait_until_ready(&self) {
+        for i in 0..3000 {
+            // println!("waiting");
+            let b = inb(self.reg_status());
+            if (b & (STA_BSY | STA_DRQ)) == 0 {
+                return;
+            }
+            msleep(10);
         }
     }
 
-    fn set_names(&mut self) {
-        for (j, c) in byte_enumerator(format!("ide{}zu", self.channel_num)) {
-            self.name[j] = c;
-        }
-        for (j, c) in byte_enumerator(format!("hd{}", (61 + self.channel_num * 2) as char)) {
-            self.d0_name[j] = c;
-        }
-        for (j, c) in byte_enumerator(format!("hd{}", (61 + 1 + self.channel_num * 2) as char)) {
-            self.d1_name[j] = c;
-        }
-    }
-
-    fn set_is_ata(&mut self, dev_no: u8, is_ata: bool) {
-        if dev_no == 0 {
-            self.d0_is_ata = is_ata;
-        } else {
-            self.d1_is_ata = is_ata;
-        }
-    }
-
-    fn is_ata(&self, dev_no: u8) -> bool {
-        if dev_no == 0 {
-            self.d0_is_ata
-        } else {
-            self.d1_is_ata
-        }
-    }
 
     fn select_device(&self, dev_num: u8) {
         let mut dev: u8 = DEV_MBS;
@@ -210,10 +246,42 @@ impl ATAChannel {
         nsleep(400);
     }
 
+    //Waits until channel is ready after selecting device
     fn select_device_wait(&self, dev_num: u8) {
         self.wait_until_ready();
         self.select_device(dev_num);
         self.wait_until_ready();
+    }
+
+    fn select_sector(&self, dev_no: u8, sector: BlockSector) {
+        self.select_device_wait(dev_no);
+        outb(self.reg_nsect(), 1);
+        outb(self.reg_lbal(), sector as u8);
+        outb(self.reg_lbam(), (sector >> 8) as u8);
+        outb(self.reg_lbah(), (sector >> 16) as u8);
+        outb(
+            self.reg_device(),
+            DEV_MBS
+                | DEV_LBA
+                | {
+                    if dev_no == 1 {
+                        dev_no
+                    } else {
+                        0
+                    }
+                }
+                | ((sector >> 24) as u8),
+        );
+    }
+
+    unsafe fn read_sector(&self, buf: &mut [u8]) {
+        let ptr: *mut u8 = buf.as_mut_ptr();
+        insw(self.reg_data(), ptr, BLOCK_SECTOR_SIZE / 2);
+    }
+
+    unsafe fn write_sector(&mut self, buf: &[u8]) {
+        let ptr: *const u8 = buf.as_ptr();
+        outsw(self.reg_data(), ptr, BLOCK_SECTOR_SIZE / 2);
     }
 
     fn reset_channel(&mut self) {
@@ -255,11 +323,6 @@ impl ATAChannel {
         }
     }
 
-    fn issue_pio_command(&mut self, command: u8) {
-        self.expecting_interrupt = true;
-        outb(self.reg_command(), command);
-    }
-
     fn check_device_type(&mut self, dev_num: u8) -> bool {
         self.select_device(dev_num);
         let error = inb(self.reg_error());
@@ -281,61 +344,6 @@ impl ATAChannel {
             true
         }
     }
-    //waits until device is not busy
-    fn wait_while_busy(&self) -> bool {
-        for i in 0..3000 {
-            if (inb(self.reg_alt_status()) & STA_BSY) == 0 {
-                // println!("ok");
-                return (inb(self.reg_alt_status()) & STA_DRQ) != 0;
-            }
-            usleep(10);
-        }
-        println!("failed with status {}", inb(self.reg_alt_status()));
-        false
-    }
-
-    // polls device until idle
-    fn wait_until_ready(&self) {
-        for i in 0..3000 {
-            // println!("waiting");
-            let b = inb(self.reg_status());
-            if (b & (STA_BSY | STA_DRQ)) == 0 {
-                return;
-            }
-            msleep(10);
-        }
-    }
-
-    fn select_sector(&self, dev_no: u8, sector: BlockSector) {
-        self.select_device_wait(dev_no);
-        outb(self.reg_nsect(), 1);
-        outb(self.reg_lbal(), sector as u8);
-        outb(self.reg_lbam(), (sector >> 8) as u8);
-        outb(self.reg_lbah(), (sector >> 16) as u8);
-        outb(
-            self.reg_device(),
-            DEV_MBS
-                | DEV_LBA
-                | {
-                    if dev_no == 1 {
-                        dev_no
-                    } else {
-                        0
-                    }
-                }
-                | ((sector >> 24) as u8),
-        );
-    }
-
-    unsafe fn read_sector(&self, buf: &mut [u8]) {
-        let ptr: *mut u8 = buf.as_mut_ptr();
-        insw(self.reg_data(), ptr, BLOCK_SECTOR_SIZE / 2);
-    }
-
-    unsafe fn write_sector(&mut self, buf: &[u8]) {
-        let ptr: *const u8 = buf.as_ptr();
-        outsw(self.reg_data(), ptr, BLOCK_SECTOR_SIZE / 2);
-    }
 
     fn identify_ata_device(&mut self, dev_no: u8) {
         let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
@@ -354,9 +362,10 @@ impl ATAChannel {
             self.read_sector(&mut id);
         }
         println!(
-            "channel: {} device: {} capacity: {}",
+            "channel: {} device: {} name: {} capacity: {}",
             self.channel_num,
             dev_no,
+            {if (dev_no == 0) {str::from_utf8(&self.d0_name).unwrap()} else {str::from_utf8(&self.d1_name).unwrap()}},
             (u32::from_le_bytes(id[120..124].try_into().unwrap())).wrapping_mul(512),
         );
     }
@@ -368,9 +377,7 @@ pub fn ide_init() {
     let mut channels: [ATAChannel; NUM_CHANNELS] = [ATAChannel::new(0), ATAChannel::new(1)];
     for (i, c) in channels.iter_mut().enumerate() {
         c.set_names();
-
         c.reset_channel();
-
         if c.check_device_type(0) {
             c.check_device_type(1);
         }
@@ -380,19 +387,17 @@ pub fn ide_init() {
                 c.identify_ata_device(j);
                 // println!("channel {} device {} is ata", i, j);
             } else {
-                // println!("channel {} device {} is not ata", i, j);
+                println!("channel {} device {} is not ata", i, j);
             }
         }
     }
-    println!("hi");
+
+
     let mut test_sector: [u8; 512] = [10; 512];
     block_write_test(&mut channels[0], 0, 128, &test_sector);
-    println!("hi1");
     test_sector[0] = 2;
     block_read_test(&mut channels[0], 0, 128, &mut test_sector);
-    println!("hi2");
-    println!("recieved {}", test_sector[0]);
-    // println!("rw test result: {}", recieved_sector == test_sector);
+    println!("rw test result: {}", test_sector[0] == 10);
 }
 
 fn block_read_test(c: &mut ATAChannel, dev_no: u8, sec_no: BlockSector, buf: &mut [u8]) {
