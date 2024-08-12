@@ -10,4 +10,11 @@ pub struct Partition {
     start: BlockSector, 
 }
 
+impl Partition {
 
+    pub fn partition_scan(){
+
+    }
+
+
+}
