@@ -12,6 +12,9 @@ nom = { version = "7.1.3", default-features = false }
 kidneyos-shared.path = "../shared"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 
+
 [features]
 default = ["ticket_mutex"]
 ticket_mutex = []
+bitvec = "1.0.1"
+
