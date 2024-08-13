@@ -1,15 +1,17 @@
 use super::{
-    scheduling::{scheduler_yield, SCHEDULER},
+    scheduling::SCHEDULER,
     thread_control_block::{ThreadControlBlock, ThreadStatus},
     thread_management::THREAD_MANAGER,
     RUNNING_THREAD_TID,
 };
-use crate::sync::intr::intr_enable;
+use crate::{
+    sync::intr::{intr_disable, intr_enable},
+    threading::scheduling::scheduler_yield_and_die,
+};
 use alloc::boxed::Box;
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    serial::outb,
     task_state_segment::TASK_STATE_SEGMENT,
 };
 
@@ -17,16 +19,28 @@ use kidneyos_shared::{
 /// No arguments allowed for now.
 ///
 /// A function that may be used for thread creation.
-pub type ThreadFunction = unsafe extern "C" fn() -> ();
+/// The return value will be the exit code of this thread.
+pub type ThreadFunction = unsafe extern "C" fn() -> i32;
 
-/// A function to safely close a thread.
+/// A function to safely close the current thread.
+/// This is safe to call at any point in a threads runtime.
 #[allow(unused)]
-const fn exit_thread() -> ! {
-    // TODO: Need to reap TCB, remove from scheduling.
+pub fn exit_thread(exit_code: i32) -> ! {
+    // We will never return here so do not need to re-enable interrupts from here.
+    intr_disable();
 
-    // Relinquish CPU to another thread.
-    // TODO:
-    panic!("Thread exited incorrectly.");
+    // Get the current thread.
+    // SAFETY: Interrupts must be off.
+    unsafe {
+        let tm = THREAD_MANAGER.as_mut().expect("No Thread Manager set up!");
+
+        let mut current_thread = tm.get(RUNNING_THREAD_TID);
+        current_thread.set_exit_code(exit_code);
+
+        // Replace and yield.
+        tm.set(current_thread);
+        scheduler_yield_and_die();
+    }
 }
 
 /// A wrapper function to execute a thread's true function.
@@ -47,25 +61,35 @@ unsafe extern "C" fn run_thread(
     // Reschedule our threads.
     let tm = THREAD_MANAGER.as_mut().expect("No Thread Manager set up!");
 
+    let mut switched_from = Box::from_raw(switched_from);
+    if switched_from.status == ThreadStatus::Dying {
+        switched_from.reap();
+
+        // Page manager must be loaded to be dropped.
+        switched_from.page_manager.load();
+        tm.free(switched_from.tid);
+        drop(switched_from);
+        switched_to.page_manager.load();
+    } else {
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(tm.set(switched_from));
+    }
+
     RUNNING_THREAD_TID = tm.set(switched_to);
-    SCHEDULER
-        .as_mut()
-        .expect("Scheduler not set up!")
-        .push(tm.set(Box::from_raw(switched_from)));
 
     // Our scheduler will operate without interrupts.
     // Every new thread should start with them enabled.
-    outb(0x21, 0xfd);
-    outb(0xa1, 0xff);
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if pid == 0 {
-        let entry_function = eip.as_ptr() as *const fn();
-        (*entry_function)();
-        loop {
-            scheduler_yield();
-        }
+        let entry_function = eip.as_ptr() as *const ThreadFunction;
+        let exit_code = (*entry_function)();
+
+        // Safely exit the thread.
+        exit_thread(exit_code);
     } else {
         // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
         // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
@@ -78,10 +102,10 @@ unsafe extern "C" fn run_thread(
 
             // Set up the stack frame iret expects.
             push {data_sel:e} // stack segment
-            push {esp} // esp
+            push {esp}
             pushfd // eflags
             push {code_sel} // code segment
-            push {eip} // eip
+            push {eip}
             iretd
             ",
             data_sel = in(reg) USER_DATA_SELECTOR,
@@ -93,20 +117,21 @@ unsafe extern "C" fn run_thread(
     }
 }
 
+#[allow(unused)]
 #[repr(C, packed)]
 pub struct PrepareThreadContext {
-    entry_function: ThreadFunction,
+    entry_function: *const u8,
 }
 
 impl PrepareThreadContext {
-    pub fn new(entry_function: ThreadFunction) -> Self {
+    pub fn new(entry_function: *const u8) -> Self {
         Self { entry_function }
     }
 }
 
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
-unsafe extern "C" fn prepare_thread() {
+unsafe extern "C" fn prepare_thread() -> i32 {
     // Since this function is only to be called from the `context_switch` function, we expect
     // That %eax and %edx contain the arguments passed to it.
     // Further, the entry function pointer is at a known position on the stack.

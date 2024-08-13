@@ -118,4 +118,22 @@ impl ThreadManager for ThreadManager128 {
         (self.thread_list)[tid as usize] = Some(thread);
         tid
     }
+
+    // Assumes thread for the tid has already been
+    // given away (ownership) to caller. Thus,
+    // remove() call would have thrown "thread
+    // doesn't exist" panic in place.
+    fn free(&mut self, tid: Tid) {
+        let cache_num = tid / 32;
+        let rel_ind = tid % 32;
+        if cache_num == 0 {
+            self.pid_cache_1 ^= 1 << rel_ind;
+        } else if cache_num == 1 {
+            self.pid_cache_2 ^= 1 << rel_ind;
+        } else if cache_num == 2 {
+            self.pid_cache_3 ^= 1 << rel_ind;
+        } else {
+            self.pid_cache_4 ^= 1 << rel_ind;
+        }
+    }
 }

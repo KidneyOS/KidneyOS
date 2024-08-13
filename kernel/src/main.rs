@@ -13,6 +13,7 @@ mod mem;
 mod paging;
 mod sync;
 mod threading;
+mod timer;
 mod user_program;
 
 extern crate alloc;
@@ -54,6 +55,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up GDTR");
         global_descriptor_table::load();
         println!("GDTR set up!");
+
+        println!("Setting up PIT");
+        timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);
+        timer::init_pit();
+        println!("PIT set up!");
 
         println!("Initializing Thread System...");
         thread_system_initialization();

@@ -200,8 +200,9 @@ It's unit of handling is Box\<ThreadControlBlock\>, and has the following functi
 * `remove` for removing a unit of TCB, returns the unit with ownership.
 * `get` for getting ownership to a unit given a valid thread ID, but not freeing the thread ID. Necessary requirement for thread switching section.
 * `set` for passing back ownership of a unit which was passed away by `get`, necessary requirement for thread switching section again. The TID stored in the passed TCB is always trusted.
+* `free` for freeing a locked TID, whose corresponding thread was given away (ownership wise) by a `get` call. It is required for removing dying threads during thread switching process.
 
 Context switching requires raw mutable pointers to the two involved TCBs, switch_to & switch_from.
-Thus, the functionality to temporarily pass away ownership specifc to this case was introduced. Only in thread swtiching is the ownership thus given away, and expected to be returned before the `switch_threads` finishes execution to ensure the ownership constraint. It is recommeneded not to use `get` & `set` functions elsewhere unless absolutely necessary and aware of handling.
+Thus, the functionality to temporarily pass away ownership specifc to this case was introduced. Only in thread swtiching is the ownership thus given away, and expected to be returned before the `switch_threads` finishes execution to ensure the ownership constraint. It is recommeneded not to use `get`, `set` and `free` functions elsewhere unless absolutely necessary and aware of handling. One such requirement is in `exit_thread`.
 
 The implementation found within the kernel currently (the [ThreadManager128](./scheduling/thread_manager_128.rs)) is a simple thread manager working on a 128 size array of Option\<Box\<ThreadControlBlock\>\>, and a 0-127 inclusive O(1) thread ID allocator utilizing BSF (Bit Scan Forward) assembly instruction & 4 x 32 bit unsigned integers.

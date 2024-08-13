@@ -3,7 +3,7 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-static INTR_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static INTR_DISABLE_COUNT: AtomicUsize = AtomicUsize::new(1);
 
 // This function disables interrupt, and increments the interrupt count when called
 #[allow(unused)]
@@ -12,17 +12,18 @@ pub fn intr_disable() {
     INTR_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
     // disable
     unsafe {
-        core::arch::asm!("cli", options(nomem, nostack));
+        asm!("cli", options(nomem, nostack));
     }
 }
 
 // This function decrements the interrupt count when called, and enables interrupt only when the count is 1.
 pub fn intr_enable() {
+    // TODO: add error checking for integer underflow
     // Decrement the disable count atomically and check if it's now zero (fetch_sub returns the previous value before decrement)
     if INTR_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst) == 1 {
         // enable
         unsafe {
-            core::arch::asm!("sti", options(nomem, nostack));
+            asm!("sti", options(nomem, nostack));
         }
     }
 }
