@@ -1,7 +1,7 @@
 mod context_switch;
 pub mod scheduling;
-mod thread_control_block;
-pub(crate) mod thread_functions;
+pub mod thread_control_block;
+pub mod thread_functions;
 pub mod thread_management;
 
 use crate::{

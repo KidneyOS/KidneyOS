@@ -128,3 +128,11 @@ pub fn sleep(time: Duration) -> usize {
         None => panic!("Wakeup time is too far into the future!"),
     }
 }
+
+pub unsafe fn set_enabled(enable: bool) {
+    if enable {
+        irq_mask(0x0);
+    } else {
+        irq_unmask(0x0);
+    }
+}

@@ -12,6 +12,7 @@
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
+mod preemption;
 mod sync;
 mod threading;
 mod timer;

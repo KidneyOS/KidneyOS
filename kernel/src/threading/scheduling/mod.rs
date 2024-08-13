@@ -6,7 +6,10 @@ pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
-use crate::sync::intr::{hold_interrupts, intr_get_level, IntrLevel};
+use crate::{
+    preemption::hold_preemption,
+    sync::intr::{hold_interrupts, intr_get_level, IntrLevel},
+};
 
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 
@@ -23,6 +26,14 @@ pub fn initialize_scheduler() {
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
 fn scheduler_yield(status_for_current_thread: ThreadStatus) {
+    let preemption_guard = hold_preemption();
+
+    // If preemption was not previously enabled (before we disabled it above),
+    // then we shouldn't context switch.
+    if !preemption_guard.preemption_was_enabled() {
+        return;
+    }
+
     let _guard = hold_interrupts();
 
     // SAFETY: Threads and Scheduler must be initialized and active.
