@@ -7,6 +7,7 @@
 #![feature(slice_ptr_get)]
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
+#![feature(negative_impls)]
 
 mod interrupt_descriptor_table;
 mod mem;
