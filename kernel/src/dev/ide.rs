@@ -4,10 +4,12 @@
 #![allow(unused_imports)]
 
 use super::super::sync::irq::MutexIrq;
-use super::block::{BlockDevice, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
-use alloc::{format, string::String, str};
+use super::block::{BlockDevice, BlockSector, BlockType, BlockManager, BLOCK_SECTOR_SIZE};
+use super::partition::{partition_scan};
+use alloc::{format, str, string::String, boxed::Box};
 use core::{arch::asm, ptr};
 use kidneyos_shared::println;
+
 
 const NUM_CHANNELS: usize = 2;
 // Alternate Status Register Bits
@@ -77,12 +79,17 @@ struct ATAChannel {
     d1_is_ata: bool,
 }
 
-pub struct ATADrive<'a> {
+
+#[derive(Clone)]
+pub struct ATADisk <'a> {
     channel: &'a MutexIrq<ATAChannel>,
     dev_no: u8,
+    size: usize,
+    name: String,
+    idx: usize,
 }
 
-impl BlockDevice for ATADrive<'_> {
+impl BlockDevice for ATADisk<'_> {
     fn block_read(&self, sec_no: BlockSector, buf: &mut [u8]) {
         let c: &mut ATAChannel = &mut self.channel.lock();
         c.select_sector(self.dev_no, sec_no);
@@ -92,7 +99,6 @@ impl BlockDevice for ATADrive<'_> {
         unsafe {
             c.read_sector(buf);
         }
-        // self.channel.unlock();
     }
 
     fn block_write(&self, sec_no: BlockSector, buf: &[u8]) {
@@ -105,9 +111,23 @@ impl BlockDevice for ATADrive<'_> {
             c.write_sector(buf);
         };
     }
-    fn get_block_type(&self) -> BlockType {
+    fn block_type(&self) -> BlockType {
         BlockType::BlockRaw
     }
+    fn block_size(&self) -> usize {
+        self.size 
+    }
+    fn block_name(&self) -> &str{
+        &self.name
+    }
+
+    fn block_set_idx(&mut self, idx: usize) {
+        self.idx = idx; 
+    }
+    fn block_idx(&self) -> usize {
+        self.idx
+    }
+
 }
 
 impl ATAChannel {
@@ -170,38 +190,38 @@ impl ATAChannel {
     
     // ATA Registers
 
-    fn reg_data(&self) -> u16 {
+    const fn reg_data(&self) -> u16 {
         self.reg_base
     }
-    fn reg_error(&self) -> u16 {
+    const fn reg_error(&self) -> u16 {
         self.reg_base + 1
     }
-    fn reg_nsect(&self) -> u16 {
+    const fn reg_nsect(&self) -> u16 {
         self.reg_base + 2
     }
-    fn reg_lbal(&self) -> u16 {
+    const fn reg_lbal(&self) -> u16 {
         self.reg_base + 3
     }
-    fn reg_lbam(&self) -> u16 {
+    const fn reg_lbam(&self) -> u16 {
         self.reg_base + 4
     }
-    fn reg_lbah(&self) -> u16 {
+    const fn reg_lbah(&self) -> u16 {
         self.reg_base + 5
     }
-    fn reg_device(&self) -> u16 {
+    const fn reg_device(&self) -> u16 {
         self.reg_base + 6
     }
-    fn reg_status(&self) -> u16 {
+    const fn reg_status(&self) -> u16 {
         self.reg_base + 7
     }
-    fn reg_command(&self) -> u16 {
+    const fn reg_command(&self) -> u16 {
         self.reg_base + 7
     }
     /* ATA control block port adresses */
-    fn reg_ctl(&self) -> u16 {
+    const fn reg_ctl(&self) -> u16 {
         self.reg_base + 0x206
     }
-    fn reg_alt_status(&self) -> u16 {
+    const fn reg_alt_status(&self) -> u16 {
         self.reg_base + 0x206
     }
     fn issue_pio_command(&mut self, command: u8) {
@@ -272,6 +292,9 @@ impl ATAChannel {
                 }
                 | ((sector >> 24) as u8),
         );
+
+
+
     }
 
     unsafe fn read_sector(&self, buf: &mut [u8]) {
@@ -345,80 +368,100 @@ impl ATAChannel {
         }
     }
 
-    fn identify_ata_device(&mut self, dev_no: u8) {
-        let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
-        // block_sector_t capacity;
-        //
-        self.select_device_wait(dev_no);
-        self.issue_pio_command(CMD_IDENTIFY_DEVICE);
-
-        // self.wait_until_ready();
-        if !self.wait_while_busy() {
-            self.set_is_ata(dev_no, false);
-            println!("channel {} device {} is not ata", self.channel_num, dev_no);
-            return;
-        }
-        unsafe {
-            self.read_sector(&mut id);
-        }
-        println!(
-            "channel: {} device: {} name: {} capacity: {}",
-            self.channel_num,
-            dev_no,
-            {if (dev_no == 0) {str::from_utf8(&self.d0_name).unwrap()} else {str::from_utf8(&self.d1_name).unwrap()}},
-            (u32::from_le_bytes(id[120..124].try_into().unwrap())).wrapping_mul(512),
-        );
-    }
+    
 }
 
+
+/* 
+Identify ATA device using "identify" command, register block device and partitions
+*/
+fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, all_blocks: &'a mut BlockManager) {
+        // block_sector_t capacity;
+        let size: usize;
+        let name: String;
+
+        
+        {
+            let c: &mut ATAChannel = &mut channel.lock();
+            let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
+            c.select_device_wait(dev_no);
+            c.issue_pio_command(CMD_IDENTIFY_DEVICE);
+
+            // self.wait_until_ready();
+            if !c.wait_while_busy() {
+                c.set_is_ata(dev_no, false);
+                println!("channel {} device {} is not ata", c.channel_num, dev_no);
+                return;
+            }
+            unsafe {
+                c.read_sector(&mut id);
+            }
+
+            size = usize::from_le_bytes(id[120..124].try_into().unwrap());
+            name = String::from_utf8({
+                if dev_no == 0 {
+                    c.d0_name
+                } else {
+                    c.d1_name
+                }
+
+            }.to_vec()).unwrap();
+            println!(
+                "channel: {} device: {} name: {} capacity: {}",
+                c.channel_num,
+                dev_no,
+                &name,
+                size.wrapping_mul(512),
+            );
+        }
+        let d: ATADisk = ATADisk{
+            channel: channel,
+            dev_no,
+            size,
+            name,
+            idx: 0,
+        };
+        all_blocks.register_block(Box::new(d.clone()));
+        partition_scan(&d.clone(), all_blocks);
+    }
+
 //call with interupts enabled
-pub fn ide_init() {
+pub fn ide_init(all_blocks: &mut BlockManager) {
     println!("Initialziing ATA driver in PIO mode");
-    let mut channels: [ATAChannel; NUM_CHANNELS] = [ATAChannel::new(0), ATAChannel::new(1)];
-    for (i, c) in channels.iter_mut().enumerate() {
+    let mut channels: [&MutexIrq<ATAChannel>; NUM_CHANNELS] = [&CHANNEL_0, &CHANNEL_1];
+    let mut present: [[bool; 2];2] = [[false, false], [false, false]];
+    for (i, chan) in channels.iter().enumerate() {
+        let c = &mut chan.lock();
+
         c.set_names();
         c.reset_channel();
         if c.check_device_type(0) {
             c.check_device_type(1);
         }
-
+        
         for j in 0..2 {
-            if c.is_ata(j) {
-                c.identify_ata_device(j);
-                // println!("channel {} device {} is ata", i, j);
+            present[i][j] = c.is_ata(j as u8);
+        }
+    }
+
+    for (i,c) in channels.iter().enumerate(){
+        
+        for j in 0..2 {
+            if present[i][j] {
+                identify_ata_device(c, j as u8, all_blocks);
             } else {
-                println!("channel {} device {} is not ata", i, j);
+                println!("IDE: Channel {} device {} not present", i,j);
             }
         }
     }
 
 
+
     let mut test_sector: [u8; 512] = [10; 512];
-    block_write_test(&mut channels[0], 0, 128, &test_sector);
     test_sector[0] = 2;
-    block_read_test(&mut channels[0], 0, 128, &mut test_sector);
     println!("rw test result: {}", test_sector[0] == 10);
 }
 
-fn block_read_test(c: &mut ATAChannel, dev_no: u8, sec_no: BlockSector, buf: &mut [u8]) {
-    c.select_sector(dev_no, sec_no);
-    c.issue_pio_command(CMD_READ_SECTOR_RETRY);
-    c.wait_until_ready();
-    c.wait_while_busy();
-    unsafe {
-        c.read_sector(buf);
-    }
-}
-
-fn block_write_test(c: &mut ATAChannel, dev_no: u8, sec_no: BlockSector, buf: &[u8]) {
-    c.select_sector(dev_no, sec_no);
-    c.issue_pio_command(CMD_WRITE_SECTOR_RETRY);
-    c.wait_until_ready();
-    c.wait_while_busy();
-    unsafe {
-        c.write_sector(buf);
-    };
-}
 
 fn outb(port: u16, value: u8) {
     unsafe {

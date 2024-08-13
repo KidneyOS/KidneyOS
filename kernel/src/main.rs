@@ -20,7 +20,10 @@ mod user_program;
 
 extern crate alloc;
 
-use dev::ide;
+use dev::ide::ide_init;
+use dev::block::{block_init};
+
+
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
@@ -59,7 +62,8 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         global_descriptor_table::load();
         println!("GDTR set up!");
 
-        ide::ide_init();
+        let mut block_devices = block_init();
+        ide_init(&mut block_devices);
 
         println!("Setting up PIT");
         timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);
