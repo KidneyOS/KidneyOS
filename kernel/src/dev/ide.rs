@@ -436,12 +436,10 @@ pub fn ide_init(all_blocks: &mut BlockManager) {
         c.set_names();
         c.reset_channel();
         if c.check_device_type(0) {
-            c.check_device_type(1);
+            present[i][0] = true;
+            present[i][1] = c.check_device_type(1);
         }
         
-        for j in 0..2 {
-            present[i][j] = c.is_ata(j as u8);
-        }
     }
 
     for (i,c) in channels.iter().enumerate(){
