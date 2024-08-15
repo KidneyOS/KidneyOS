@@ -92,7 +92,9 @@ run-bochs: $(ISO)
 	bochs -q -f bochsrc.txt
 
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) -drive format=raw,file=drive.img,if=ide
-QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -cdrom alpine.iso -drive format=raw,file=drive.img,if=ide
+
+QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -boot menu=on -cdrom $(ISO) -drive format=raw,file=drive.img,if=ide  
+# QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -cdrom alpine.iso -drive format=raw,file=drive.img,if=ide
 
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -cdrom $(ISO) -drive format=raw,file=drive.img,if=ide
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -device piix3-ide,id=ide -drive id=disk,file=drive.img,format=raw,if=none -device ide-hd,drive=disk,bus=ide.0 -drive file=$(ISO),index=0,if=floppy,format=raw

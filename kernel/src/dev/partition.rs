@@ -148,6 +148,8 @@ fn found_partition(
     };
     let mut name: String = dev.block_name().into();
     name.push_str(part_no.to_string().as_str());   
+
+    println!("found partition: {} start: {}, size: {}M", name, start, size >> 11);
      
 
 }

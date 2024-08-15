@@ -65,6 +65,18 @@ fn byte_enumerator(s: String) -> impl Iterator<Item = (usize, u8)> {
     s.into_bytes().into_iter().enumerate()
 }
 
+fn parse_cstr(buf: &[u8]) -> &str {
+    let mut l = 0;
+    for i in 0..buf.len() {
+        if buf[i] == 0 {
+            break;
+        }
+        l += 1;
+    }
+    str::from_utf8(&buf[0..l]).unwrap()
+    
+}
+
 struct ATAChannel {
     name: [u8; 8],
     reg_base: u16,
@@ -292,9 +304,6 @@ impl ATAChannel {
                 }
                 | ((sector >> 24) as u8),
         );
-
-
-
     }
 
     unsafe fn read_sector(&self, buf: &mut [u8]) {
@@ -376,7 +385,6 @@ impl ATAChannel {
 Identify ATA device using "identify" command, register block device and partitions
 */
 fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, all_blocks: &'a mut BlockManager) {
-        // block_sector_t capacity;
         let size: usize;
         let name: String;
 
@@ -398,20 +406,19 @@ fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, a
             }
 
             size = usize::from_le_bytes(id[120..124].try_into().unwrap());
-            name = String::from_utf8({
+            name = parse_cstr(&{
                 if dev_no == 0 {
                     c.d0_name
                 } else {
                     c.d1_name
                 }
-
-            }.to_vec()).unwrap();
+            }).into();
             println!(
-                "channel: {} device: {} name: {} capacity: {}",
+                "channel: {} device: {} name: {} capacity: {}M",
                 c.channel_num,
                 dev_no,
                 &name,
-                size.wrapping_mul(512),
+                size>>11,
             );
         }
         let d: ATADisk = ATADisk{
