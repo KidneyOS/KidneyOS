@@ -6,43 +6,8 @@
 use super::block::{BlockSector, BlockType, BlockManager, BlockDevice };
 use alloc::{boxed::Box, string::{String, ToString}};
 use core::mem::{size_of, transmute};
+use core::clone::Clone;
 use kidneyos_shared::println;
-
-pub struct Partition {
-    dev: Box<dyn BlockDevice>,
-    start: BlockSector,
-    size: usize,
-    block_type: BlockType,
-    name: String,
-    idx: usize,
-}
-
-impl BlockDevice for Partition {
-    fn block_read(&self, sector: BlockSector, buf: &mut [u8]) {
-        self.dev.block_read(sector + self.start, buf);
-    }
-    fn block_write(&self, sector: BlockSector, buf: &[u8]) {
-        self.dev.block_write(sector + self.start, buf);
-    }
-    fn block_type(&self) -> BlockType {
-        self.block_type
-    }
-    fn block_size(&self) -> usize {
-        self.size 
-    }
-    fn block_name(&self) -> &str {
-        &self.name        
-    }
-
-    fn block_set_idx(&mut self, idx: usize) {
-        self.idx = idx;
-    }
-     
-    fn block_idx(& self) -> usize {
-        self.idx
-    }
-
-}
 
 
 #[repr(packed, C)]
@@ -62,9 +27,9 @@ struct PartitionTable{
 }
 
 
-pub fn partition_scan (dev: &dyn BlockDevice, all_blocks: &mut BlockManager) {
+pub fn partition_scan (dev: impl BlockDevice + Clone + 'static, all_blocks: &mut BlockManager) {
     let mut pn = 0;
-    read_partition_table(dev, 0, 0, &mut pn, all_blocks);
+    read_partition_table(dev.clone(), 0, 0, &mut pn, all_blocks);
     if pn == 0 {
         println!("{}: Device contains no partitions", dev.block_name());
     }
@@ -73,7 +38,7 @@ pub fn partition_scan (dev: &dyn BlockDevice, all_blocks: &mut BlockManager) {
 
 // Read MBR Partition table and register block devices
 fn read_partition_table(
-    dev: &dyn BlockDevice,
+    dev: impl BlockDevice + Clone + 'static,
     sector: BlockSector,
     primary_extended_sector: BlockSector,
     pn: &mut usize,
@@ -113,21 +78,58 @@ fn read_partition_table(
         {
             println!("{}: Extended partition in sector {}", dev.block_name(), sector);
             if sector == 0 {
-                read_partition_table (dev, e.offset, e.offset, pn, all_blocks);
+                read_partition_table (dev.clone(), e.offset, e.offset, pn, all_blocks);
             }
             else {
-                read_partition_table (dev, e.offset + primary_extended_sector, primary_extended_sector, pn, all_blocks);
+                read_partition_table (dev.clone(), e.offset + primary_extended_sector, primary_extended_sector, pn, all_blocks);
             }
         } else {
             *pn += 1; 
-            found_partition (dev, e.ptype, e.offset + sector, e.size as usize, *pn, all_blocks);
+            found_partition (dev.clone(), e.ptype, e.offset + sector, e.size as usize, *pn, all_blocks);
         }
     }
 }
 
+pub struct Partition<T: BlockDevice> {
+    dev: T,
+    start: BlockSector,
+    size: usize,
+    block_type: BlockType,
+    name: String,
+    idx: usize,
+}
+
+impl<T: BlockDevice> BlockDevice for Partition<T> {
+    fn block_read(&self, sector: BlockSector, buf: &mut [u8]) {
+        self.dev.block_read(sector + self.start, buf);
+    }
+    fn block_write(&self, sector: BlockSector, buf: &[u8]) {
+        self.dev.block_write(sector + self.start, buf);
+    }
+    fn block_type(&self) -> BlockType {
+        self.block_type
+    }
+    fn block_size(&self) -> usize {
+        self.size 
+    }
+    fn block_name(&self) -> &str {
+        &self.name        
+    }
+    fn block_set_idx(&mut self, idx: usize) {
+        self.idx = idx;
+    }
+     
+    fn block_idx(& self) -> usize {
+        self.idx
+    }
+
+}
+
+
+
 
 fn found_partition(
-    dev: &dyn BlockDevice,
+    dev: impl BlockDevice + 'static,
     ptype: u8,
     start: BlockSector,
     size: usize,
@@ -151,6 +153,14 @@ fn found_partition(
 
     println!("found partition: {} start: {}, size: {}M", name, start, size >> 11);
      
+    all_blocks.register_block(Box::new(Partition{
+        dev,
+        start,
+        size,
+        block_type: ptype,
+        name,
+        idx: 0,
+    }));
 
 }
 

@@ -50,6 +50,15 @@ impl BlockManager {
     } 
 
 
+    pub fn blocks_by_type() {
+
+    }
+    pub fn block_by_name() {
+
+    }
+
+
+
 
 }
 

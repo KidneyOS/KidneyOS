@@ -429,7 +429,7 @@ fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, a
             idx: 0,
         };
         all_blocks.register_block(Box::new(d.clone()));
-        partition_scan(&d.clone(), all_blocks);
+        partition_scan(d.clone(), all_blocks);
     }
 
 //call with interupts enabled
