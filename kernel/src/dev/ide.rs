@@ -4,14 +4,13 @@
 #![allow(unused_imports)]
 
 use super::super::sync::irq::MutexIrq;
-use super::block::{BlockDevice, BlockSector, BlockType, BlockManager, BLOCK_SECTOR_SIZE};
+use super::block::{ BlockSector, BlockDriver, BlockType, BlockManager, BLOCK_SECTOR_SIZE};
 use super::partition::{partition_scan};
 use alloc::{format, str, string::String, boxed::Box};
 use core::{arch::asm, ptr};
 use kidneyos_shared::println;
 
 
-const NUM_CHANNELS: usize = 2;
 // Alternate Status Register Bits
 const STA_BSY: u8 = 0x80;
 const STA_DRDY: u8 = 0x40;
@@ -28,8 +27,7 @@ const CMD_READ_SECTOR_RETRY: u8 = 0x20;
 const CMD_WRITE_SECTOR_RETRY: u8 = 0x30;
 
 // Global IDE Devices
-static CHANNEL_0: MutexIrq<ATAChannel> = MutexIrq::new(ATAChannel::new(0));
-static CHANNEL_1: MutexIrq<ATAChannel> = MutexIrq::new(ATAChannel::new(1));
+static CHANNELS: [MutexIrq<ATAChannel>; 2] = [MutexIrq::new(ATAChannel::new(0)), MutexIrq::new(ATAChannel::new(1))];
 
 fn msleep(t: usize) {
     for _ in 0..9 {
@@ -91,55 +89,38 @@ struct ATAChannel {
     d1_is_ata: bool,
 }
 
+pub type ATADisk = u8;
+pub fn channel(d: ATADisk) -> u8 {
+    (d/2)%2
+}
+pub fn dev_num(d: ATADisk) -> u8 {
+    d % 2
 
-#[derive(Clone)]
-pub struct ATADisk <'a> {
-    channel: &'a MutexIrq<ATAChannel>,
-    dev_no: u8,
-    size: usize,
-    name: String,
-    idx: usize,
 }
 
-impl BlockDevice for ATADisk<'_> {
-    fn block_read(&self, sec_no: BlockSector, buf: &mut [u8]) {
-        let c: &mut ATAChannel = &mut self.channel.lock();
-        c.select_sector(self.dev_no, sec_no);
-        c.issue_pio_command(CMD_READ_SECTOR_RETRY);
-        c.wait_until_ready();
-        c.wait_while_busy();
-        unsafe {
-            c.read_sector(buf);
-        }
+pub fn ide_read(dev: ATADisk, sec_no: BlockSector, buf: &mut [u8]) {
+    let c: &mut ATAChannel = &mut CHANNELS[channel(dev) as usize].lock();
+    let dev_no = dev_num(dev);
+    c.select_sector(dev_no, sec_no);
+    c.issue_pio_command(CMD_READ_SECTOR_RETRY);
+    c.wait_until_ready();
+    c.wait_while_busy();
+    unsafe {
+        c.read_sector(buf);
     }
+}
 
-    fn block_write(&self, sec_no: BlockSector, buf: &[u8]) {
-        let c: &mut ATAChannel = &mut self.channel.lock();
-        c.select_sector(self.dev_no, sec_no);
-        c.issue_pio_command(CMD_WRITE_SECTOR_RETRY);
-        c.wait_until_ready();
-        c.wait_while_busy();
-        unsafe {
-            c.write_sector(buf);
-        };
-    }
-    fn block_type(&self) -> BlockType {
-        BlockType::BlockRaw
-    }
-    fn block_size(&self) -> usize {
-        self.size 
-    }
-    fn block_name(&self) -> &str{
-        &self.name
-    }
+pub fn ide_write(dev: ATADisk, sec_no: BlockSector, buf: &[u8]) {
 
-    fn block_set_idx(&mut self, idx: usize) {
-        self.idx = idx; 
-    }
-    fn block_idx(&self) -> usize {
-        self.idx
-    }
-
+    let c: &mut ATAChannel = &mut CHANNELS[channel(dev) as usize].lock();
+    let dev_no = dev_num(dev);
+    c.select_sector(dev_no, sec_no);
+    c.issue_pio_command(CMD_WRITE_SECTOR_RETRY);
+    c.wait_until_ready();
+    c.wait_while_busy();
+    unsafe {
+        c.write_sector(buf);
+    };
 }
 
 impl ATAChannel {
@@ -384,87 +365,82 @@ impl ATAChannel {
 /* 
 Identify ATA device using "identify" command, register block device and partitions
 */
-fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, all_blocks: &'a mut BlockManager) {
-        let size: usize;
-        let name: String;
+fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, mut all_blocks: BlockManager) -> BlockManager{
+    let size: usize;
+    let name: String;
+    let idx: usize;
+    
+    {
+        let c: &mut ATAChannel = &mut channel.lock();
+        let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
+        c.select_device_wait(dev_no);
+        c.issue_pio_command(CMD_IDENTIFY_DEVICE);
 
-        
-        {
-            let c: &mut ATAChannel = &mut channel.lock();
-            let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
-            c.select_device_wait(dev_no);
-            c.issue_pio_command(CMD_IDENTIFY_DEVICE);
-
-            // self.wait_until_ready();
-            if !c.wait_while_busy() {
-                c.set_is_ata(dev_no, false);
-                println!("channel {} device {} is not ata", c.channel_num, dev_no);
-                return;
-            }
-            unsafe {
-                c.read_sector(&mut id);
-            }
-
-            size = usize::from_le_bytes(id[120..124].try_into().unwrap());
-            name = parse_cstr(&{
-                if dev_no == 0 {
-                    c.d0_name
-                } else {
-                    c.d1_name
-                }
-            }).into();
-            println!(
-                "channel: {} device: {} name: {} capacity: {}M",
-                c.channel_num,
-                dev_no,
-                &name,
-                size>>11,
-            );
+        // self.wait_until_ready();
+        if !c.wait_while_busy() {
+            c.set_is_ata(dev_no, false);
+            println!("channel {} device {} is not ata", c.channel_num, dev_no);
+            return all_blocks;
         }
-        let d: ATADisk = ATADisk{
-            channel: channel,
+        unsafe {
+            c.read_sector(&mut id);
+        }
+
+        size = usize::from_le_bytes(id[120..124].try_into().unwrap());
+        name = parse_cstr(&{
+            if dev_no == 0 {
+                c.d0_name
+            } else {
+                c.d1_name
+            }
+        }).into();
+        println!(
+            "channel: {} device: {} name: {} capacity: {}M",
+            c.channel_num,
             dev_no,
-            size,
-            name,
-            idx: 0,
-        };
-        all_blocks.register_block(Box::new(d.clone()));
-        partition_scan(d.clone(), all_blocks);
+            &name,
+            size>>11,
+        );
+        let d: BlockDriver = BlockDriver::ATAPio(c.channel_num*2 + dev_no);
+        idx = all_blocks.block_register(BlockType::BlockRaw, name, size as BlockSector, d);
+
+
     }
+    all_blocks = partition_scan(idx, all_blocks);
+    all_blocks
+    
+}
+
 
 //call with interupts enabled
-pub fn ide_init(all_blocks: &mut BlockManager) {
+pub fn ide_init(mut all_blocks: BlockManager) -> BlockManager {
     println!("Initialziing ATA driver in PIO mode");
-    let mut channels: [&MutexIrq<ATAChannel>; NUM_CHANNELS] = [&CHANNEL_0, &CHANNEL_1];
     let mut present: [[bool; 2];2] = [[false, false], [false, false]];
-    for (i, chan) in channels.iter().enumerate() {
+    for (i, chan) in CHANNELS.iter().enumerate() {
         let c = &mut chan.lock();
-
         c.set_names();
         c.reset_channel();
         if c.check_device_type(0) {
             present[i][0] = true;
             present[i][1] = c.check_device_type(1);
         }
-        
     }
 
-    for (i,c) in channels.iter().enumerate(){
+    for (i,c) in CHANNELS.iter().enumerate(){
         
         for j in 0..2 {
             if present[i][j] {
-                identify_ata_device(c, j as u8, all_blocks);
+                all_blocks = identify_ata_device(c, j as u8, all_blocks);
             } else {
                 println!("IDE: Channel {} device {} not present", i,j);
             }
         }
     }
 
-
-
     let mut test_sector: [u8; 512] = [10; 512];
     test_sector[0] = 2;
     println!("rw test result: {}", test_sector[0] == 10);
+    all_blocks
 }
 
 
