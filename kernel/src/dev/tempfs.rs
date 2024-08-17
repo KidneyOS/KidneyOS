@@ -1,6 +1,6 @@
 
 use super::super::sync::irq::MutexIrq;
-use super::block::{BLOCK_SECTOR_SIZE, BlockSector, BlockDriver};
+use super::block::{BLOCK_SECTOR_SIZE, BlockSector, BlockDriver, BlockManager};
 use alloc::vec::{Vec};
 
 pub struct TempFs {
@@ -30,9 +30,11 @@ static tempfs0: MutexIrq<Option<TempFs>> = MutexIrq::new(Option::None);
 
 pub type TempFsDisk = usize;
 
-pub fn tempfs_init() {
-    
-     // = Option::Some(TempFs::new(1024)); 
+pub fn tempfs_init(all_blocks: BlockManager ) {
+    let t:  &mut Option<TempFs> = &mut tempfs0.lock();    
+    *t = Option::Some(TempFs::new(1024)); 
+
+
 }
 
 pub fn tempfs_read(fd: TempFsDisk, sector: BlockSector, buf: &mut [u8]) {
