@@ -41,18 +41,19 @@ pub enum BlockDriver {
 }
 
 impl BlockDriver {
-    fn read(&self, sector: BlockSector, buf: &mut [u8]) {
+    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8{
         match self {
             BlockDriver::ATAPio(d) => ide_read(*d, sector, buf),
             BlockDriver::TempFs(d) => tempfs_read(*d, sector, buf), 
         }
-
+        0
     }
-    fn write(&self, sector: BlockSector, buf: &[u8]) {
+    unsafe fn write(&self, sector: BlockSector, buf: &[u8]) -> u8 {
         match self {
             BlockDriver::ATAPio(d) => ide_write(*d, sector, buf),
             BlockDriver::TempFs(d) => tempfs_write(*d, sector, buf), 
         }
+        0
     }
 
 }
@@ -68,14 +69,23 @@ pub struct Block {
 
 
 impl Block {
-    pub fn block_read(&self, sector: BlockSector, buf: &mut [u8]){
+    pub fn block_read(&self, sector: BlockSector, buf: &mut [u8]) -> u8{
         let offset = self.block_type.get_offset();  
-
-        self.driver.read(sector, buf);
+        if sector + offset > self.block_size() || buf.len() < BLOCK_SECTOR_SIZE {
+            return 1
+        }
+        unsafe {
+            self.driver.read(sector + offset, buf)
+        }
     }
-    pub fn block_write(&self, sector: BlockSector, buf: &[u8]){
+    pub fn block_write(&self, sector: BlockSector, buf: &[u8]) -> u8{
         let offset = self.block_type.get_offset();  
-        self.driver.write(sector + offset, buf);
+        if sector + offset > self.block_size() || buf.len() < BLOCK_SECTOR_SIZE {
+            return 1
+        }
+        unsafe {
+            self.driver.write(sector + offset, buf)
+        }
     }
     pub fn block_type(&self) -> BlockType{
         self.block_type
@@ -135,12 +145,13 @@ impl BlockManager {
     }
 
 
-
-    pub fn blocks_by_type() {
-
-    }
-    pub fn block_by_name() {
-
+    pub fn by_name(&self, name: &str) -> Option<Block>{
+        for i in self.all_blocks.iter() {
+            if i.block_name == name {
+                return Option::Some(i.clone());
+            }
+        }
+        Option::None
     }
 
 

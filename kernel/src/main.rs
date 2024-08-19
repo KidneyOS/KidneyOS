@@ -23,7 +23,10 @@ mod fs;
 extern crate alloc;
 
 use dev::ide::ide_init;
-use dev::block::{block_init};
+use dev::block::block_init;
+use dev::tempfs::tempfs_init;
+use fs::vfs::{fs_init};
+
 
 
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
@@ -66,6 +69,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         let mut block_devices = block_init();
         block_devices = ide_init(block_devices);
+        block_devices = tempfs_init(block_devices);
 
         println!("Setting up PIT");
         timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);

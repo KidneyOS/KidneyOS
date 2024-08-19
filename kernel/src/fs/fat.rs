@@ -1,4 +1,4 @@
-use alloc::{vec::Vec, string::String};
+use alloc::{vec, string::String};
 use core::ffi;
 use crate::dev::block::{Block, BlockType};
 use crate::fs::vfs::IOError;
