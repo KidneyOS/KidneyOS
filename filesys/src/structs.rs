@@ -1,3 +1,4 @@
+
 use crate::disk_device::Disk;
 use crate::fat;
 
@@ -141,16 +142,16 @@ impl VirtualFileSystem {
 }
 
 pub trait FileSystem {
-    fn new() -> Self;
+    fn new();
     // fn mount(&mut self);
     // fn unmount(&mut self);
-    fn open(&self, path: &str) -> Result<File, io::Error>;
-    fn close(&self, file: &File) -> Result<(), io::Error>;
-    fn read(&self, file: &File, buffer: &mut [u8], amount: u32) -> Result<u32, io::Error>;
-    fn write(&self, file: &File, buffer: &mut [u8], amount: u32) -> Result<u32, io::Error>;
-    fn create(&mut self, path: &str, name: &str) -> Result<(), io::Error>;
-    fn delete(&self, path: &str) -> Result<(), io::Error>;
-    fn list_dir(&self, path: &str) -> Result<Vec<String>, io::Error>;
-    fn mkdir(&mut self, path: &str, name: &str) -> Result<(), io::Error>;
-    fn rmdir(&mut self, path: &str, name: &str) -> Result<(), io::Error>;
+    fn open(&self, path: &str) -> Option<File>;
+    fn close(&self, file: &File) -> bool;
+    fn read(&self, file: &File, buffer: &mut [u8], amount: u32) -> u32;
+    fn write(&self, file: &File, buffer: &mut [u8], amount: u32) -> u32;
+    fn create(&mut self, path: &str, name: &str) -> bool;
+    fn delete(&self, path: &str) -> bool;
+    fn list_dir(&self, path: &str) -> Option<Vec<String>>;
+    fn mkdir(&mut self, path: &str, name: &str) -> bool;
+    fn rmdir(&mut self, path: &str, name: &str) -> bool;
 }

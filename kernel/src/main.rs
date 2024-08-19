@@ -8,6 +8,7 @@
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 #![feature(negative_impls)]
+#![feature(error_in_core)]
 
 mod dev;
 mod interrupt_descriptor_table;
@@ -17,6 +18,7 @@ mod sync;
 mod threading;
 mod timer;
 mod user_program;
+mod fs;
 
 extern crate alloc;
 

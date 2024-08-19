@@ -14,7 +14,9 @@ pub enum BlockType {
     BlockScratch(BlockSector),
     BlockSwap(BlockSector),
     BlockForeign(BlockSector),
+    BlockTempfs,
     BlockRaw,
+
 }
 
 impl BlockType {
@@ -34,7 +36,8 @@ impl BlockType {
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockDriver {
     ATAPio(ATADisk),
-    TempFs(TempFsDisk)
+    TempFs(TempFsDisk),
+    // FUSE(Arc<dyn FuseDriver>),
 }
 
 impl BlockDriver {

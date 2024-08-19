@@ -7,5 +7,6 @@ use disk_device::Test;
 pub mod fat;
 mod disk_device;
 mod structs;
+mod vsfs;
 
 
