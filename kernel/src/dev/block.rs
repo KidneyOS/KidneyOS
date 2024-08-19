@@ -17,6 +17,20 @@ pub enum BlockType {
     BlockRaw,
 }
 
+impl BlockType {
+    fn get_offset(&self) -> BlockSector {
+        match self {
+            BlockType::BlockKernel(o) => *o,
+            BlockType::BlockFilesys(o) => *o,
+            BlockType::BlockScratch(o) => *o,
+            BlockType::BlockSwap(o) => *o,
+            BlockType::BlockForeign(o) => *o,
+            _ => 0,
+        } 
+    }
+}
+
+
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockDriver {
     ATAPio(ATADisk),
@@ -52,10 +66,13 @@ pub struct Block {
 
 impl Block {
     pub fn block_read(&self, sector: BlockSector, buf: &mut [u8]){
+        let offset = self.block_type.get_offset();  
+
         self.driver.read(sector, buf);
     }
     pub fn block_write(&self, sector: BlockSector, buf: &[u8]){
-        self.driver.write(sector, buf);
+        let offset = self.block_type.get_offset();  
+        self.driver.write(sector + offset, buf);
     }
     pub fn block_type(&self) -> BlockType{
         self.block_type
