@@ -1,18 +1,47 @@
-use crate::fs::vfs::{FileSystem, File, Vfs, SuperBlock, MemInode};
-use crate::dev::block::Block;
+use crate::fs::vfs::{FileSystem, File, Vfs, SuperBlock, MemInode, Dentry, FsType};
+use crate::dev::block::{BlockType,Block};
 
 
 
-pub fn tempfs_init(block: Block) -> SuperBlock {
-    SuperBlock {
+pub struct Tempfs  {
+    block: Block,
+    root: Option<Dentry>,
+};
 
 
+
+impl FileSystem for Tempfs {
+    pub fn try_init(block: Block) -> Option<SuperBlock>{
+        if let block.block_type() == BlockType::BlockTempfs {
+            Option::Some(SuperBlock {
+                name: block.block_name(),
+                fs: FsType::Tempfs( Tempfs {
+                    block
+                }),     
+            })
+        }else {
+            Option::None
+        }
     }
     
+    pub fn get_root(&mut self) -> &Dentry {
+        if let self.root == Option::None {
+            self.root = Dentry::create_root(self.block, 0)
+        }
+        &self.root.unwrap()
+    }
+
+
+
 
 }
-    
 
+
+
+
+
+
+    
 
 
 

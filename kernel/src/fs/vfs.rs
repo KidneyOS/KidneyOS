@@ -1,8 +1,7 @@
 use crate::dev::block::{Block, BlockType, BlockManager};
 use alloc::{vec::Vec, string::String};
-use core::map::HashMap;
 use crate::sync::irq::MutexIrq;
-use crate::fs::{ext2, vsfs, fat};
+use crate::fs::{ext2, vsfs, fat, tempfs::Tempfs};
 use core::error::Error;
 use core::fmt;
 use core::fmt::Debug;
@@ -40,7 +39,7 @@ impl IOError {
     }
 }
 
-struct stat {
+struct Stat {
     st_dev: u32,
     st_ino: u32,
     st_mode: u16,
@@ -71,8 +70,8 @@ pub struct Dentry<'a> {
     count: u32, /* use count */
     ino_number: u32, /* associated inode */
     name: String, 
-    mounted:bool,
-    parent: &'a Dentry,
+    mounted: bool,
+    parent: Option<Box<Dentry>>,
     children: Vec<Dentry>,
     block: &'a SuperBlock
 }
@@ -80,9 +79,20 @@ pub struct Dentry<'a> {
 
 impl <'a>Dentry {
 
-    pub fn forward(&self) -> &[Dentry] {
-        let inode = self.blockread_inode(&self)
+    pub fn create_root(block: &'a SuperBlock, ino_num: u32) -> Dentry {
+        Dentry {
+            count: 1,
+            ino_number: ino_num,
+            name: "/".into(),
+            mounted: false,
+            parent: Option::None,
+            children: Vec::new(),
+            block
+        }
+    }
 
+    pub fn forward(&self) -> &[Dentry] {
+        todo!();
     }
 
 
@@ -91,52 +101,10 @@ impl <'a>Dentry {
     }
 }
 
-impl Dentry {
-    pub fn new(inode: u32, name: String, file_type: FileType) -> Self {
-        Dentry {
-            inode,
-            name,
-            file_type,
-        }
-    }
-    pub fn alphasort(a: &Dentry, b: &Dentry) -> bool {
-        a.name < b.name
-    }
-    pub fn closedir(&self) {
-        todo!()
-    }
-    pub fn dirfd(&self) {
-        todo!()
-    }
-    pub fn fdopendir(&self) {
-        todo!()
-    }
-    pub fn opendir(&self) {
-        todo!()
-    }
-    pub fn readdir(&self) {
-        todo!()
-    }
-    pub fn readdir_r(&self) {
-        todo!()
-    }
-    pub fn rewinddir(&self) {
-        todo!()
-    }
-    pub fn scandir(&self) {
-        todo!()
-    }
-    pub fn seekdir(&self) {
-        todo!()
-    }
-    pub fn telldir(&self) {
-        todo!()
-    }
-}
-
 pub struct MemInode {
     block: Block,
     stat: stat,
+    offset: 
 }
 
 impl MemInode {
@@ -149,76 +117,74 @@ impl MemInode {
 
 
 
-pub struct FsType {
+pub enum FsType {
+    Tempfs(Tempfs)
+}
+
+impl FsType {
+    pub fn unwrap(&self) -> &impl FileSystem {
+        match self {
+            FsType::Tempfs(fs) => fs,
+        }
+    }
 }
 
 
 pub struct SuperBlock {
-    root: Dentry,
     name: String,
-    ino_cache: Vec<MemInode> 
+    fs: FsType,
 }
 
 
 impl SuperBlock {
-    pub fn new(block: Block) -> Option<SuperBlock> {
+
+    pub fn try_init(block: Block) -> Option<SuperBlock> {
         // Detect FS type
-        match fs_type {
-            BlockType::BlockTempfs =>  
-            _ => 
+        let mut fs: Option<SuperBlock>;
+
+        //try every fs type
+        fs = Tempfs::try_init(block.clone())
+        if let fs == Option::Some(a) {
+            return fs;
         }
-    }
-
-
-    pub fn read_inode(&self, d: Dentry) -> MemInode {
+        Option::None
     }
     
     pub fn get_root(&self) -> &Dentry {
-        &self.root
+        let fs = self.fs.unwrap();
+        fs.get_root()
     }
 }
 
 pub trait FileSystem {
-    fn new(block: &Block) -> Self;
+    fn try_init(block: Block) -> Option<SuperBlock>;
+    fn get_root(&mut self) -> &Dentry;
 
 
-    fn read_superblock(block: &Block)
-    // fn mount(&mut self);
-    fn open(&self, path: &str) -> Option<File>;
-    fn close(&self, file: &File) -> bool;
-    fn read(&self, file: &File, buffer: &mut [u8], amount: u32) -> u32;
-    fn write(&self, file: &File, buffer: &mut [u8], amount: u32) -> u32;
-    fn create(&mut self, path: &str, name: &str) -> bool;
-    fn delete(&self, path: &str) -> bool;
-    fn list_dir(&self, path: &str) -> Option<Vec<String>>;
-    fn mkdir(&mut self, path: &str, name: &str) -> bool;
-    fn rmdir(&mut self, path: &str, name: &str) -> bool;
+
 }
 pub struct Vfs {
     root: SuperBlock,
     registered: Vec<SuperBlock>,
     blocks: BlockManager,
-
 }
 
 impl Vfs {
 
-    pub fn register_filesys(&self, dev_name: &str ) {
-
+    pub fn register_filesys(&self, dev_name: &str ) -> SuperBlock {
+        todo!();
     }
 
     pub fn mount_filesys(&self, dev_name: &str) {
-
+        todo!();
     }
 
     pub fn resolve_path(&self, absolute_path: &str) -> Dirent{
-        root = self.root.get_root();
-
-
+        todo!();
     }
 
     pub fn stat(&self, path: &str) {
-
+        todo!();
     }
 
 }

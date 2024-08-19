@@ -103,7 +103,6 @@ impl Block {
     fn block_idx(&self) -> usize{
         self.idx
     }
-
     pub fn driver(&self) -> BlockDriver {
         self.driver
     }
