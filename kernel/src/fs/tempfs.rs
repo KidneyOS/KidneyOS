@@ -1,6 +1,5 @@
-use super::vfs::{FileSystem, File, Vfs, SuperBlock, MemInode, Dentry, FsType};
+use crate::fs::{inode::MemInode, superblock::{SuperBlock, FsType, FileSystem}, vfs::File};
 use crate::dev::block::{BlockType,Block};
-use alloc::sync::Arc;
 
 #[derive(Clone)]
 pub struct Tempfs {

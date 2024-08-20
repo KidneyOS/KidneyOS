@@ -1,3 +1,5 @@
+use alloc::{vec::Vec, string::String};
+
 pub struct Stat {
     st_dev: u32,
     st_ino: u32,

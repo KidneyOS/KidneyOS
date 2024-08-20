@@ -88,19 +88,19 @@ struct ATAChannel {
     d1_name: [u8; 8],
     d1_is_ata: bool,
 }
-
-pub struct ATADisk(u8);
+#[derive(Copy, Clone, PartialEq)]
+pub struct ATADisk{id: u8,}
 
 impl ATADisk {
     pub fn channel(&self) -> u8 {
-        (self.0/2)%2
+        (self.id/2)%2
     }
     pub fn dev_num(&self) -> u8 {
-        self.0 % 2
+        self.id % 2
     }
 }
 impl BlockOperations for ATADisk {
-    unsafe fn read(&self, sec_no: BlockSector, buf: &mut [u8]) -> {
+    unsafe fn read(&self, sec_no: BlockSector, buf: &mut [u8]) -> u8 {
         let c: &mut ATAChannel = &mut CHANNELS[self.channel() as usize].lock();
         let dev_no = self.dev_num();
         c.select_sector(dev_no, sec_no);
@@ -397,7 +397,7 @@ fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, m
             &name,
             size>>11,
         );
-        let d: BlockDriver = BlockDriver::ATAPio(ATADisk(c.channel_num*2 + dev_no));
+        let d: BlockDriver = BlockDriver::ATAPio(ATADisk{ id: c.channel_num*2 + dev_no});
         idx = all_blocks.block_register(BlockType::BlockRaw, name, size as BlockSector, d);
 
 

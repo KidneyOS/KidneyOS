@@ -1,11 +1,10 @@
-use crate::dev::block::{Block, BlockManager, block_init};
+use crate::dev::block::{Block, BlockManager};
 use alloc::{vec::Vec, string::String};
 use crate::sync::irq::{MutexIrq};
-use crate::fs::{inode::{MemInode, Stat}, superblock::{SuperBlock, FsType, FileSystem}, tempfs::Tempfs};
+use crate::fs::{inode::{MemInode, Stat}, superblock::{SuperBlock, FileSystem}, tempfs::Tempfs};
 use core::error::Error;
 use core::fmt;
 use core::fmt::Debug;
-use alloc::collections::btree_map::BTreeMap;
 
 
 pub struct IOError {
@@ -49,7 +48,6 @@ pub enum FileType {
     Link,
 }
 
-//TODO: Refactor Dentry so that parent is just u32 instead of Option<u32>. (parent of / is /)
 //TODO: Make it so Dentry does not own its children, instead children should be inode numbers 
 //  that we look up from the superblock in a BtreeMap<MutexIrq<Dentry>> from InodeNumber
 
@@ -57,8 +55,7 @@ pub struct Dentry {
     ino_number: u32, /* associated inode */
     name: String, 
     mounted: bool,
-    parent: Option<u32>,
-    children: Vec<MutexIrq<Dentry>>,
+    parent: u32,
     super_name: String,
 }
 
@@ -68,8 +65,7 @@ impl Dentry {
             ino_number: ino_num,
             name: "/".into(),
             mounted: true,
-            parent: Option::None,
-            children: Vec::new(),
+            parent: ino_num,
             super_name: block_name.into(),
         }
     }
@@ -160,22 +156,22 @@ impl Vfs {
     pub fn forward(&self, dentry: &Dentry) -> &[MutexIrq<Dentry>] {
         let fs = self.get_superblock(&dentry.super_name).unwrap().get_fs(); 
         let mem_inode = fs.read_inode(dentry.get_ino());
-        for inode in mem_inode.unwrap().children {
+        let mut children = Vec::new();
+        for inode in mem_inode.unwrap().get_children() {
             let child = fs.read_inode(inode);
             if child.is_none() {
                 continue;
             }
             let child_dentry = Dentry {
                 ino_number: inode,
-                name: child.unwrap().name,
+                name: child.unwrap().get_name().into(),
                 mounted: false,
-                parent: Option::Some(dentry.get_ino()),
-                children: Vec::new(),
+                parent: dentry.get_ino(),
                 super_name: dentry.super_name,
             };
-            dentry.children.push(MutexIrq::new(child_dentry));
+            children.push(MutexIrq::new(child_dentry));
         }
-        &dentry.children
+        &children
     }
 
     pub fn open(&self, path: &str) -> Option<File> {
@@ -203,17 +199,16 @@ impl Vfs {
         fs.write(file, amount)
     }
 
-    pub fn create(&mut self, path: &str, name: &str) -> u32 {
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return false;
-        }
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.create(&mem_inode.unwrap().get_name(), name)
+    pub fn create(&mut self, path: &str) -> u32 {
+        // TODO: create elements in the superblock btrees
+        let mount = self.get_mount(path);
+        let name = self.get_relative_path(path);
+        let fs = self.get_superblock(&mount).unwrap().get_fs();
+        fs.create(&name)
     }
     
     pub fn delete(&self, path: &str) -> bool {
+        // TODO: remove from both superblock btrees
         let mem_inode = self.resolve_path(path);
         if mem_inode.is_err() {
             return false;
@@ -223,60 +218,38 @@ impl Vfs {
         fs.delete(&mem_inode.unwrap().get_name())
     }
 
-    pub fn mkdir(&mut self, path: &str, name: &str) -> u32 {
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return false;
-        }
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.mkdir(&mem_inode.unwrap().get_name(), name)
+    pub fn mkdir(&mut self, path: &str) -> u32 {
+        // TODO: create elements in the superblock btrees
+        let mount = self.get_mount(path);
+        let name = self.get_relative_path(path);
+        let fs = self.get_superblock(&mount).unwrap().get_fs();
+        fs.mkdir(&name)
     }
 
-    pub fn rmdir(&mut self, path: &str, name: &str) -> bool {
-        // should drop dirent, remove from btree
+    pub fn rmdir(&mut self, path: &str) -> bool {
+        // TODO: remove from both superblock btrees
         let mem_inode = self.resolve_path(path);
         if mem_inode.is_err() {
             return false;
         }
 
         let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.rmdir(&mem_inode.unwrap().get_name(), name)
+        fs.rmdir(&mem_inode.unwrap().get_name())
     }
 
     pub fn cp(&self, path: &str, new_path: &str) -> Result<u32, IOError> {
+        // TODO: create elements in the superblock btrees
+        // TODO: recursively copy children
         let mem_inode = self.resolve_path(path);
         if mem_inode.is_err() {
             return Option::None;
         }
 
-        let mut dentry = &mut self.root.get_root().lock();
-        let mut parent: Option<u32> = Option::None;
-        let name: String = String::new();
-        for step in path {
-            for child in self.forward(dentry) {
-                let mut child = child.lock();
-                if child.name == step {
-                    parent = Option::Some(dentry.get_ino());
-                    dentry = &mut child;
-                    if dentry.mounted {
-                        name.clear();
-                    }
-                    else {
-                        name.push("/");
-                        name.push_str(step);
-                    }
-                    continue;
-                }
-                return Err( IOError::new("Path not found".into()))
-            }
-        }
+        let name = self.get_relative_path(new_path);
         
 
         let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        let ret = fs.cp(&mem_inode.unwrap().get_name(), &name);
-        todo!(); // recursively copy children too
-        Ok(ret)
+        Ok(fs.cp(&mem_inode.unwrap().get_name(), &name))
     }
 
     pub fn mv(&self, path: &str, new_path: &str) -> bool {
@@ -285,28 +258,8 @@ impl Vfs {
             return false;
         }
 
-        let mut dentry = &mut self.root.get_root().lock();
-        let mut parent: Option<u32> = Option::None;
-        let name: String = String::new();
-        for step in path {
-            for child in self.forward(dentry) {
-                let mut child = child.lock();
-                if child.name == step {
-                    parent = Option::Some(dentry.get_ino());
-                    dentry = &mut child;
-                    if dentry.mounted {
-                        name.clear();
-                    }
-                    else {
-                        name.push("/");
-                        name.push_str(step);
-                    }
-                    continue;
-                }
-                return Err( IOError::new("Path not found".into()))
-            }
-        }
-
+        let name = self.get_relative_path(path);
+        
         mem_inode.unwrap().set_name(&name);
         mem_inode.unwrap().set_children(Vec::new());
 
@@ -322,12 +275,39 @@ impl Vfs {
                 }
             }
         }
-        dentry.name = name.into();
+        dentry.name = name;
         dentry.parent = parent;
-
 
         let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
         fs.mv(&mem_inode.unwrap().get_name(), &name)
+    }
+
+    fn get_relative_path(&self, path: &str) -> String {
+        let mut dentry = &mut self.root.get_root().lock();
+        let mut parent: Option<u32> = Option::None;
+        let name: String = String::new();
+        for step in path {
+            for child in self.forward(dentry) {
+                let mut child = child.lock();
+                if child.name == step {
+                    parent = Option::Some(dentry.get_ino());
+                    dentry = &mut child;
+                    if dentry.mounted {
+                        name.clear();
+                    }
+                    else {
+                        name.push("/");
+                        name.push_str(step);
+                    }
+                    continue;
+                }
+                return Err( IOError::new("Path not found".into()))
+            }
+        }
+    }
+
+    fn get_mount(&self, path: &str) -> String {
+        todo!();
     }
 }
 
