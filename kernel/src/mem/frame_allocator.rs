@@ -1,15 +1,13 @@
 use super::FrameAllocator;
 use core::{
     ptr::NonNull,
-    alloc::Allocator,
     ops::Range
 };
-use std::{
+use core::{
     alloc::AllocError,
-    hash::RandomState,
-    sync::atomic::{AtomicU8, AtomicUsize, Ordering}
+    sync::atomic::{AtomicUsize, Ordering}
 };
-
+use alloc::boxed::Box;
 use bitbybit::bitfield;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
@@ -23,7 +21,7 @@ pub struct DummyAllocatorSolution{
 }
 
 impl DummyAllocatorSolution{
-    pub fn new_in(start_address: usize, end_address: usize) -> Self{
+    pub const fn new_in(start_address: usize, end_address: usize) -> Self{
         DummyAllocatorSolution{
             start_address,
             end_address
@@ -115,11 +113,11 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
             return Err(AllocError);
         }
 
-        let Some(range) = match self.placement_policy{
+        let Some(range) = (match self.placement_policy{
             PlacementPolicy::NextFit => self.next_fit(frames_requested),
             PlacementPolicy::FirstFit => self.first_fit(frames_requested),
             PlacementPolicy::BestFit => self.best_fit(frames_requested),
-        } else {
+        }) else {
             return Err(AllocError);
         };
 
@@ -135,14 +133,13 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
         let mut num_frames_to_free = 0;
 
         while start < self.total_number_of_frames {
-            if !self.core_map[start].bit3(){
+            if !self.core_map[start].next(){
                 break;
             }
-            assert_eq!(self.core_map[start].bit3(), true);
-            assert_eq!(self.core_map[start].bit0(), true);
+            assert_eq!(self.core_map[start].next(), true);
+            assert_eq!(self.core_map[start].allocated(), true);
 
-            self.core_map[start].bit3() = false;
-            self.core_map[start].bit0() = false;
+            self.core_map[start] = self.core_map[start].with_next(false).with_allocated(false);
 
             num_frames_to_free += 1;
         }
@@ -169,12 +166,11 @@ impl FrameAllocatorSolution{
         let mut largest_chunk = 0;
 
         while i < self.total_number_of_frames{
-            if !self.core_map[i].bit0(){
-                let start_index = i;
+            if !self.core_map[i].allocated(){
                 let mut chunk_size = 0;
 
                 while i < self.total_number_of_frames {
-                    if self.core_map[i].bit0(){
+                    if self.core_map[i].next(){
                         break;
                     }
 
@@ -205,11 +201,11 @@ impl FrameAllocatorSolution{
 
             let mut free_frames_found = 0;
 
-            if !self.core_map[i].bit0(){
+            if !self.core_map[i].allocated(){
                 free_frames_found += 1;
 
                 for j in 1..frames_requested{
-                    if !self.core_map[i+j].bit0(){
+                    if !self.core_map[i+j].allocated(){
                         free_frames_found += 1;
                     }
                 }
@@ -217,10 +213,9 @@ impl FrameAllocatorSolution{
 
             if free_frames_found == frames_requested{
                 for k in i..i + frames_requested{
-                    assert_eq!(self.core_map[k].bit0(), false);
+                    assert_eq!(self.core_map[k].allocated(), false);
 
-                    self.core_map[k].bit0() = true;
-                    self.core_map[k].bit3() = true;
+                    self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
                 }
 
                 CURR_POSITION.store(i + frames_requested, Ordering::Relaxed);
@@ -238,11 +233,11 @@ impl FrameAllocatorSolution{
         for i in 0..=self.total_number_of_frames - frames_requested{
             let mut free_frames_found = 0;
 
-            if !self.core_map[i].bit0(){
+            if !self.core_map[i].allocated(){
                 free_frames_found += 1;
 
                 for j in 1..frames_requested{
-                    if !self.core_map[i+j].bit0(){
+                    if !self.core_map[i+j].allocated(){
                         free_frames_found += 1;
                     }
                 }
@@ -250,10 +245,9 @@ impl FrameAllocatorSolution{
 
             if free_frames_found == frames_requested{
                 for k in i..i + frames_requested{
-                    assert_eq!(self.core_map[k].bit0(), false);
+                    assert_eq!(self.core_map[k].allocated(), false);
 
-                    self.core_map[k].bit0() = true;
-                    self.core_map[k].bit3() = true;
+                    self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
                 }
 
                 let temp = CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested;
@@ -272,12 +266,12 @@ impl FrameAllocatorSolution{
         let mut i = 0;
 
         while i < self.total_number_of_frames {
-            if !self.core_map[i].bit0(){
+            if !self.core_map[i].allocated(){
                 let start_index = i;
                 let mut chunk_size = 0;
 
                 while i < self.total_number_of_frames {
-                    if self.core_map[i].bit0(){
+                    if self.core_map[i].allocated(){
                         break;
                     }
 
@@ -302,10 +296,9 @@ impl FrameAllocatorSolution{
         }
 
         for k in best_start_index_so_far..best_start_index_so_far + frames_requested{
-            assert_eq!(self.core_map[k].bit0(), false);
+            assert_eq!(self.core_map[k].allocated(), false);
 
-            self.core_map[k].bit0() = true;
-            self.core_map[k].bit3() = true;
+            self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
         }
 
         let temp = CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested;
