@@ -69,7 +69,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         let mut block_devices = block_init();
         block_devices = ide_init(block_devices);
-        block_devices = tempfs_init(block_devices);
+        tempfs_init(block_devices);
 
         println!("Setting up PIT");
         timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);

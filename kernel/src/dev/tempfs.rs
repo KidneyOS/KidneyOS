@@ -28,12 +28,10 @@ impl TempFs {
 }
 static tempfs0: MutexIrq<Option<TempFs>> = MutexIrq::new(Option::None);
 
-
-
 // tempfs disk descriptor type
 pub type TempFsDisk = usize;
 
-pub fn tempfs_init(all_blocks: BlockManager ){
+pub fn tempfs_init(mut all_blocks: BlockManager ) {
     let t:  &mut Option<TempFs> = &mut tempfs0.lock();    
     *t = Option::Some(TempFs::new(1024)); 
     all_blocks.block_register(BlockType::BlockTempfs, "tempfs0".into(), 1024 as BlockSector, BlockDriver::TempFs(0));

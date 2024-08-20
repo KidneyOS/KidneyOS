@@ -4,7 +4,7 @@
 #![allow(unused_imports)]
 
 use super::super::sync::irq::MutexIrq;
-use super::block::{ BlockSector, BlockDriver, BlockType, BlockManager, BLOCK_SECTOR_SIZE};
+use super::block::{ BlockSector, BlockDriver, BlockType, BlockManager, BlockOperations, BLOCK_SECTOR_SIZE};
 use super::partition::{partition_scan};
 use alloc::{format, str, string::String, boxed::Box};
 use core::{arch::asm, ptr};
@@ -89,38 +89,38 @@ struct ATAChannel {
     d1_is_ata: bool,
 }
 
-pub type ATADisk = u8;
-pub fn channel(d: ATADisk) -> u8 {
-    (d/2)%2
-}
-pub fn dev_num(d: ATADisk) -> u8 {
-    d % 2
+pub struct ATADisk(u8);
 
-}
-
-pub fn ide_read(dev: ATADisk, sec_no: BlockSector, buf: &mut [u8]) {
-    let c: &mut ATAChannel = &mut CHANNELS[channel(dev) as usize].lock();
-    let dev_no = dev_num(dev);
-    c.select_sector(dev_no, sec_no);
-    c.issue_pio_command(CMD_READ_SECTOR_RETRY);
-    c.wait_until_ready();
-    c.wait_while_busy();
-    unsafe {
-        c.read_sector(buf);
+impl ATADisk {
+    pub fn channel(&self) -> u8 {
+        (self.0/2)%2
+    }
+    pub fn dev_num(&self) -> u8 {
+        self.0 % 2
     }
 }
+impl BlockOperations for ATADisk {
+    unsafe fn read(&self, sec_no: BlockSector, buf: &mut [u8]) -> {
+        let c: &mut ATAChannel = &mut CHANNELS[self.channel() as usize].lock();
+        let dev_no = self.dev_num();
+        c.select_sector(dev_no, sec_no);
+        c.issue_pio_command(CMD_READ_SECTOR_RETRY);
+        c.wait_until_ready();
+        c.wait_while_busy();
+        c.read_sector(buf);
+        0
+    }
 
-pub fn ide_write(dev: ATADisk, sec_no: BlockSector, buf: &[u8]) {
-
-    let c: &mut ATAChannel = &mut CHANNELS[channel(dev) as usize].lock();
-    let dev_no = dev_num(dev);
-    c.select_sector(dev_no, sec_no);
-    c.issue_pio_command(CMD_WRITE_SECTOR_RETRY);
-    c.wait_until_ready();
-    c.wait_while_busy();
-    unsafe {
+    unsafe fn write(&self, sec_no: BlockSector, buf: &[u8]) -> u8 {
+        let c: &mut ATAChannel = &mut CHANNELS[self.channel() as usize].lock();
+        let dev_no = self.dev_num();
+        c.select_sector(dev_no, sec_no);
+        c.issue_pio_command(CMD_WRITE_SECTOR_RETRY);
+        c.wait_until_ready();
+        c.wait_while_busy();
         c.write_sector(buf);
-    };
+        0
+    }
 }
 
 impl ATAChannel {
@@ -182,7 +182,6 @@ impl ATAChannel {
     }
     
     // ATA Registers
-
     const fn reg_data(&self) -> u16 {
         self.reg_base
     }
@@ -225,12 +224,12 @@ impl ATAChannel {
 
     // Basic ATA Functionality    
     fn wait_while_busy(&self) -> bool {
-        for i in 0..3000 {
+        for i in 0..30000 {
             if (inb(self.reg_alt_status()) & STA_BSY) == 0 {
                 // println!("ok");
                 return (inb(self.reg_alt_status()) & STA_DRQ) != 0;
             }
-            usleep(10);
+            usleep(1);
         }
         println!("failed with status {}", inb(self.reg_alt_status()));
         false
@@ -238,13 +237,13 @@ impl ATAChannel {
 
     // polls device until idle
     fn wait_until_ready(&self) {
-        for i in 0..3000 {
+        for i in 0..30000 {
             // println!("waiting");
             let b = inb(self.reg_status());
             if (b & (STA_BSY | STA_DRQ)) == 0 {
                 return;
             }
-            msleep(10);
+            usleep(1);
         }
     }
 
@@ -357,10 +356,7 @@ impl ATAChannel {
             true
         }
     }
-
-    
 }
-
 
 /* 
 Identify ATA device using "identify" command, register block device and partitions
@@ -401,7 +397,7 @@ fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, m
             &name,
             size>>11,
         );
-        let d: BlockDriver = BlockDriver::ATAPio(c.channel_num*2 + dev_no);
+        let d: BlockDriver = BlockDriver::ATAPio(ATADisk(c.channel_num*2 + dev_no));
         idx = all_blocks.block_register(BlockType::BlockRaw, name, size as BlockSector, d);
 
 

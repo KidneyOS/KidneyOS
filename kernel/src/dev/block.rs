@@ -1,7 +1,7 @@
-use alloc::{vec::Vec, string::String};
-use super::super::sync::irq::MutexIrq;
-use super::ide::{ATADisk, ide_read, ide_write};
-use super::tempfs::{TempFsDisk, tempfs_read, tempfs_write};
+use alloc::{vec::Vec, sync::Arc, string::String};
+use super::ide::ATADisk;
+use super::tempfs::TempFsDisk;
+
 
 pub const BLOCK_SECTOR_SIZE: usize = 512;
 pub type BlockSector = u32;
@@ -16,7 +16,6 @@ pub enum BlockType {
     BlockForeign(BlockSector),
     BlockTempfs,
     BlockRaw,
-
 }
 
 impl BlockType {
@@ -32,6 +31,10 @@ impl BlockType {
     }
 }
 
+pub trait BlockOperations {
+    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8; 
+    unsafe fn write(&self, sector: BlockSector, buf: &[u8]) -> u8;
+}
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockDriver {
@@ -40,24 +43,26 @@ pub enum BlockDriver {
     // FUSE(Arc<dyn FuseDriver>),
 }
 
+
 impl BlockDriver {
-    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8{
+    fn unwrap(&self) -> &impl BlockOperations {
         match self {
-            BlockDriver::ATAPio(d) => ide_read(*d, sector, buf),
-            BlockDriver::TempFs(d) => tempfs_read(*d, sector, buf), 
+            BlockDriver::ATAPio(d) => d,
+            BlockDriver::TempFs(d) => d, 
         }
-        0
+    }
+    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8{
+        let ops: &dyn BlockOperations = self.unwrap();
+        ops.read(sector, buf)
     }
     unsafe fn write(&self, sector: BlockSector, buf: &[u8]) -> u8 {
-        match self {
-            BlockDriver::ATAPio(d) => ide_write(*d, sector, buf),
-            BlockDriver::TempFs(d) => tempfs_write(*d, sector, buf), 
-        }
-        0
+        let ops: &dyn BlockOperations = self.unwrap();
+        ops.write(sector, buf)
     }
 
 }
 
+// once blocks are made they are immutable
 #[derive(PartialEq, Clone)]
 pub struct Block {
     driver: BlockDriver,
@@ -66,7 +71,6 @@ pub struct Block {
     block_size: BlockSector,
     idx: usize,
 }
-
 
 impl Block {
     pub fn block_read(&self, sector: BlockSector, buf: &mut [u8]) -> u8{
@@ -121,9 +125,8 @@ impl BlockManager {
     }
 
     fn with_capacity(cap: usize) -> Self {
-        let mut all_blocks: Vec<Block> = Vec::with_capacity(cap);
         BlockManager {
-            all_blocks 
+            all_blocks: Vec::with_capacity(cap)
         }
     }
 
@@ -138,16 +141,16 @@ impl BlockManager {
         });
         idx
     } 
-
-    pub fn by_id(&self, idx: usize) -> Block {
+    //TODO: rest of fs code should take reference to block instead of cloning
+    pub fn by_id(&self, idx: usize) ->  Block {
        self.all_blocks[idx].clone() 
     }
 
-
+    //TODO: rest of fs code should take reference to block instead of cloning
     pub fn by_name(&self, name: &str) -> Option<Block>{
         for i in self.all_blocks.iter() {
             if i.block_name == name {
-                return Option::Some(i.clone());
+                return Option::Some(i);
             }
         }
         Option::None
