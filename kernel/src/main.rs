@@ -15,6 +15,7 @@ mod sync;
 mod threading;
 mod user_program;
 
+#[macro_use]
 extern crate alloc;
 
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};

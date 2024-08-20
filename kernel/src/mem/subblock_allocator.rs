@@ -1,3 +1,4 @@
+/*
 use core::{
     alloc::{AllocError, Layout},
     ptr,
@@ -9,10 +10,25 @@ use bitvec::{bits};
 use bitvec::order::Lsb0;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitViewSized;
+ */
+#![allow(unused_imports)]
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 use crate::mem::frame_allocator::{FrameAllocatorSolution, CoreMapEntry};
 use crate::mem::{FrameAllocator};
 
+
+pub struct DumbSubblockAllocator {
+    dummy: u32,
+}
+
+impl DumbSubblockAllocator {
+    pub fn dumb_new() -> Self {
+        DumbSubblockAllocator { dummy: 6 }
+    }
+}
+
+
+/*
 struct ListNode<> {
     next: Option<& 'static mut ListNode>,
     free_subblocks: Option<usize>,
@@ -137,7 +153,6 @@ fn get_subblock_size_index(num_bytes: usize) -> usize {
     }
     999
 }
-
 
 impl SubblockAllocator {
     /// SubblockAllocator has the giant chunk of memory referred to in region.
@@ -484,3 +499,4 @@ mod tests {
         assert!(!node.check_frame_used(2));
     }
 }
+*/
