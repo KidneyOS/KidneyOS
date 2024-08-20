@@ -1,4 +1,4 @@
-use crate::dev::block::{Block, BlockType, BlockManager};
+use crate::dev::block::{Block, BlockType, BlockManager, BlockSector, block_init};
 use alloc::{vec::Vec, string::String};
 use crate::sync::irq::MutexIrq;
 use crate::fs::{ext2, vsfs, fat, tempfs::Tempfs};
@@ -39,7 +39,7 @@ impl IOError {
     }
 }
 
-struct Stat {
+pub struct Stat {
     st_dev: u32,
     st_ino: u32,
     st_mode: u16,
@@ -71,15 +71,15 @@ pub struct Dentry<'a> {
     ino_number: u32, /* associated inode */
     name: String, 
     mounted: bool,
-    parent: Option<Box<Dentry>>,
-    children: Vec<Dentry>,
+    parent: Option<Box<Dentry<'a>>>,
+    children: Vec<Dentry<'a>>,
     block: &'a SuperBlock
 }
 
 
-impl <'a>Dentry {
+impl<'a> Dentry<'a> {
 
-    pub fn create_root(block: &'a SuperBlock, ino_num: u32) -> Dentry {
+    pub fn create_root(block: &'a SuperBlock, ino_num: u32) -> Dentry<'a> {
         Dentry {
             count: 1,
             ino_number: ino_num,
@@ -92,24 +92,23 @@ impl <'a>Dentry {
     }
 
     pub fn forward(&self) -> &[Dentry] {
-        todo!();
+        &self.children
     }
 
-
-    pub fn revalidate(u32: flags){
+    pub fn revalidate(flags: u32){
         todo!();
     }
 }
 
 pub struct MemInode {
     block: Block,
-    stat: stat,
-    offset: 
+    stat: Stat,
+    offset: BlockSector, //up to fs implementation 
 }
 
+
 impl MemInode {
-    
-    pub fn create(ino: MemInode, Dentry: Dentry) {
+    pub fn create(ino: MemInode, dentry: Dentry) {
                 
     }
     //pub fn link 
@@ -118,7 +117,8 @@ impl MemInode {
 
 
 pub enum FsType {
-    Tempfs(Tempfs)
+    Tempfs(Tempfs),
+
 }
 
 impl FsType {
@@ -137,17 +137,11 @@ pub struct SuperBlock {
 
 
 impl SuperBlock {
-
-    pub fn try_init(block: Block) -> Option<SuperBlock> {
-        // Detect FS type
-        let mut fs: Option<SuperBlock>;
-
-        //try every fs type
-        fs = Tempfs::try_init(block.clone())
-        if let fs == Option::Some(a) {
-            return fs;
+    pub fn new(name: String, fs: FsType) -> SuperBlock {
+        SuperBlock {
+            name,
+            fs,
         }
-        Option::None
     }
     
     pub fn get_root(&self) -> &Dentry {
@@ -156,10 +150,12 @@ impl SuperBlock {
     }
 }
 
+
+
 pub trait FileSystem {
     fn try_init(block: Block) -> Option<SuperBlock>;
     fn get_root(&mut self) -> &Dentry;
-
+    fn lookup(&self, dentry: Dentry) -> Option<MemInode>;
 
 
 }
@@ -171,20 +167,46 @@ pub struct Vfs {
 
 impl Vfs {
 
-    pub fn register_filesys(&self, dev_name: &str ) -> SuperBlock {
+    pub fn new(root:SuperBlock, ) {
+        Vfs {
+            root,
+            registered: Vec::new(),
+            blocks: block_init(),
+        };
+    }
+
+    pub fn register_filesys(block: Block) -> Option<SuperBlock> {
+        // Detect FS type
+        let mut fs: Option<SuperBlock>;
+        //try every fs type
+        fs = Tempfs::try_init(block.clone());
+        if fs.is_some() {
+            return fs;
+        }
+        Option::None
+    }
+
+    pub fn mount_filesys(&self, block: Block) {
         todo!();
     }
 
-    pub fn mount_filesys(&self, dev_name: &str) {
-        todo!();
+    pub fn resolve_path(&self, absolute_path: &str) -> Dentry{
+        match self.root.fs {
+            FsType::Tempfs(fs) => {
+                todo!();
+            }
+        }
     }
 
-    pub fn resolve_path(&self, absolute_path: &str) -> Dirent{
-        todo!();
-    }
+    pub fn stat(&self, path: &str) -> Result<Stat, IOError> {
+        let dentry = self.resolve_path(path);
+        match dentry.block.fs {
+            FsType::Tempfs(fs) => {
+                let mem_inode: MemInode = fs.lookup(dentry).unwrap();
+                Ok(mem_inode.stat)
+            }
 
-    pub fn stat(&self, path: &str) {
-        todo!();
+        }
     }
 
 }
@@ -193,15 +215,15 @@ pub struct Path {
     Vec<String> names,
 }
 
-pub fn fs_init(blocks: BlockManager, root: &str) -> Option<Vfs>{ 
-    let root = if let SuperBlock::new(blocks.by_name(root)) == Option::Some(blk) {
-        return Option::None
-    } else{
+pub fn fs_init(blocks: BlockManager, root_name: &str) -> Option<Vfs>{ 
+    let root = if let Option::Some(blk) = Vfs::register_filesys(blocks.by_n)me(blocks) {
         blk
-    }
+    } else{
+        return Option::None;
+    };
     Option::Some(Vfs {
-        root: SuperBlock::new(blocks.by_name(root))         
-        registered: Vec::new()
+        root: SuperBlock::new(root), 
+        registered: Vec::new(),
         blocks
     })
 

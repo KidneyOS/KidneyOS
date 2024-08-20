@@ -11,24 +11,29 @@ pub struct Tempfs  {
 
 
 impl FileSystem for Tempfs {
-    pub fn try_init(block: Block) -> Option<SuperBlock>{
-        if let block.block_type() == BlockType::BlockTempfs {
-            Option::Some(SuperBlock {
-                name: block.block_name(),
-                fs: FsType::Tempfs( Tempfs {
-                    block
-                }),     
-            })
-        }else {
+    fn try_init(block: Block) -> Option<SuperBlock>{
+        if let BlockType::BlockTempfs = block.block_type() {
+            Option::Some(SuperBlock::new(
+                Tempfs{
+                    block,
+                    root: Option::None
+                },
+                block.block_name()
+            ))
+        } else {
             Option::None
         }
     }
     
-    pub fn get_root(&mut self) -> &Dentry {
+    fn get_root(&mut self) -> &Dentry {
         if let self.root == Option::None {
             self.root = Dentry::create_root(self.block, 0)
         }
         &self.root.unwrap()
+    }
+
+    fn lookup(&self, dentry: Dentry) -> Option<MemInode> {
+        todo!()
     }
 
 

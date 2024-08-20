@@ -1,8 +1,7 @@
-use alloc::{vec, string::String};
-use core::ffi;
-use crate::dev::block::{Block, BlockType};
+use alloc::{vec::Vec, vec, string::String, string::ToString};
+use crate::dev::block::{Block};
 use crate::fs::vfs::IOError;
-use core::mem;
+use core::{mem, str};
 pub struct Fat16<'a> {
     block: &'a Block,
     bytes_per_sector: u16,
@@ -102,7 +101,7 @@ impl<'a> Fat16<'a> {
     // why -2 clusters, I don't know
     // for fat16, total sectors can't exceed 31 bits
     fn disk_read(&self, buf: &mut [u8], sector: isize){ 
-        self.block.block_read((((self.data_sector_start - self.sectors_per_cluster as u16 * 2)) as isize + sector) as u32, buf) 
+        self.block.block_read((((self.data_sector_start - self.sectors_per_cluster as u16 * 2)) as isize + sector) as u32, buf); 
     }
     pub fn read_file_at(&self, file: &mut FSEntry, offset: u32, out: &mut [u8], mut amount: u32) -> Result<u32, IOError>{
         match file {
@@ -262,8 +261,8 @@ impl<'a> Fat16<'a> {
             let mut i = 7;
             while bytes[i] == 0x20 { i -= 1; }
             let slice = &bytes[0..(i + 1)];
-            parse_cstr(slice).to_string()
-
+            let parsed: &str = parse_cstr(slice);
+            parsed.to_string()
         }; 
         if bytes[8] != 0x20 {
             name.push('.');
@@ -271,7 +270,8 @@ impl<'a> Fat16<'a> {
                 let slice = if bytes[9] == 0x20  { &bytes[8..9] }
                 else if bytes[10] == 0x20 { &bytes[8..10] }
                 else { &bytes[8..11] };
-                parse_cstr(slice).to_string()
+                let parsed: &str = parse_cstr(slice);
+                parsed.to_string()
             });
         }
         let cluster = u16::from_le_bytes([bytes[26], bytes[27]]);
