@@ -73,9 +73,14 @@ impl Dentry {
             super_name: block_name.into(),
         }
     }
-
     pub fn get_ino(&self) -> u32 {
         self.ino_number
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn mounted(&self) -> bool {
+        self.mounted
     }
 }
 
@@ -160,14 +165,14 @@ impl Vfs {
     pub fn forward(&self, dentry: &Dentry) -> &[MutexIrq<Dentry>] {
         let fs = self.get_superblock(&dentry.super_name).unwrap().get_fs(); 
         let mem_inode = fs.read_inode(dentry.get_ino());
-        for inode in mem_inode.unwrap().children {
-            let child = fs.read_inode(inode);
+        for inode in mem_inode.unwrap().iter_children() {
+            let child = fs.read_inode(inode.clone());
             if child.is_none() {
                 continue;
             }
             let child_dentry = Dentry {
-                ino_number: inode,
-                name: child.unwrap().name,
+                ino_number: inode.clone(),
+                name: child.unwrap().name().into(),
                 mounted: false,
                 parent: Option::Some(dentry.get_ino()),
                 children: Vec::new(),
@@ -177,6 +182,9 @@ impl Vfs {
         }
         &dentry.children
     }
+
+
+
 
     pub fn open(&self, path: &str) -> Option<File> {
         let mem_inode = self.resolve_path(path);
@@ -193,24 +201,24 @@ impl Vfs {
         fs.close(file)
     }
 
-    pub fn read(&self, file: &File, amount: u32) -> u32 {
+    pub fn read(&self, file: &File, buf: &mut [u8]) -> u32 {
         let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs(); 
-        fs.read(file, amount)
+        fs.read(file, buf)
     }
 
-    pub fn write(&self, file: &File, amount: u32) -> u32 {
+    pub fn write(&self, file: &File, buf: &[u8]) -> u32 {
         let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs();
-        fs.write(file, amount)
+        fs.write(file, buf)
     }
 
     pub fn create(&mut self, path: &str, name: &str) -> u32 {
         let mem_inode = self.resolve_path(path);
         if mem_inode.is_err() {
-            return false;
+            return 0;
         }
 
         let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.create(&mem_inode.unwrap().get_name(), name)
+        fs.create(&mem_inode.unwrap().name(), name)
     }
     
     pub fn delete(&self, path: &str) -> bool {
@@ -220,7 +228,7 @@ impl Vfs {
         }
 
         let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.delete(&mem_inode.unwrap().get_name())
+        fs.delete(&mem_inode.unwrap().name())
     }
 
     pub fn mkdir(&mut self, path: &str, name: &str) -> u32 {

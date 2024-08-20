@@ -45,7 +45,7 @@ pub enum BlockDriver {
 
 
 impl BlockDriver {
-    fn unwrap(&self) -> &impl BlockOperations {
+    fn unwrap(&self) -> &dyn BlockOperations {
         match self {
             BlockDriver::ATAPio(d) => d,
             BlockDriver::TempFs(d) => d, 
@@ -150,7 +150,7 @@ impl BlockManager {
     pub fn by_name(&self, name: &str) -> Option<Block>{
         for i in self.all_blocks.iter() {
             if i.block_name == name {
-                return Option::Some(i);
+                return Option::Some(i.clone());
             }
         }
         Option::None

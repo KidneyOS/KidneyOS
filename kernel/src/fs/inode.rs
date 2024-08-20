@@ -1,3 +1,7 @@
+use alloc::{string::String, vec::Vec};
+use core::iter::Iterator
+
+#[derive(Clone)]
 pub struct Stat {
     st_dev: u32,
     st_ino: u32,
@@ -14,6 +18,7 @@ pub struct Stat {
     st_ctime: u64,
 }
 
+#[derive(Clone)]
 pub struct MemInode {
     block: String, // superblock
     stat: Stat,
@@ -49,7 +54,7 @@ impl MemInode {
     }
     //pub fn link 
 
-    pub fn get_name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
@@ -89,11 +94,15 @@ impl MemInode {
         self.block = block.into();
     }
 
-    pub fn get_stat(&self) -> Stat {
-        self.stat
+    pub fn stat(&self) -> &Stat {
+        &self.stat
     }
 
     pub fn set_stat(&mut self, stat: Stat) {
         self.stat = stat;
+    }
+
+    pub fn iter_children(&self) -> impl Iterator<Item = &u32> {
+        self.children.iter()
     }
 }

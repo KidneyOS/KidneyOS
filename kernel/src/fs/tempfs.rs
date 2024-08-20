@@ -1,4 +1,4 @@
-use super::vfs::{FileSystem, File, Vfs, SuperBlock, MemInode, Dentry, FsType};
+use super::{vfs::{File, Vfs, Dentry}, inode::{MemInode, Stat}, superblock::{SuperBlock, FileSystem, FsType}};
 use crate::dev::block::{BlockType,Block};
 use alloc::sync::Arc;
 
@@ -34,11 +34,11 @@ impl FileSystem for Tempfs{
 
     fn open(&self, path: &str) -> Option<File> { todo!() }
     fn close(&self, file: &File) -> bool { todo!() }
-    fn read(&self, file: &File, buffer: &mut [u8], amount: u32) -> u32 { todo!() }
-    fn write(&self, file: &File, buffer: &mut [u8], amount: u32) -> u32 { todo!() }
-    fn create(&mut self, path: &str, name: &str) -> bool { todo!() }
+    fn read(&self, file: &File, buffer: &mut [u8]) -> u32 { todo!() }
+    fn write(&self, file: &File, buffer: &[u8]) -> u32 { todo!() }
+    fn create(&mut self, path: &str, name: &str) -> u32 { todo!() }
     fn delete(&self, path: &str) -> bool { todo!() }
-    fn mkdir(&mut self, path: &str, name: &str) -> bool { todo!() }
+    fn mkdir(&mut self, path: &str, name: &str) -> u32 { todo!() }
     fn rmdir(&mut self, path: &str, name: &str) -> bool { todo!() }
     fn cp(&self, path: &str, name: &str) -> u32 {
         todo!()

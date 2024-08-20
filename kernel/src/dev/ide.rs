@@ -89,6 +89,7 @@ struct ATAChannel {
     d1_is_ata: bool,
 }
 
+#[derive(Copy, Clone, PartialEq)]
 pub struct ATADisk(u8);
 
 impl ATADisk {
@@ -100,7 +101,7 @@ impl ATADisk {
     }
 }
 impl BlockOperations for ATADisk {
-    unsafe fn read(&self, sec_no: BlockSector, buf: &mut [u8]) -> {
+    unsafe fn read(&self, sec_no: BlockSector, buf: &mut [u8]) -> u8 {
         let c: &mut ATAChannel = &mut CHANNELS[self.channel() as usize].lock();
         let dev_no = self.dev_num();
         c.select_sector(dev_no, sec_no);

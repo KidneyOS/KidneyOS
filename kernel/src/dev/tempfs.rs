@@ -1,6 +1,6 @@
 
 use super::super::sync::irq::MutexIrq;
-use super::block::{BLOCK_SECTOR_SIZE, BlockSector, BlockDriver, BlockManager, BlockType};
+use super::block::{BLOCK_SECTOR_SIZE, BlockSector, BlockDriver, BlockManager, BlockType, BlockOperations};
 use alloc::vec::{Vec};
 
 pub struct TempFs {
@@ -29,21 +29,28 @@ impl TempFs {
 static tempfs0: MutexIrq<Option<TempFs>> = MutexIrq::new(Option::None);
 
 // tempfs disk descriptor type
-pub type TempFsDisk = usize;
+#[derive(Copy, Clone, PartialEq)]
+pub struct TempFsDisk;
 
 pub fn tempfs_init(mut all_blocks: BlockManager ) {
     let t:  &mut Option<TempFs> = &mut tempfs0.lock();    
     *t = Option::Some(TempFs::new(1024)); 
-    all_blocks.block_register(BlockType::BlockTempfs, "tempfs0".into(), 1024 as BlockSector, BlockDriver::TempFs(0));
+    all_blocks.block_register(BlockType::BlockTempfs, "tempfs0".into(), 1024 as BlockSector, BlockDriver::TempFs(TempFsDisk));
 
 }
 
-pub fn tempfs_read(fd: TempFsDisk, sector: BlockSector, buf: &mut [u8]) {
-    let t: &mut TempFs = &mut tempfs0.lock().unwrap();
-    t.read(sector, buf); 
+
+impl BlockOperations for TempFsDisk {
+    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8 {
+        let t: &mut TempFs = &mut tempfs0.lock().unwrap();
+        t.read(sector, buf); 
+        0
+    }
+
+    unsafe fn write(&self, sector: BlockSector, buf: &[u8]) -> u8{
+        let t: &mut TempFs = &mut tempfs0.lock().unwrap();
+        t.write(sector, buf); 
+        0
+    }
 }
 
-pub fn tempfs_write(fd: TempFsDisk, sector: BlockSector, buf: &[u8]) {
-    let t: &mut TempFs = &mut tempfs0.lock().unwrap();
-    t.write(sector, buf); 
-}

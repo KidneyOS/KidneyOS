@@ -1,7 +1,7 @@
 use crate::dev::block::{Block, BlockManager, block_init};
 use alloc::{vec::Vec, string::String};
 use crate::sync::irq::{MutexIrq};
-use crate::fs::{inode::{MemInode, Stat}, superblock::{SuperBlock, FsType, FileSystem}, tempfs::Tempfs};
+use crate::fs::{inode::{MemInode, Stat}, tempfs::Tempfs, vfs::{File, Dentry}};
 use core::error::Error;
 use core::fmt;
 use core::fmt::Debug;
@@ -18,8 +18,8 @@ pub trait FileSystem {
     fn device_name(&self) -> &str;
     fn open(&self, path: &str) -> Option<File>;
     fn close(&self, file: &File) -> bool;
-    fn read(&self, file: &File, amount: u32) -> u32;
-    fn write(&self, file: &File, amount: u32) -> u32;
+    fn read(&self, file: &File, buf: &mut [u8]) -> u32;
+    fn write(&self, file: &File, buf: &[u8]) -> u32;
     fn create(&mut self, path: &str, name: &str) -> u32;
     fn delete(&self, path: &str) -> bool;
     fn mkdir(&mut self, path: &str, name: &str) -> u32;
@@ -33,7 +33,7 @@ pub enum FsType{
 }
 
 impl FsType {
-    pub fn unwrap(&self) -> &impl FileSystem {
+    pub fn unwrap(&self) -> &dyn FileSystem {
         match self {
             FsType::Tempfs(fs) => fs,
         }
