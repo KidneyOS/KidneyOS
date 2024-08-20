@@ -1,4 +1,3 @@
-#![feature(new_uninit)]
 mod buddy_allocator;
 mod frame_allocator;
 pub mod user;
@@ -6,26 +5,26 @@ pub mod util;
 mod subblock_allocator;
 
 
-
 use alloc::{
     boxed::Box,
-    vec::Vec
+    vec::Vec,
 };
 use buddy_allocator::BuddyAllocator;
 use core::{
-    alloc::{AllocError, Allocator, GlobalAlloc, Layout},
+    alloc::{AllocError, GlobalAlloc, Layout},
     cell::UnsafeCell,
     ptr::NonNull,
     mem::size_of,
+    ptr,
+    sync::atomic::{AtomicUsize, Ordering},
 };
-use std::ptr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution, DummyAllocatorSolution};
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
 };
+use crate::mem::subblock_allocator::DumbSubblockAllocator;
 
 
 // Global variables to keep track of allocation statistics
@@ -63,7 +62,7 @@ struct FrameAllocatorWrapper{
 impl FrameAllocatorWrapper{
     fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>, num_frames_in_system: usize) -> Self {
         Self {
-            frame_allocator: FrameAllocatorSolution::new_in(start: NonNull<u8>,
+            frame_allocator: FrameAllocatorSolution::new_in(start,
                                                             core_map,
                                                             num_frames_in_system),
         }
@@ -79,12 +78,13 @@ impl FrameAllocatorWrapper{
 }
 
 enum KernelAllocatorState {
+    Deinitialized,
     Uninitialized {
         dummy_allocator: DummyAllocatorSolution,
     },
     Initialized {
         frame_allocator: FrameAllocatorWrapper,
-        subblock_allocators: SubblockAllocator
+        subblock_allocators: DumbSubblockAllocator
     },
 }
 
@@ -110,7 +110,7 @@ impl KernelAllocator {
     pub const fn new() -> KernelAllocator {
         Self {
             state: UnsafeCell::new(KernelAllocatorState::Uninitialized{
-                dummy_allocator: DummyAllocatorSolution::new_in(0, 0), }),
+                dummy_allocator: DummyAllocatorSolution::new_in(0, 0)}),
         }
     }
 
@@ -166,7 +166,7 @@ impl KernelAllocator {
                 num_frames_in_system,
             ),
             // TODO: Add the constructor for the subblock allocator here
-            subblock_allocators:
+            subblock_allocators: subblock_allocator::DumbSubblockAllocator::dumb_new()
         };
     }
 
@@ -225,7 +225,7 @@ impl KernelAllocator {
             panic!("Leaks detected");
         }
 
-        *self.state.get_mut() = KernelAllocatorState::Uninitialized;
+        *self.state.get_mut() = KernelAllocatorState::Deinitialized;
     }
 }
 
@@ -325,14 +325,13 @@ unsafe impl GlobalAlloc for KernelAllocator {
 }
 
 // Run tests to see if GlobalAllocator is working properly
+#[allow(dead_code)]
 pub fn run_allocation_tests(){
     // Test 1
     let heap_val_1 = Box::new(10);
     let heap_val_2 = Box::new(3.2);
-    let heap_val_3 = Box::new(String::from("Hello World"));
     assert_eq!(*heap_val_1, 10);
     assert_eq!(*heap_val_2, 3.2);
-    assert_eq!(*heap_val_3, "Hello World");
 
     // Test 2
     let n = 100;

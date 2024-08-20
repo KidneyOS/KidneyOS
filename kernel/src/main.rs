@@ -24,6 +24,7 @@ mod threading;
 mod user_program;
 pub mod vfs;
 
+#[macro_use]
 extern crate alloc;
 
 use crate::block::block_core::BlockManager;
