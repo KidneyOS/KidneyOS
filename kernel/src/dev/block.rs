@@ -1,4 +1,4 @@
-use alloc::{vec::Vec, sync::Arc, string::String};
+use alloc::{vec::Vec, string::String};
 use super::ide::ATADisk;
 use super::tempfs::TempFsDisk;
 
@@ -150,7 +150,7 @@ impl BlockManager {
     pub fn by_name(&self, name: &str) -> Option<Block>{
         for i in self.all_blocks.iter() {
             if i.block_name == name {
-                return Option::Some(i);
+                return Option::Some(i.clone());
             }
         }
         Option::None

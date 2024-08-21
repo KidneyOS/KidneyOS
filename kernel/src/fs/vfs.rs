@@ -1,6 +1,6 @@
 use crate::dev::block::{Block, BlockManager};
 use alloc::{vec::Vec, string::String};
-use crate::sync::irq::{MutexIrq};
+use crate::sync::irq::MutexIrq;
 use crate::fs::{inode::{MemInode, Stat}, superblock::{SuperBlock, FileSystem}, tempfs::Tempfs};
 use core::error::Error;
 use core::fmt;
@@ -56,6 +56,7 @@ pub struct Dentry {
     name: String, 
     mounted: bool,
     parent: u32,
+    children: Vec<MutexIrq<Dentry>>,
     super_name: String,
 }
 
@@ -66,12 +67,18 @@ impl Dentry {
             name: "/".into(),
             mounted: true,
             parent: ino_num,
+            children: Vec::new(),
             super_name: block_name.into(),
         }
     }
-
     pub fn get_ino(&self) -> u32 {
         self.ino_number
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn mounted(&self) -> bool {
+        self.mounted
     }
 }
 
@@ -156,22 +163,22 @@ impl Vfs {
     pub fn forward(&self, dentry: &Dentry) -> &[MutexIrq<Dentry>] {
         let fs = self.get_superblock(&dentry.super_name).unwrap().get_fs(); 
         let mem_inode = fs.read_inode(dentry.get_ino());
-        let mut children = Vec::new();
-        for inode in mem_inode.unwrap().get_children() {
-            let child = fs.read_inode(inode);
+        for inode in mem_inode.unwrap().iter_children() {
+            let child = fs.read_inode(inode.clone());
             if child.is_none() {
                 continue;
             }
             let child_dentry = Dentry {
-                ino_number: inode,
+                ino_number: inode.clone(),
                 name: child.unwrap().get_name().into(),
                 mounted: false,
                 parent: dentry.get_ino(),
+                children: Vec::new(),
                 super_name: dentry.super_name,
             };
-            children.push(MutexIrq::new(child_dentry));
+            dentry.children.push(MutexIrq::new(child_dentry));
         }
-        &children
+        &dentry.children
     }
 
     pub fn open(&self, path: &str) -> Option<File> {
@@ -189,14 +196,14 @@ impl Vfs {
         fs.close(file)
     }
 
-    pub fn read(&self, file: &File, amount: u32) -> u32 {
+    pub fn read(&self, file: &File, buf: &mut [u8]) -> u32 {
         let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs(); 
-        fs.read(file, amount)
+        fs.read(file, buf)
     }
 
-    pub fn write(&self, file: &File, amount: u32) -> u32 {
+    pub fn write(&self, file: &File, buf: &[u8]) -> u32 {
         let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs();
-        fs.write(file, amount)
+        fs.write(file, buf)
     }
 
     pub fn create(&mut self, path: &str) -> u32 {
@@ -242,7 +249,7 @@ impl Vfs {
         // TODO: recursively copy children
         let mem_inode = self.resolve_path(path);
         if mem_inode.is_err() {
-            return Option::None;
+            return Err(IOError::new("Path not found".into()));
         }
 
         let name = self.get_relative_path(new_path);
@@ -264,12 +271,12 @@ impl Vfs {
         mem_inode.unwrap().set_children(Vec::new());
 
         let mut dentry = &mut self.root.get_root().lock();
-        let mut parent: Option<u32> = Option::None;
+        let mut parent = dentry.ino_number;
         for step in path.split("/") {
             for child in self.forward(dentry) {
                 let mut child = child.lock();
                 if child.name == step {
-                    parent = Option::Some(dentry.get_ino());
+                    parent = dentry.get_ino();
                     dentry = &mut child;
                     break;
                 }
@@ -285,8 +292,8 @@ impl Vfs {
     fn get_relative_path(&self, path: &str) -> String {
         let mut dentry = &mut self.root.get_root().lock();
         let mut parent: Option<u32> = Option::None;
-        let name: String = String::new();
-        for step in path {
+        let mut name: String = String::new();
+        for step in path.split("/") {
             for child in self.forward(dentry) {
                 let mut child = child.lock();
                 if child.name == step {
@@ -296,14 +303,14 @@ impl Vfs {
                         name.clear();
                     }
                     else {
-                        name.push("/");
+                        name.push('/');
                         name.push_str(step);
                     }
                     continue;
                 }
-                return Err( IOError::new("Path not found".into()))
             }
         }
+        name.into()
     }
 
     fn get_mount(&self, path: &str) -> String {

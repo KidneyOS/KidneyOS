@@ -30,18 +30,17 @@ static tempfs0: MutexIrq<Option<TempFs>> = MutexIrq::new(Option::None);
 
 // tempfs disk descriptor type
 #[derive(Copy, Clone, PartialEq)]
-pub struct TempFsDisk(usize);
+pub struct TempFsDisk;
 
-
-pub fn tempfs_init(mut all_blocks: BlockManager ) -> BlockManager{
+pub fn tempfs_init(mut all_blocks: BlockManager ) {
     let t:  &mut Option<TempFs> = &mut tempfs0.lock();    
     *t = Option::Some(TempFs::new(1024)); 
-    all_blocks.block_register(BlockType::BlockTempfs, "tempfs0".into(), 1024 as BlockSector, BlockDriver::TempFs(TempFsDisk(0)));
-    all_blocks
+    all_blocks.block_register(BlockType::BlockTempfs, "tempfs0".into(), 1024 as BlockSector, BlockDriver::TempFs(TempFsDisk));
+
 }
 
 impl BlockOperations for TempFsDisk {
-    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8])  -> u8{
+    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8 {
         let t: &mut TempFs = &mut tempfs0.lock().unwrap();
         t.read(sector, buf); 
         0
@@ -53,5 +52,4 @@ impl BlockOperations for TempFsDisk {
         0
     }
 }
-
 

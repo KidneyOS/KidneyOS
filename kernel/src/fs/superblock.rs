@@ -1,20 +1,19 @@
 use crate::dev::block::Block;
-use crate::sync::irq::MutexIrq;
 use alloc::string::String;
+use crate::sync::irq::MutexIrq;
 use crate::fs::{inode::MemInode, tempfs::Tempfs, vfs::{File, Dentry}};
 use alloc::collections::btree_map::BTreeMap;
 
 // TODO: clear inode cache after a while
 // TODO: change BtreeMap to store Arc<MemInode>
 pub trait FileSystem {
-    fn try_init(block: Block) -> Option<SuperBlock>;
     fn get_root_ino(&self) -> u32;
     fn read_inode(&self, inode: u32) -> Option<MemInode>;
     fn device_name(&self) -> &str;
     fn open(&self, path: &str) -> Option<File>;
     fn close(&self, file: &File) -> bool;
-    fn read(&self, file: &File, amount: u32) -> u32;
-    fn write(&self, file: &File, amount: u32) -> u32;
+    fn read(&self, file: &File, buf: &mut [u8]) -> u32;
+    fn write(&self, file: &File, buf: &[u8]) -> u32;
     fn create(&mut self, path: &str) -> u32;
     fn delete(&self, path: &str) -> bool;
     fn mkdir(&mut self, path: &str) -> u32;
@@ -27,6 +26,9 @@ pub enum FsType{
     Tempfs(Tempfs),
 }
 
+/// This `impl` block defines a method called `unwrap` for the `FsType` enum. The `unwrap` method takes
+/// a reference to `self` (an instance of `FsType`) and returns a reference to a trait object `&dyn
+/// FileSystem`.
 impl FsType {
     pub fn unwrap(&self) -> &dyn FileSystem {
         match self {
@@ -62,7 +64,7 @@ impl SuperBlock {
         &self.root
     }
 
-    pub fn get_fs(&self) -> &impl FileSystem {
+    pub fn get_fs(&self) -> &dyn FileSystem {
         self.fs.unwrap()
     }
 
@@ -71,14 +73,14 @@ impl SuperBlock {
     }
 
     pub fn lookup_inode(&self, ino: u32) -> Option<MemInode> {
-        if let Option::Some(&inode) = self.btree.get(&ino) {
-            return Option::Some(inode.clone());
+        if let inode = self.inode_tree.get(&ino.clone()) {
+            return inode.clone().cloned();
         }
         let inode = self.fs.unwrap().read_inode(ino);
         if inode.is_none() {
             return Option::None;
         }
-        self.btree.insert(ino, inode.clone().unwrap());
+        self.inode_tree.insert(ino, inode.clone().unwrap());
         Option::Some(inode.unwrap())
     }
 }
