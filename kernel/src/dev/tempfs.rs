@@ -39,7 +39,6 @@ pub fn tempfs_init(mut all_blocks: BlockManager ) {
 
 }
 
-
 impl BlockOperations for TempFsDisk {
     unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]) -> u8 {
         let t: &mut TempFs = &mut tempfs0.lock().unwrap();

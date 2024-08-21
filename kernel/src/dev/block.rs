@@ -1,4 +1,4 @@
-use alloc::{vec::Vec, sync::Arc, string::String};
+use alloc::{vec::Vec, string::String};
 use super::ide::ATADisk;
 use super::tempfs::TempFsDisk;
 
@@ -6,7 +6,7 @@ use super::tempfs::TempFsDisk;
 pub const BLOCK_SECTOR_SIZE: usize = 512;
 pub type BlockSector = u32;
 
-// partiton types have offset as part of the enum
+// partition types have offset as part of the enum
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockType {
     BlockKernel(BlockSector),
@@ -36,7 +36,7 @@ pub trait BlockOperations {
     unsafe fn write(&self, sector: BlockSector, buf: &[u8]) -> u8;
 }
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum BlockDriver {
     ATAPio(ATADisk),
     TempFs(TempFsDisk),

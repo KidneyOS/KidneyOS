@@ -54,7 +54,7 @@ impl MemInode {
     }
     //pub fn link 
 
-    pub fn name(&self) -> &str {
+    pub fn get_name(&self) -> &str {
         &self.name
     }
 
