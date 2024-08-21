@@ -1,5 +1,5 @@
 use alloc::{string::String, vec::Vec};
-use core::iter::Iterator
+use core::iter::Iterator;
 
 #[derive(Clone)]
 pub struct Stat {

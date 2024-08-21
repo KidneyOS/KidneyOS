@@ -19,6 +19,7 @@ mod threading;
 mod timer;
 mod user_program;
 mod fs;
+mod vfs;
 
 extern crate alloc;
 
