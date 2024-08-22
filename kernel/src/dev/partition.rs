@@ -1,17 +1,16 @@
 #![allow(unused_variables)]
-#![allow(unused_imports)]
 #![allow(dead_code)]
 
 
-use super::block::{BlockSector, BlockType, BlockManager, Block, BlockDriver };
-use alloc::{boxed::Box, string::{String, ToString}};
-use core::mem::{size_of, transmute};
+use super::block::{BlockSector, BlockType, BlockManager, Block};
+use alloc::string::{String, ToString};
+use core::mem::transmute;
 use core::clone::Clone;
 use kidneyos_shared::println;
 
 
 #[repr(packed, C)]
-struct PTE {
+struct Pte {
     bootable: u8,
     start_chs: [u8; 3],
     ptype: u8,
@@ -22,7 +21,7 @@ struct PTE {
 #[repr(packed, C)]
 struct PartitionTable{
     loader: [u8; 446],
-    partitions: [PTE; 4],
+    partitions: [Pte; 4],
     signature: u16, /* Should be 0xaa55 */
 }
 
@@ -46,7 +45,7 @@ fn read_partition_table(
     mut all_blocks: BlockManager,
 ) -> BlockManager {
 
-    assert!(dev.block_type() == BlockType::BlockRaw);
+    assert!(dev.block_type() == BlockType::Raw);
     let mut pt_rb: [u8; 512] = [0; 512];
 
     if sector > dev.block_size() {
@@ -107,11 +106,11 @@ fn found_partition(
     }
     
     let ptype: BlockType = match ptype {
-        0x20 => BlockType::BlockKernel(start), 
-        0x21 => BlockType::BlockFilesys(start),
-        0x22 => BlockType::BlockScratch(start),
-        0x23 => BlockType::BlockSwap(start),
-        _    => BlockType::BlockForeign(start)
+        0x20 => BlockType::Kernel(start), 
+        0x21 => BlockType::Filesys(start),
+        0x22 => BlockType::Scratch(start),
+        0x23 => BlockType::Swap(start),
+        _    => BlockType::Foreign(start)
     };
     let mut name: String = dev.block_name().into();
     name.push_str(part_no.to_string().as_str());   
@@ -121,7 +120,7 @@ fn found_partition(
     all_blocks.block_register(
         ptype,
         name,
-        size as u32,
+        size,
         dev.driver(),
     );
     all_blocks

@@ -1,6 +1,3 @@
-
-#![allow(unused_variables)]
-#![allow(dead_code)]
 use super::vfs::*;
 use alloc::{string::String, vec::Vec};
 

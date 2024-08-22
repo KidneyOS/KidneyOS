@@ -1,3 +1,5 @@
+
+#![allow(dead_code)]
 use alloc::{vec::Vec, string::String};
 use super::ide::ATADisk;
 use super::tempfs::TempFsDisk;
@@ -9,23 +11,23 @@ pub type BlockSector = u32;
 // partition types have offset as part of the enum
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockType {
-    BlockKernel(BlockSector),
-    BlockFilesys(BlockSector),
-    BlockScratch(BlockSector),
-    BlockSwap(BlockSector),
-    BlockForeign(BlockSector),
-    BlockTempfs,
-    BlockRaw,
+    Kernel(BlockSector),
+    Filesys(BlockSector),
+    Scratch(BlockSector),
+    Swap(BlockSector),
+    Foreign(BlockSector),
+    Tempfs,
+    Raw,
 }
 
 impl BlockType {
     fn get_offset(&self) -> BlockSector {
         match self {
-            BlockType::BlockKernel(o) => *o,
-            BlockType::BlockFilesys(o) => *o,
-            BlockType::BlockScratch(o) => *o,
-            BlockType::BlockSwap(o) => *o,
-            BlockType::BlockForeign(o) => *o,
+            BlockType::Kernel(o) => *o,
+            BlockType::Filesys(o) => *o,
+            BlockType::Scratch(o) => *o,
+            BlockType::Swap(o) => *o,
+            BlockType::Foreign(o) => *o,
             _ => 0,
         } 
     }
@@ -100,11 +102,10 @@ impl Block {
     pub fn block_name(&self) -> &str {
         &self.block_name
     }
-    // To be used by block manager only
-    fn block_set_idx(&mut self, idx: usize){
-        self.idx = idx
-    }
-    fn block_idx(&self) -> usize{
+    // fn block_set_idx(&mut self, idx: usize){
+    //     self.idx = idx
+    // }
+    pub fn block_idx(&self) -> usize{
         self.idx
     }
     pub fn driver(&self) -> BlockDriver {
@@ -135,7 +136,7 @@ impl BlockManager {
         self.all_blocks.push( Block {
             driver: block_driver,
             block_type,
-            block_name: block_name.into(),
+            block_name,
             block_size,
             idx,
         });

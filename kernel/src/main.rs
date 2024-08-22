@@ -19,14 +19,12 @@ mod threading;
 mod timer;
 mod user_program;
 mod fs;
-mod vfs;
 
 extern crate alloc;
 
 use dev::ide::ide_init;
 use dev::block::block_init;
 use dev::tempfs::tempfs_init;
-use fs::vfs::{fs_init};
 
 
 

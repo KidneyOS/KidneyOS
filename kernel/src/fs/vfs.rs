@@ -1,332 +1,277 @@
-use crate::dev::block::{Block, BlockManager};
+#![allow(unused_variables)]
+#![allow(dead_code)]
+use crate::fs::tempfs::*;
+use alloc::collections::BTreeSet;
+// use crate::sync::irq::MutexIrq;
 use alloc::{vec::Vec, string::String};
-use crate::sync::irq::MutexIrq;
-use crate::fs::{inode::{MemInode, Stat}, superblock::{SuperBlock, FileSystem}, tempfs::Tempfs};
-use core::error::Error;
-use core::fmt;
-use core::fmt::Debug;
+use super::inode::{MemInode, Stat, InodeNum};
+use alloc::collections::btree_map::BTreeMap;
 
 
-pub struct IOError {
-    message: String,
+pub trait FileSystem {
+    fn blkid(&self) -> Blkid;
+    fn read_ino(&self, ino: InodeNum) -> MemInode;
+    fn root_ino(&self) -> InodeNum;
 }
 
-impl fmt::Display for IOError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "IO error: {}", self.message)
-    }
+#[derive(Clone)]
+pub enum FsType{
+    Tempfs(Tempfs),
 }
 
-impl Debug for IOError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "IO error: {}", self.message)
-    }
-}
-
-impl Error for IOError {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> { 
-        Option::None
-    }
-}
-
-impl IOError {
-    pub fn new(message: String) -> Self {
-        IOError {
-            message,
+impl FsType {
+    pub fn unwrap(&self) -> &dyn FileSystem {
+        match self {
+            FsType::Tempfs(fs) => fs,
         }
     }
 }
 
-pub struct File {
-    mem_inode: MemInode,
-    buffer: Vec<u8>,
-}
-
-pub enum FileType {
-    Directory,
-    File,
-    Link,
-}
-
-//TODO: Make it so Dentry does not own its children, instead children should be inode numbers 
-//  that we look up from the superblock in a BtreeMap<MutexIrq<Dentry>> from InodeNumber
-
-pub struct Dentry {
-    ino_number: u32, /* associated inode */
-    name: String, 
+pub type Blkid = u32;
+pub struct SuperBlock {
+    root_ino: InodeNum,
+    fs: FsType,
     mounted: bool,
-    parent: u32,
-    children: Vec<MutexIrq<Dentry>>,
-    super_name: String,
+    mountpoint: String,
+}
+impl SuperBlock {
+    pub fn blkid(&self) -> Blkid {
+        self.fs.unwrap().blkid()
+    }
+    
+    pub fn root_ino(&self) -> InodeNum {
+        self.root_ino
+    }
+
+    pub fn read_inode(&self, ino: InodeNum) -> MemInode {
+        let fs: &dyn FileSystem = self.fs.unwrap();
+        fs.read_ino(ino)
+    }
+
+
+    
 }
 
+
+// For internal VFS use only
+struct Dentry {
+    inode: MemInode,
+    // Whether this directory or any of its children is a mountpoint, don't remove from vfs if so
+    contains_mountpoint: bool, 
+    // Dentry links for the VFS 
+    parent: usize,
+    idx: usize,
+    // Whether we need to read the disk to load dentries for children
+    dirty: bool,
+    // Map of name -> child
+    children_idx: BTreeSet<usize>,
+}
 impl Dentry {
-    pub fn create_root(block_name: &str, ino_num: u32) -> Dentry {
-        Dentry {
-            ino_number: ino_num,
-            name: "/".into(),
-            mounted: true,
-            parent: ino_num,
-            children: Vec::new(),
-            super_name: block_name.into(),
+    fn new(inode: MemInode, parent: usize, mounted: bool, idx: usize) -> Option<Dentry>{
+        if inode.is_directory() {
+            Option::Some(
+                Dentry {
+                    inode,
+                    parent, 
+                    contains_mountpoint: mounted,
+                    idx,
+                    dirty: true,
+                    children_idx: BTreeSet::new()
+                }
+            )
+        } else{
+            Option::None
         }
     }
-    pub fn get_ino(&self) -> u32 {
-        self.ino_number
+
+    fn set_dirty(&mut self, b:  bool){
+            self.dirty =b; 
     }
-    pub fn name(&self) -> &str {
-        &self.name
+
+    fn clean(&self) -> bool{
+        !self.dirty
     }
-    pub fn mounted(&self) -> bool {
-        self.mounted
+
+    fn push_child(&mut self, idx: usize) {
+        self.children_idx.insert(idx);
     }
+
+    fn pop_child(&mut self, idx: usize) -> bool {
+        self.children_idx.remove(&idx)
+    }
+
+    fn iter_children(&self) -> impl Iterator<Item = &usize> {
+        self.children_idx.iter()
+    }
+    
+
+    fn idx(&self) -> usize {
+        self.idx
+    }
+
+    fn parent_idx(&self) -> usize {
+        self.parent
+    }
+
+    fn inode(&self) -> &MemInode{
+        &self.inode
+    }
+
+    fn name(&self) -> &str {
+        self.inode.name()
+    }
+
+    fn ino(&self) -> InodeNum {
+        self.inode.ino()
+    }
+
+    fn blkid(&self) -> Blkid {
+        self.inode.blkid()
+    }
+
+    fn is_mountpoint(&self) -> bool {
+        self.contains_mountpoint
+    }
+
+}
+
+
+struct Path {
+    path: Vec<String>   
+}
+
+impl From<String> for Path {
+    fn from(value: String) -> Self {
+        let mut path: Vec<String> = Vec::new();
+        for s in value.split('/') {
+            if !s.is_empty() {
+                path.push(s.into())
+            }
+        }
+    Path {
+            path
+        }
+    }
+}
+
+impl Path {
+
+    fn iter_to_parent(&self) -> impl Iterator<Item = &String>{
+        let len = self.path.len();
+        return self.path[1..len-1].iter()
+    }
+
+    fn parent(&self) -> Path {
+        Path {
+            path: self.iter_to_parent().map(|s| s.into()).collect() 
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &String> {
+        return self.path.iter()
+    }
+
 }
 
 
 pub struct Vfs {
-    root: SuperBlock,
-    registered: Vec<SuperBlock>,
-    blocks: BlockManager,
+    registered: BTreeMap<Blkid, SuperBlock>,
+    root_dentry_idx: usize,
+    dentries: BTreeMap<usize, Dentry>,
+    next_idx : usize,
 }
 
 impl Vfs {
-    pub fn new(root: SuperBlock, all_blocks: BlockManager) {
-        Vfs {
-            root,
-            registered: Vec::new(),
-            blocks: all_blocks,
+    pub fn new(root: SuperBlock, all_blocks: SuperBlock) -> Vfs {
+        let mut registered: BTreeMap<Blkid, SuperBlock> = BTreeMap::new();
+        let root_blkid = root.blkid();
+        registered.insert(root_blkid, root);
+        let mut rtn = Vfs {
+            root_dentry_idx: 0,
+            dentries: BTreeMap::new(),
+            registered,
+            next_idx: 0, 
         };
+        let root = rtn.registered.get_mut(&root_blkid).unwrap();
+        let root_ino = root.read_inode(root.root_ino());
+        rtn.register_dentry(root_ino, 0, true);
+        rtn
+    }
+    fn register_dentry(&mut self, inode: MemInode, parent: usize, mounted: bool) -> usize {
+        self.dentries.insert(self.next_idx, Dentry::new(inode, parent, mounted, self.next_idx).unwrap());
+        self.next_idx += 1;
+        self.next_idx-1
     }
 
-    pub fn register_filesys(block: Block) -> Option<SuperBlock> {
-        // Detect FS type
-        let mut fs: Option<SuperBlock>;
-        //try every fs type
-        fs = Tempfs::try_init(block.clone());
-        if fs.is_some() {
-            return fs;
+    fn name_by_idx(&self, idx: usize) -> Option<&str> {
+        self.dentries.get(&idx).map(|x|x.name())
+    }
+
+    //TODO reevaluate mountpoints after free
+    fn forward(&mut self, idx: usize) -> Vec<usize> {
+        let mut dentry = self.dentries.remove(&idx).unwrap();
+        let children: Vec<usize> = dentry.iter_children().copied().collect();
+        if dentry.clean() {
+            return children        }
+        //otherwise, read children from disk and then iterate downwoards 
+        let block  = self.registered.get(&dentry.blkid()).unwrap();
+        let children_ino: Vec<MemInode> = dentry.inode().get_disk_children()
+            .unwrap()
+            .map(|x: &InodeNum| -> MemInode {block.read_inode(*x)})
+            .collect();
+        for c in children_ino {
+            let cidx = self.register_dentry(c, idx, false);
+            dentry.push_child(cidx);
         }
-        Option::None
+        self.dentries.insert(idx, dentry);
+        self.dentries.get(&idx).unwrap().iter_children().copied().collect()
     }
-
-    pub fn mount_filesys(&self, block: Block) {
-        todo!();
-    }
-
-    pub fn resolve_path(&self, absolute_path: &str) -> Result<MemInode, IOError>{
-        let mut path = absolute_path.split("/");
-        let mut mem_inode = Option::None;
-        let mut dentry = &mut self.root.get_root().lock();
-        for name in path {
-            for child in self.forward(dentry) {
-                let mut child = child.lock();
-                if child.name == name {
-                    dentry = &mut child;
-                    let ino = child.get_ino();
-                    let superblock = self.get_superblock(&child.super_name);
-                    if superblock.is_err() {
-                        return Err(IOError::new("Superblock not found".into()));
-                    }
-
-                    mem_inode = superblock.unwrap().lookup_inode(ino);
-                    if mem_inode.is_none() {
-                        return Err(IOError::new("Path not found".into()));
-                    }
-                    continue;
-                }
-                return Err( IOError::new("Path not found".into()))
-            }
-        }
-        if mem_inode.is_none() {
-            return Err(IOError::new("Path not found".into()));
-        }
-        Ok(mem_inode.unwrap())
-    }
-
-    pub fn stat(&self, path: &str) -> Result<&Stat, IOError> {
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return Err(IOError::new("Path not found".into()));
-        }
-        Ok(mem_inode.unwrap().stat())
-    }
-
-    pub fn get_superblock(&self, name: &str) -> Result<&SuperBlock, IOError> {
-        for superblock in self.registered.iter() {
-            if superblock.fs_name() == name {
-                return Ok(superblock);
-            }
-        }
-        Err(IOError::new("Superblock not found".into()))
-    }
-
-    pub fn forward(&self, dentry: &Dentry) -> &[MutexIrq<Dentry>] {
-        let fs = self.get_superblock(&dentry.super_name).unwrap().get_fs(); 
-        let mem_inode = fs.read_inode(dentry.get_ino());
-        for inode in mem_inode.unwrap().iter_children() {
-            let child = fs.read_inode(inode.clone());
-            if child.is_none() {
-                continue;
-            }
-            let child_dentry = Dentry {
-                ino_number: inode.clone(),
-                name: child.unwrap().get_name().into(),
-                mounted: false,
-                parent: dentry.get_ino(),
-                children: Vec::new(),
-                super_name: dentry.super_name,
-            };
-            dentry.children.push(MutexIrq::new(child_dentry));
-        }
-        &dentry.children
-    }
-
-    pub fn open(&self, path: &str) -> Option<File> {
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return Option::None;
-        }
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.open(path)
-    }
-
-    pub fn close(&self, file: &File) -> bool {
-        let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs();
-        fs.close(file)
-    }
-
-    pub fn read(&self, file: &File, buf: &mut [u8]) -> u32 {
-        let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs(); 
-        fs.read(file, buf)
-    }
-
-    pub fn write(&self, file: &File, buf: &[u8]) -> u32 {
-        let fs = self.get_superblock(&file.mem_inode.get_block()).unwrap().get_fs();
-        fs.write(file, buf)
-    }
-
-    pub fn create(&mut self, path: &str) -> u32 {
-        // TODO: create elements in the superblock btrees
-        let mount = self.get_mount(path);
-        let name = self.get_relative_path(path);
-        let fs = self.get_superblock(&mount).unwrap().get_fs();
-        fs.create(&name)
-    }
-    
-    pub fn delete(&self, path: &str) -> bool {
-        // TODO: remove from both superblock btrees
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return false;
-        }
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.delete(&mem_inode.unwrap().get_name())
-    }
-
-    pub fn mkdir(&mut self, path: &str) -> u32 {
-        // TODO: create elements in the superblock btrees
-        let mount = self.get_mount(path);
-        let name = self.get_relative_path(path);
-        let fs = self.get_superblock(&mount).unwrap().get_fs();
-        fs.mkdir(&name)
-    }
-
-    pub fn rmdir(&mut self, path: &str) -> bool {
-        // TODO: remove from both superblock btrees
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return false;
-        }
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.rmdir(&mem_inode.unwrap().get_name())
-    }
-
-    pub fn cp(&self, path: &str, new_path: &str) -> Result<u32, IOError> {
-        // TODO: create elements in the superblock btrees
-        // TODO: recursively copy children
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return Err(IOError::new("Path not found".into()));
-        }
-
-        let name = self.get_relative_path(new_path);
-        
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        Ok(fs.cp(&mem_inode.unwrap().get_name(), &name))
-    }
-
-    pub fn mv(&self, path: &str, new_path: &str) -> bool {
-        let mem_inode = self.resolve_path(path);
-        if mem_inode.is_err() {
-            return false;
-        }
-
-        let name = self.get_relative_path(path);
-        
-        mem_inode.unwrap().set_name(&name);
-        mem_inode.unwrap().set_children(Vec::new());
-
-        let mut dentry = &mut self.root.get_root().lock();
-        let mut parent = dentry.ino_number;
-        for step in path.split("/") {
-            for child in self.forward(dentry) {
-                let mut child = child.lock();
-                if child.name == step {
-                    parent = dentry.get_ino();
-                    dentry = &mut child;
-                    break;
+     /* 
+        Returns the dentry index associated with the absolute path  
+        ex: resolve_path("/a/b/c/d") should give Dentry for d
+     */
+    fn resolve_path(&mut self, path: Path) -> usize {
+        let mut prev = 0;
+        for dir in path.iter() {
+            let mut next = prev;
+            for c in self.forward(prev) {
+                if self.name_by_idx(c).unwrap() == dir {
+                   next = c 
                 }
             }
-        }
-        dentry.name = name;
-        dentry.parent = parent;
-
-        let fs = self.get_superblock(&mem_inode.unwrap().get_block()).unwrap().get_fs();
-        fs.mv(&mem_inode.unwrap().get_name(), &name)
-    }
-
-    fn get_relative_path(&self, path: &str) -> String {
-        let mut dentry = &mut self.root.get_root().lock();
-        let mut parent: Option<u32> = Option::None;
-        let mut name: String = String::new();
-        for step in path.split("/") {
-            for child in self.forward(dentry) {
-                let mut child = child.lock();
-                if child.name == step {
-                    parent = Option::Some(dentry.get_ino());
-                    dentry = &mut child;
-                    if dentry.mounted {
-                        name.clear();
-                    }
-                    else {
-                        name.push('/');
-                        name.push_str(step);
-                    }
-                    continue;
-                }
+            if next == prev {
+                return 0
             }
+            prev = next;
         }
-        name.into()
+        prev 
     }
 
-    fn get_mount(&self, path: &str) -> String {
-        todo!();
+    fn children_inode_numbers(&self, idx: usize) -> Vec<InodeNum>{
+        self.dentries.get(&idx).unwrap().inode().get_disk_children().unwrap().copied().collect() 
     }
+
+    //TODO: Remove Dentries
 }
 
-pub fn fs_init(blocks: BlockManager, root_name: &str) -> Option<Vfs>{ 
-    let root: SuperBlock = if let Option::Some(blk) = Vfs::register_filesys(blocks.by_name(root_name).unwrap()) {
-        blk
-    } else{
-        return Option::None;
-    };
-    Option::Some(Vfs {
-        root, 
-        registered: Vec::new(),
-        blocks
-    })
+//TODO: Yahya refactor
+impl Vfs {
+    pub fn stat(&mut self, path: String) -> Option<Stat> {
+        todo!()
+    }
+
+    pub fn mkdir(&self, path: String) {
+
+        todo!()
+    }
+
+    pub fn mv() {
+        todo!()
+    }
+
+    pub fn cp() {
+        todo!()
+
+    }
+
 }

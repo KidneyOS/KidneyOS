@@ -1,13 +1,11 @@
 //ATA driver. Referenced from PINTOS devices/ide.c
 #![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_imports)]
 
 use super::super::sync::irq::MutexIrq;
 use super::block::{ BlockSector, BlockDriver, BlockType, BlockManager, BlockOperations, BLOCK_SECTOR_SIZE};
 use super::partition::{partition_scan};
-use alloc::{format, str, string::String, boxed::Box};
-use core::{arch::asm, ptr};
+use alloc::{format, str, string::String};
+use core::arch::asm;
 use kidneyos_shared::println;
 
 
@@ -36,11 +34,11 @@ fn msleep(t: usize) {
 }
 
 fn usleep(t: usize) {
-    for _ in 0..9 {
+    for _ in 0..9*t {
         nsleep(t);
     }
 }
-fn nsleep(t: usize) {
+fn nsleep(_t: usize) {
     unsafe {
         asm!("nop");
     }
@@ -65,8 +63,8 @@ fn byte_enumerator(s: String) -> impl Iterator<Item = (usize, u8)> {
 
 fn parse_cstr(buf: &[u8]) -> &str {
     let mut l = 0;
-    for i in 0..buf.len() {
-        if buf[i] == 0 {
+    for c in buf {
+        if *c == 0 {
             break;
         }
         l += 1;
@@ -225,7 +223,7 @@ impl ATAChannel {
 
     // Basic ATA Functionality    
     fn wait_while_busy(&self) -> bool {
-        for i in 0..30000 {
+        for _ in 0..30000 {
             if (inb(self.reg_alt_status()) & STA_BSY) == 0 {
                 // println!("ok");
                 return (inb(self.reg_alt_status()) & STA_DRQ) != 0;
@@ -238,7 +236,7 @@ impl ATAChannel {
 
     // polls device until idle
     fn wait_until_ready(&self) {
-        for i in 0..30000 {
+        for _ in 0..30000 {
             // println!("waiting");
             let b = inb(self.reg_status());
             if (b & (STA_BSY | STA_DRQ)) == 0 {
@@ -255,7 +253,7 @@ impl ATAChannel {
             dev |= DEV_DEV;
         }
         outb(self.reg_device(), dev);
-        let status = inb(self.reg_alt_status());
+        // inb(self.reg_alt_status());
         nsleep(400);
     }
 
@@ -326,7 +324,7 @@ impl ATAChannel {
         }
         if present[1] {
             self.select_device(1);
-            for i in 0..3000 {
+            for _ in 0..3000 {
                 if inb(self.reg_nsect()) == 1 && inb(self.reg_lbal()) == 1 {
                     break;
                 }
@@ -362,7 +360,7 @@ impl ATAChannel {
 /* 
 Identify ATA device using "identify" command, register block device and partitions
 */
-fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, mut all_blocks: BlockManager) -> BlockManager{
+fn identify_ata_device(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, mut all_blocks: BlockManager) -> BlockManager{
     let size: usize;
     let name: String;
     let idx: usize;
@@ -399,7 +397,7 @@ fn identify_ata_device<'a>(channel: &'static MutexIrq<ATAChannel>, dev_no: u8, m
             size>>11,
         );
         let d: BlockDriver = BlockDriver::ATAPio(ATADisk(c.channel_num*2 + dev_no));
-        idx = all_blocks.block_register(BlockType::BlockRaw, name, size as BlockSector, d);
+        idx = all_blocks.block_register(BlockType::Raw, name, size as BlockSector, d);
 
 
     }

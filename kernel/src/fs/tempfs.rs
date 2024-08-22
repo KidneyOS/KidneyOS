@@ -1,50 +1,36 @@
-use super::{vfs::File, inode::MemInode, superblock::{SuperBlock, FileSystem, FsType}};
+
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use crate::dev::block::{BlockType,Block};
+use super::vfs::*;
 
 #[derive(Clone)]
 pub struct Tempfs {
     block: Block,
 }
 
+impl FileSystem for Tempfs{
+    fn blkid(&self) -> Blkid {
+        self.block.block_idx() as Blkid
+    }
+
+    fn read_ino(&self, ino: super::inode::InodeNum) -> super::inode::MemInode {
+        todo!()
+    }
+
+    fn root_ino(&self) -> super::inode::InodeNum {
+        todo!()
+    }
+}
+
+
 impl Tempfs {
-    pub fn try_init(block: Block) -> Option<SuperBlock>{
-        if let BlockType::BlockTempfs = block.block_type() {
-            Option::Some(
-                SuperBlock::new(FsType::Tempfs(Tempfs{
-                    block,
-                }))
-            )
+    pub fn detect(block: Block) -> Option<Tempfs>{
+        if matches!(block.block_type(), BlockType::Tempfs) {
+            Option::Some(Tempfs{block})
         } else {
             Option::None
         }
     }
-}
 
-impl FileSystem for Tempfs{
-    fn device_name(&self) -> &str {
-        self.block.block_name()
-    }
-
-    fn get_root_ino(&self) -> u32 {
-        0
-    }
-
-    fn read_inode(&self, ino: u32) -> Option<MemInode>  {
-        todo!()
-    }
-
-    fn open(&self, path: &str) -> Option<File> { todo!() }
-    fn close(&self, file: &File) -> bool { todo!() }
-    fn read(&self, file: &File, buffer: &mut [u8]) -> u32 { todo!() }
-    fn write(&self, file: &File, buffer: &[u8]) -> u32 { todo!() }
-    fn create(&mut self, path: &str) -> u32 { todo!() }
-    fn delete(&self, path: &str) -> bool { todo!() }
-    fn mkdir(&mut self, path: &str) -> u32 { todo!() }
-    fn rmdir(&mut self, path: &str) -> bool { todo!() }
-    fn cp(&self, path: &str, name: &str) -> u32 {
-        todo!()
-    }
-    fn mv(&self, path: &str, name: &str) -> bool {
-        todo!()
-    }
 }
