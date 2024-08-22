@@ -11,6 +11,7 @@
 #![feature(error_in_core)]
 
 mod dev;
+mod fs;
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
@@ -18,16 +19,12 @@ mod sync;
 mod threading;
 mod timer;
 mod user_program;
-mod fs;
 
 extern crate alloc;
 
-use dev::ide::ide_init;
 use dev::block::block_init;
+use dev::ide::ide_init;
 use dev::tempfs::tempfs_init;
-
-
-
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
