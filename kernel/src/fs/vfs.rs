@@ -172,7 +172,7 @@ impl Path {
         return self.path.iter();
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn as_string(&self) -> String {
         self.path.join("/")
     }
 }
@@ -315,7 +315,7 @@ impl Vfs {
         }
         let dentry = self.dentries.get_mut(&idx).unwrap();
         let fs = self.registered.get(&dentry.blkid()).unwrap();
-        fs.fs.unwrap().stat(subpath.to_string())
+        fs.fs.unwrap().stat(subpath.as_string())
     }
 
     pub fn mkdir(&mut self, path: String) -> Option<InodeNum> {
@@ -325,7 +325,7 @@ impl Vfs {
         let (subpath, fs) = self.get_subpath(path);
 
         let fs = self.registered.get(&fs).unwrap();
-        let idx = fs.fs.unwrap().mkdir(subpath.to_string());
+        let idx = fs.fs.unwrap().mkdir(subpath.as_string());
         idx?;
         let mem_inode = fs.read_inode(idx.unwrap());
 
@@ -347,7 +347,7 @@ impl Vfs {
         let (dest_subpath, dest_fs) = self.get_subpath(dest.clone());
         if src_fs == dest_fs {
             let src_fs = self.registered.get(&src_fs).unwrap();
-            src_fs.fs.unwrap().mv(src_subpath.to_string(), dest_subpath.to_string());
+            src_fs.fs.unwrap().mv(src_subpath.as_string(), dest_subpath.as_string());
             // TODO: add children here
         }
         else {
@@ -463,7 +463,7 @@ impl Vfs {
         let path = Path::from(path);
         let (subpath, fs) = self.get_subpath(path);
         let fs = self.registered.get(&fs).unwrap();
-        let file = fs.fs.unwrap().open(subpath.to_string());
+        let file = fs.fs.unwrap().open(subpath.as_string());
         file.as_ref()?;
         file
     }
@@ -500,7 +500,7 @@ impl Vfs {
 
         let (subpath, fs) = self.get_subpath(pathname);
         let fs = self.registered.get(&fs).unwrap();
-        fs.fs.unwrap().del(subpath.to_string())?;
+        fs.fs.unwrap().del(subpath.as_string())?;
 
         let parent_idx = self.dentries.get(&idx).unwrap().parent_idx();
         let parent = self.dentries.get_mut(&parent_idx).unwrap();
@@ -525,7 +525,7 @@ impl Vfs {
         let (subpath, fs) = self.get_subpath(path);
 
         let fs = self.registered.get(&fs).unwrap();
-        let idx = fs.fs.unwrap().create(subpath.to_string());
+        let idx = fs.fs.unwrap().create(subpath.as_string());
         idx?;
         let mem_inode = fs.read_inode(idx.unwrap());
         
