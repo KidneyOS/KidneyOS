@@ -8,6 +8,14 @@ pub struct Stat {
     link_count: usize,
 }
 
+impl Clone for Stat {
+    fn clone(&self) -> Self {
+        Stat {
+            link_count: self.link_count,
+        }
+    }
+}
+
 pub enum InodeData {
     File,
     Directory(Vec<InodeNum>),
@@ -53,7 +61,15 @@ impl MemInode {
         &self.name
     }
 
+    pub fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
     pub fn blkid(&self) -> Blkid {
         self.blkid
+    }
+
+    pub fn stat(&self) -> &Stat {
+        &self.stat
     }
 }

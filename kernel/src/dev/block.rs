@@ -67,7 +67,7 @@ pub struct Block {
     block_type: BlockType,
     block_name: String,
     block_size: BlockSector,
-    idx: usize,
+    idx: usize, // unique and immutable
 }
 
 impl Block {

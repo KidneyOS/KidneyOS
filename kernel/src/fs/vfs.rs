@@ -1,15 +1,30 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
+
 use super::inode::{InodeNum, MemInode, Stat};
 use crate::fs::tempfs::*;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::BTreeSet;
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, vec::Vec, vec, format};
 
 pub trait FileSystem {
     fn blkid(&self) -> Blkid;
     fn read_ino(&self, ino: InodeNum) -> MemInode;
     fn root_ino(&self) -> InodeNum;
+    fn stat(&self, path: String) -> Option<Stat>;
+    fn mkdir(&self, path: String) -> Option<InodeNum>;
+    fn mv(&self, src_path: String, dest_path: String) -> Option<()>;
+    // fn cp(&mut self, src_path: String, dest_path: String) -> Option<usize>; implemented in Vfs
+    fn open(&self, path: String) -> Option<File>;
+    fn close(&self, file: &File) -> Option<()>;
+    fn read(&self, file: &File, buf: &[u8]) -> Option<()>;
+    fn write(&self, file: File, buf: &[u8]) -> Option<()>;
+    fn del(&self, path: String) -> Option<()>;
+    fn create(&self, path: String) -> Option<InodeNum>;
+}
+
+pub struct File {
+    mem_inode: MemInode,
 }
 
 #[derive(Clone)]
@@ -25,7 +40,7 @@ impl FsType {
     }
 }
 
-pub type Blkid = u32;
+pub type Blkid = u32; // unique and immutable
 pub struct SuperBlock {
     root_ino: InodeNum,
     fs: FsType,
@@ -156,7 +171,20 @@ impl Path {
     fn iter(&self) -> impl Iterator<Item = &String> {
         return self.path.iter();
     }
+
+    pub fn to_string(&self) -> String {
+        self.path.join("/")
+    }
 }
+
+impl Clone for Path {
+    fn clone(&self) -> Self {
+        Path {
+            path: self.path.clone(),
+        }
+    }
+}
+
 
 pub struct Vfs {
     registered: BTreeMap<Blkid, SuperBlock>,
@@ -194,7 +222,6 @@ impl Vfs {
         self.dentries.get(&idx).map(|x| x.name())
     }
 
-    //TODO reevaluate mountpoints after free
     fn forward(&mut self, idx: usize) -> Vec<usize> {
         let mut dentry = self.dentries.remove(&idx).unwrap();
         let children: Vec<usize> = dentry.iter_children().copied().collect();
@@ -254,24 +281,256 @@ impl Vfs {
             .collect()
     }
 
-    //TODO: Remove Dentries
+    fn get_subpath(&mut self, path: Path) -> (Path, u32) {
+        // returns the path relative to the last mountpoint, and the filesystem associated with that mountpoint
+        let mut subpath = Vec::new();
+        let mut curr = 0;
+        let mut blkid = self.registered.get(&0).unwrap().blkid();
+
+        for dir in path.iter() {
+            subpath.push(dir.clone());
+            subpath.push("/".into());
+            for child in self.forward(curr) {
+                if self.name_by_idx(child).unwrap() == dir {
+                    curr = child;
+                    if self.dentries.get(&curr).unwrap().is_mountpoint() {
+                        subpath = vec!["/".into()];
+                        blkid = self.registered.get(&self.dentries.get(&curr).unwrap().blkid()).unwrap().blkid();
+                    }
+                }
+            }
+        }
+
+        (Path { path: subpath }, blkid)
+    }
 }
 
-//TODO: Yahya refactor
 impl Vfs {
     pub fn stat(&mut self, path: String) -> Option<Stat> {
-        todo!()
+        let path = Path::from(path);
+        let (subpath, _) = self.get_subpath(path.clone());
+        let idx = self.resolve_path(path.clone());
+        if idx == 0 {
+            return Option::None;
+        }
+        let dentry = self.dentries.get_mut(&idx).unwrap();
+        let fs = self.registered.get(&dentry.blkid()).unwrap();
+        fs.fs.unwrap().stat(subpath.to_string())
     }
 
-    pub fn mkdir(&self, path: String) {
-        todo!()
+    pub fn mkdir(&mut self, path: String) -> Option<InodeNum> {
+        let path = Path::from(path);
+        let parent = self.resolve_path(path.parent());
+
+        let (subpath, fs) = self.get_subpath(path);
+
+        let fs = self.registered.get(&fs).unwrap();
+        let idx = fs.fs.unwrap().mkdir(subpath.to_string());
+        idx?;
+        let mem_inode = fs.read_inode(idx.unwrap());
+
+        self.register_dentry(mem_inode, parent, false);
+        idx
     }
 
-    pub fn mv() {
-        todo!()
+    pub fn mv(&mut self, src_path: String, dest_path: String) -> Option<()> {
+        let src = Path::from(src_path.clone());
+        let dest = Path::from(dest_path.clone());
+
+        let idx = self.resolve_path(src.clone());
+        if idx == 0 {
+            return Option::None;
+        }
+
+        let name = dest.path.last().unwrap().clone();
+        let (src_subpath, src_fs) = self.get_subpath(src.clone());
+        let (dest_subpath, dest_fs) = self.get_subpath(dest.clone());
+        if src_fs == dest_fs {
+            let src_fs = self.registered.get(&src_fs).unwrap();
+            src_fs.fs.unwrap().mv(src_subpath.to_string(), dest_subpath.to_string());
+            // TODO: add children here
+        }
+        else {
+            self.cp(src_path.clone(), dest_path)?;
+            self.del(src_path.clone())?;
+        }
+        
+        let dentry = self.dentries.get_mut(&idx).unwrap();
+        dentry.inode.set_name(name);
+        let src_parent_idx = dentry.parent_idx();
+        let src_parent = self.dentries.get_mut(&src_parent_idx).unwrap();
+        src_parent.pop_child(idx);
+
+        let dest_parent = dest.parent();
+        let dest_parent_idx = self.resolve_path(dest_parent);
+        if dest_parent_idx == 0 {
+            return Option::None;
+        }
+        let dest_parent_dentry = self.dentries.get_mut(&dest_parent_idx).unwrap();
+        dest_parent_dentry.push_child(idx);
+
+        let dentry = self.dentries.get_mut(&idx).unwrap();
+        dentry.parent = dest_parent_idx;
+
+        Option::Some(())
     }
 
-    pub fn cp() {
-        todo!()
+    pub fn cp(&mut self, src_path: String, dest_path: String) -> Option<usize> {
+        let src = Path::from(src_path.clone());
+        let dest = Path::from(dest_path.clone());
+
+        let idx = self.resolve_path(src);
+        if idx == 0 {
+            return Option::None;
+        }
+
+        let new_dentry;
+        let name = dest.path.last().unwrap().clone();
+        let src_dentry = self.dentries.get_mut(&idx).unwrap();
+        let is_directory = src_dentry.inode.is_directory();
+        let idx = src_dentry.idx();
+
+        if is_directory {            
+            let mut children: Vec<usize> = Vec::new();
+            for c in self.forward(idx) {
+                let mut src_child_path = src_path.clone();
+                src_child_path.push_str(&format!("/{}", self.name_by_idx(c).unwrap()));
+                let mut dest_child_path = dest_path.clone();
+                dest_child_path.push_str(&format!("/{}", self.name_by_idx(c).unwrap()));
+                let child_dentry = self.cp(src_child_path, dest_child_path);
+
+                if child_dentry.is_none() {
+                    continue;
+                }
+
+                children.push(child_dentry.unwrap());
+            }
+            
+            let idx = self.mkdir(dest_path.clone());
+            idx?;
+
+            let dest_parent = dest.parent();
+            let dest_parent_idx = self.resolve_path(dest_parent);
+            if dest_parent_idx == 0 {
+                return Option::None;
+            }
+
+            let (_, fs) = self.get_subpath(dest);
+            let fs = self.registered.get(&fs).unwrap();
+            let inode = fs.read_inode(idx.unwrap()).ino();
+            let mem_inode = fs.read_inode(inode);
+            new_dentry = self.register_dentry(mem_inode, dest_parent_idx, false);
+            let dentry = self.dentries.get_mut(&new_dentry).unwrap();
+
+            for c in children {
+                dentry.push_child(c);
+            }
+        }
+        else {
+            let idx = self.create(dest_path.clone());
+
+            let src_file = self.open(src_path);
+            src_file.as_ref()?;
+            let src_file = src_file.unwrap();
+            let buf = Vec::new();
+            self.read(&src_file, &buf);
+            self.close(src_file);
+
+            let dest_file = self.open(dest_path.clone());
+            dest_file.as_ref()?;
+            let dest_file = dest_file.unwrap();
+            self.write(&dest_file, &buf);
+            self.close(dest_file);
+
+            let dest_parent = dest.parent();
+            let dest_parent_idx = self.resolve_path(dest_parent);
+            if dest_parent_idx == 0 {
+                return Option::None;
+            }
+
+            let (_, fs) = self.get_subpath(dest.clone());
+            let fs = self.registered.get(&fs).unwrap();
+            fs.fs.unwrap().create(dest_path.clone())?;
+
+            let mem_inode = fs.read_inode(idx.unwrap());
+            new_dentry = self.register_dentry(mem_inode, dest_parent_idx, false);
+        }
+
+        Option::Some(new_dentry)
     }
+
+    pub fn open(&mut self, path: String) -> Option<File> {
+        let path = Path::from(path);
+        let (subpath, fs) = self.get_subpath(path);
+        let fs = self.registered.get(&fs).unwrap();
+        let file = fs.fs.unwrap().open(subpath.to_string());
+        file.as_ref()?;
+        file
+    }
+
+    pub fn close(&self, file: File) -> Option<()> {
+        let fs = self.registered.get(&file.mem_inode.blkid()).unwrap();
+        fs.fs.unwrap().close(&file)?;
+        Option::Some(())
+    }
+
+    pub fn read(&self, file: &File, buf: &[u8]) -> Option<()> {
+        let fs = self.registered.get(&file.mem_inode.blkid()).unwrap();
+        fs.fs.unwrap().read(file, buf)?;
+        Option::Some(())
+    }
+
+    pub fn write(&self, file: &File, buf: &[u8]) -> Option<()> {
+        let fs = self.registered.get(&file.mem_inode.blkid()).unwrap();
+        fs.fs.unwrap().read(file, buf)?;
+        Option::Some(())
+    }
+
+    pub fn del(&mut self, path: String) -> Option<()> {
+        let pathname = Path::from(path.clone());
+        let idx = self.resolve_path(pathname.clone());
+        if idx == 0 {
+            return Option::None;
+        }
+
+        let dentry = self.dentries.get(&idx).unwrap();
+        if dentry.is_mountpoint() {
+            return Option::None;
+        }
+
+        let (subpath, fs) = self.get_subpath(pathname);
+        let fs = self.registered.get(&fs).unwrap();
+        fs.fs.unwrap().del(subpath.to_string())?;
+
+        let parent_idx = self.dentries.get(&idx).unwrap().parent_idx();
+        let parent = self.dentries.get_mut(&parent_idx).unwrap();
+        parent.pop_child(idx);
+        self.dentries.remove(&idx);
+        for c in self.forward(idx) {
+            let mut path_to_c = path.clone();
+            path_to_c.push_str(&format!("/{}", self.name_by_idx(c).unwrap()));            
+            self.del(path_to_c)?;
+        }
+
+        Option::Some(())
+    }
+
+    pub fn create(&mut self, path: String) -> Option<InodeNum> {
+        let path = Path::from(path);
+        let parent = self.resolve_path(path.parent());
+        if parent == 0 {
+            return Option::None;
+        }
+
+        let (subpath, fs) = self.get_subpath(path);
+
+        let fs = self.registered.get(&fs).unwrap();
+        let idx = fs.fs.unwrap().create(subpath.to_string());
+        idx?;
+        let mem_inode = fs.read_inode(idx.unwrap());
+        
+        self.register_dentry(mem_inode, parent, false);
+        idx
+    }
+
 }
