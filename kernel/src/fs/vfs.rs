@@ -5,7 +5,7 @@ use super::inode::{InodeNum, MemInode, Stat};
 use crate::fs::tempfs::*;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::BTreeSet;
-use alloc::{string::String, vec::Vec, vec, format};
+use alloc::{format, string::String, vec, vec::Vec};
 
 pub trait FileSystem {
     fn blkid(&self) -> Blkid;
@@ -185,7 +185,6 @@ impl Clone for Path {
     }
 }
 
-
 pub struct Vfs {
     registered: BTreeMap<Blkid, SuperBlock>,
     root_dentry_idx: usize,
@@ -295,7 +294,11 @@ impl Vfs {
                     curr = child;
                     if self.dentries.get(&curr).unwrap().is_mountpoint() {
                         subpath = vec!["/".into()];
-                        blkid = self.registered.get(&self.dentries.get(&curr).unwrap().blkid()).unwrap().blkid();
+                        blkid = self
+                            .registered
+                            .get(&self.dentries.get(&curr).unwrap().blkid())
+                            .unwrap()
+                            .blkid();
                     }
                 }
             }
@@ -347,14 +350,16 @@ impl Vfs {
         let (dest_subpath, dest_fs) = self.get_subpath(dest.clone());
         if src_fs == dest_fs {
             let src_fs = self.registered.get(&src_fs).unwrap();
-            src_fs.fs.unwrap().mv(src_subpath.as_string(), dest_subpath.as_string());
+            src_fs
+                .fs
+                .unwrap()
+                .mv(src_subpath.as_string(), dest_subpath.as_string());
             // TODO: add children here
-        }
-        else {
+        } else {
             self.cp(src_path.clone(), dest_path)?;
             self.del(src_path.clone())?;
         }
-        
+
         let dentry = self.dentries.get_mut(&idx).unwrap();
         dentry.inode.set_name(name);
         let src_parent_idx = dentry.parent_idx();
@@ -390,7 +395,7 @@ impl Vfs {
         let is_directory = src_dentry.inode.is_directory();
         let idx = src_dentry.idx();
 
-        if is_directory {            
+        if is_directory {
             let mut children: Vec<usize> = Vec::new();
             for c in self.forward(idx) {
                 let mut src_child_path = src_path.clone();
@@ -405,7 +410,7 @@ impl Vfs {
 
                 children.push(child_dentry.unwrap());
             }
-            
+
             let idx = self.mkdir(dest_path.clone());
             idx?;
 
@@ -425,8 +430,7 @@ impl Vfs {
             for c in children {
                 dentry.push_child(c);
             }
-        }
-        else {
+        } else {
             let idx = self.create(dest_path.clone());
 
             let src_file = self.open(src_path);
@@ -508,7 +512,7 @@ impl Vfs {
         self.dentries.remove(&idx);
         for c in self.forward(idx) {
             let mut path_to_c = path.clone();
-            path_to_c.push_str(&format!("/{}", self.name_by_idx(c).unwrap()));            
+            path_to_c.push_str(&format!("/{}", self.name_by_idx(c).unwrap()));
             self.del(path_to_c)?;
         }
 
@@ -528,9 +532,8 @@ impl Vfs {
         let idx = fs.fs.unwrap().create(subpath.as_string());
         idx?;
         let mem_inode = fs.read_inode(idx.unwrap());
-        
+
         self.register_dentry(mem_inode, parent, false);
         idx
     }
-
 }
