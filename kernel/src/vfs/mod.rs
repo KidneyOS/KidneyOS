@@ -66,6 +66,7 @@ pub struct FileInfo {
     pub nlink: u16,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum INodeType {
     /// Regular file
     File,

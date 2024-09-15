@@ -164,7 +164,7 @@ impl TempFs {
     }
 }
 
-const DEBUG_TEMPFS: bool = true;
+const DEBUG_TEMPFS: bool = cfg!(test);
 
 impl FileSystem for TempFs {
     type DirectoryIterator<'a> = TempDirectoryIterator<'a>;
@@ -525,13 +525,14 @@ mod tests {
         };
     }
     #[derive(Clone, Copy)]
-    enum Action {
+    enum Action<'a> {
         Open,
         Create,
         Mkdir,
         Rmdir,
         Unlink,
         Link(FileHandle),
+        SymLink(&'a Path),
     }
     // open/create/mkdir/rmdir/unlink an absolute path
     fn do_path<F: FileSystem>(
@@ -572,6 +573,10 @@ mod tests {
                         fs.link(source, file, item)?;
                         return Ok(None);
                     }
+                    Action::SymLink(source) => {
+                        fs.symlink(source, file, item)?;
+                        return Ok(None);
+                    }
                 }
             }
 
@@ -608,6 +613,24 @@ mod tests {
         let source = open_path(fs, source)?;
         do_path(fs, dest, Action::Link(source))?;
         Ok(())
+    }
+    // sym link to an absolute path
+    fn symlink_path<F: FileSystem>(fs: &mut F, source: &Path, dest: &Path) -> Result<()> {
+        do_path(fs, dest, Action::SymLink(source))?;
+        Ok(())
+    }
+    // read link from an absolute path
+    fn readlink_path<F: FileSystem>(fs: &mut F, source: &Path) -> Result<String> {
+        let file = do_path(fs, source, Action::Open)?.unwrap();
+        let mut buf = String::new();
+        loop {
+            if let Some(n) = fs.readlink(file, &mut buf)? {
+                buf.truncate(n.into());
+                break;
+            }
+            buf.push('\0');
+        }
+        Ok(buf)
     }
     // read entire file contents
     fn read_file<F: FileSystem>(fs: &mut F, file: FileHandle) -> Result<Vec<u8>> {
@@ -690,7 +713,7 @@ mod tests {
         assert_matches!(open_path(&mut fs, "/dir/1").unwrap_err(), Error::NotFound);
         rmdir_path(&mut fs, "/dir").unwrap();
         assert_matches!(open_path(&mut fs, "/dir").unwrap_err(), Error::NotFound);
-        assert!(fs.inodes.len() == 1); // should only have root
+        assert_eq!(fs.inodes.len(), 1); // should only have root
     }
 
     #[test]
@@ -713,6 +736,78 @@ mod tests {
         assert_eq!(read_file(&mut fs, three).unwrap(), b"hello");
         unlink_path(&mut fs, "/3").unwrap();
         fs.release(three.inode);
-        assert!(fs.inodes.len() == 1); // should only have root
+        assert_eq!(fs.inodes.len(), 1); // should only have root
     }
+
+    #[test]
+    // test symlink, readlink
+    fn symlink() {
+        let mut fs = TempFs::new();
+        symlink_path(&mut fs, "/file", "/1").unwrap();
+        symlink_path(&mut fs, "./file", "/2").unwrap();
+        symlink_path(&mut fs, "foo", "/3").unwrap();
+        assert_eq!(readlink_path(&mut fs, "/1").unwrap(), "/file");
+        assert_eq!(readlink_path(&mut fs, "/2").unwrap(), "./file");
+        assert_eq!(readlink_path(&mut fs, "/3").unwrap(), "foo");
+    }
+
+    #[test]
+    #[ignore] // a bit slow to run.
+              // test TooManyLinks error
+    fn too_many_links() {
+        let mut fs = TempFs::new();
+        mkdir_path(&mut fs, "/dir").unwrap();
+        assert_matches!(
+            link_path(&mut fs, "/dir", "/x").unwrap_err(),
+            Error::TooManyLinks
+        );
+        symlink_path(&mut fs, "/dir", "/symlink").unwrap();
+        assert_matches!(
+            link_path(&mut fs, "/symlink", "/x").unwrap_err(),
+            Error::TooManyLinks
+        );
+        let source = create_path(&mut fs, "/file").unwrap();
+        let root = open_path(&mut fs, "/").unwrap();
+        for i in 0..65534 {
+            fs.link(source, root, &format!("/{i}")).unwrap();
+        }
+        assert_matches!(
+            fs.link(source, root, &format!("/65535")).unwrap_err(),
+            Error::TooManyLinks
+        );
+    }
+
+    #[test]
+    fn stat() {
+        let mut fs = TempFs::new();
+        mkdir_path(&mut fs, "/dir").unwrap();
+        symlink_path(&mut fs, "/dir", "/symlink").unwrap();
+        let file = create_path(&mut fs, "/file").unwrap();
+        link_path(&mut fs, "/file", "/hardlink").unwrap();
+        let file2 = open_path(&mut fs, "/hardlink").unwrap();
+        let symlink = open_path(&mut fs, "/symlink").unwrap();
+        let dir = open_path(&mut fs, "/dir").unwrap();
+        fs.write(file, 0, b"testing").unwrap();
+        let file_stat = fs.stat(file).unwrap();
+        let file2_stat = fs.stat(file2).unwrap();
+        let dir_stat = fs.stat(dir).unwrap();
+        let symlink_stat = fs.stat(symlink).unwrap();
+        assert_eq!(file_stat.r#type, INodeType::File);
+        assert_eq!(file2_stat.r#type, INodeType::File);
+        assert_eq!(dir_stat.r#type, INodeType::Directory);
+        assert_eq!(symlink_stat.r#type, INodeType::Link);
+        assert_eq!(file_stat.size, 7);
+        assert_eq!(file2_stat.size, 7);
+        assert_eq!(symlink_stat.size, 4);
+        assert_ne!(file_stat.inode, dir_stat.inode);
+        assert_ne!(file_stat.inode, symlink_stat.inode);
+        assert_ne!(dir_stat.inode, symlink_stat.inode);
+        assert_eq!(file_stat.inode, file2_stat.inode);
+        assert_eq!(dir_stat.nlink, 1);
+        assert_eq!(symlink_stat.nlink, 1);
+        assert_eq!(file_stat.nlink, 2);
+        assert_eq!(file2_stat.nlink, 2);
+    }
+
+    // TODO : test readdir, truncate
 }
