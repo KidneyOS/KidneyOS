@@ -11,7 +11,6 @@ pub type Path = str;
 /// when it closes its last open file to an inode. Otherwise,
 /// the filesystem will have to keep around the file's data indefinitely!
 #[derive(Debug, Clone, Copy)]
-#[must_use]
 pub struct FileHandle {
     /// inode number of this file
     pub inode: INodeNum,
@@ -128,8 +127,8 @@ pub trait FileSystem {
     /// Indicate that there are no more references to an open file/symlink/directory.
     ///
     /// If there are no links left to the file, the filesystem can delete it at this point.
-    /// The kernel must not use this or any other file handle pointing to the same file after calling this.
-    fn release(&mut self, file: FileHandle);
+    /// The kernel must not use any file handle pointing to this inode after calling this.
+    fn release(&mut self, inode: INodeNum);
     /// Read from file into buf at offset.
     ///
     /// The kernel must ensure that `file` is a regular file before calling this.

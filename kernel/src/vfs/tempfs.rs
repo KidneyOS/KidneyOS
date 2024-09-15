@@ -202,6 +202,10 @@ impl FileSystem for TempFs {
         let TempINode::Directory(parent_dir) = parent_inode else {
             panic!("Kernel should call stat to make sure this is a directory before creating a file in it.");
         };
+        if parent_dir.nlink == 0 {
+            // this directory has been rmdir'd
+            return Err(Error::NotDirectory);
+        }
         let inode_num = parent_dir.entries.get(name).copied().unwrap_or_else(|| {
             // create new file
             let inode = TempINode::File(TempFile {
@@ -253,18 +257,22 @@ impl FileSystem for TempFs {
             filename: String::new(),
         }
     }
-    fn release(&mut self, file: FileHandle) {
+    fn release(&mut self, inode_num: INodeNum) {
         if DEBUG_TEMPFS {
-            println!("tempfs: release {}", file.inode);
+            println!("tempfs: release {}", inode_num);
         }
-        let inode = self.get_inode(file);
+        let inode = self
+            .inodes
+            .get(&inode_num)
+            .expect("kernel should only call release on inodes it knows to exist");
         let should_delete = match inode {
-            TempINode::Link(_) | TempINode::Directory(_) => true,
+            TempINode::Link(l) => l.nlink == 0,
+            TempINode::Directory(d) => d.nlink == 0,
             TempINode::File(f) => f.nlink == 0,
         };
         if should_delete {
             // we can safely remove the inode.
-            self.inodes.remove(&file.inode);
+            self.inodes.remove(&inode_num);
         }
     }
     fn read(&self, file: FileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
@@ -359,6 +367,10 @@ impl FileSystem for TempFs {
         let TempINode::Directory(parent_dir) = parent_inode else {
             panic!("Kernel should make sure parent is a directory before creating a link in it.");
         };
+        if parent_dir.nlink == 0 {
+            // this directory has been rmdir'd
+            return Err(Error::NotDirectory);
+        }
         if parent_dir.entries.contains_key(name) {
             return Err(Error::Exists);
         }
@@ -393,6 +405,10 @@ impl FileSystem for TempFs {
         };
         if name.is_empty() || link.is_empty() {
             panic!("Empty path passed to symlink.");
+        }
+        if parent_dir.nlink == 0 {
+            // this directory has been rmdir'd
+            return Err(Error::NotDirectory);
         }
         if parent_dir.entries.contains_key(name) {
             return Err(Error::Exists);
@@ -478,6 +494,10 @@ impl FileSystem for TempFs {
                 "Kernel should make sure parent is a directory before making a directory in it."
             );
         };
+        if parent_dir.nlink == 0 {
+            // this directory has been rmdir'd
+            return Err(Error::NotDirectory);
+        }
         if parent_dir.entries.contains_key(name) {
             return Err(Error::Exists);
         }
@@ -498,14 +518,23 @@ impl FileSystem for TempFs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    // https://github.com/rust-lang/rust/pull/120234
+    macro_rules! assert_matches {
+        ($expression:expr, $pattern:pat) => {
+            assert!(matches!($expression, $pattern))
+        };
+    }
+    #[derive(Clone, Copy)]
     enum Action {
         Open,
         Create,
         Mkdir,
+        Rmdir,
+        Unlink,
+        Link(FileHandle),
     }
-    // open/create/mkdir an absolute path
-    fn get_path<F: FileSystem>(
+    // open/create/mkdir/rmdir/unlink an absolute path
+    fn do_path<F: FileSystem>(
         fs: &mut F,
         path: &Path,
         action: Action,
@@ -519,30 +548,79 @@ mod tests {
             if item.is_empty() {
                 continue;
             }
-            let next_file = if action == Action::Create && i == component_count - 1 {
-                return Ok(Some(fs.create(file, item)?));
-            } else if action == Action::Mkdir && i == component_count - 1 {
-                fs.mkdir(file, item)?;
-                return Ok(None);
-            } else {
-                fs.open(fs.lookup(file, item)?)?
-            };
+            if i == component_count - 1 {
+                match action {
+                    Action::Open => {}
+                    Action::Create => {
+                        return Ok(Some(fs.create(file, item)?));
+                    }
+                    Action::Mkdir => {
+                        fs.mkdir(file, item)?;
+                        return Ok(None);
+                    }
+                    Action::Rmdir => {
+                        let inode = fs.lookup(file, item)?;
+                        fs.rmdir(file, item)?;
+                        fs.release(inode);
+                        return Ok(None);
+                    }
+                    Action::Unlink => {
+                        fs.unlink(file, item)?;
+                        return Ok(None);
+                    }
+                    Action::Link(source) => {
+                        fs.link(source, file, item)?;
+                        return Ok(None);
+                    }
+                }
+            }
+
+            let next_file = fs.open(fs.lookup(file, item)?)?;
             file = next_file;
         }
         Ok(Some(file))
     }
     // mkdir an absolute path
     fn mkdir_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<()> {
-        get_path(fs, path, Action::Mkdir)?;
+        do_path(fs, path, Action::Mkdir)?;
         Ok(())
     }
     // create an absolute path
     fn create_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<FileHandle> {
-        Ok(get_path(fs, path, Action::Create)?.unwrap())
+        Ok(do_path(fs, path, Action::Create)?.unwrap())
     }
     // open an absolute path
     fn open_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<FileHandle> {
-        Ok(get_path(fs, path, Action::Open)?.unwrap())
+        Ok(do_path(fs, path, Action::Open)?.unwrap())
+    }
+    // rmdir an absolute path
+    fn rmdir_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<()> {
+        do_path(fs, path, Action::Rmdir)?;
+        Ok(())
+    }
+    // unlink an absolute path
+    fn unlink_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<()> {
+        do_path(fs, path, Action::Unlink)?;
+        Ok(())
+    }
+    // hard link an absolute path to an absolute path
+    fn link_path<F: FileSystem>(fs: &mut F, source: &Path, dest: &Path) -> Result<()> {
+        let source = open_path(fs, source)?;
+        do_path(fs, dest, Action::Link(source))?;
+        Ok(())
+    }
+    // read entire file contents
+    fn read_file<F: FileSystem>(fs: &mut F, file: FileHandle) -> Result<Vec<u8>> {
+        let mut buf = [0; 1024];
+        let mut vec = Vec::new();
+        loop {
+            let n = fs.read(file, vec.len() as u64, &mut buf)?;
+            if n == 0 {
+                break;
+            }
+            vec.extend_from_slice(&buf[..n]);
+        }
+        return Ok(vec);
     }
     #[test]
     // one regular file in root
@@ -550,20 +628,9 @@ mod tests {
         let mut fs = TempFs::new();
         let test = create_path(&mut fs, "/test").unwrap();
         assert_eq!(fs.write(test, 0, b"hello").unwrap(), 5);
-        fs.release(test); // this should do nothing since there is still a link to /test
+        fs.release(test.inode); // this should do nothing since there is still a link to /test
         let test = open_path(&mut fs, "/test").unwrap();
-        let mut buf = [0; 6];
-        assert_eq!(fs.read(test, 0, &mut buf[..]).unwrap(), 5);
-        assert_eq!(&buf[..], b"hello\0");
-        buf.fill(0);
-        for i in 0..buf.len() {
-            assert_eq!(
-                fs.read(test, i as u64, &mut buf[i..i + 1]).unwrap(),
-                if i < 5 { 1 } else { 0 }
-            );
-        }
-        assert_eq!(&buf[..], b"hello\0");
-        fs.release(test); // this should do nothing since there is still a link to /test
+        assert_eq!(read_file(&mut fs, test).unwrap(), b"hello");
     }
     #[test]
     // test directories
@@ -575,5 +642,77 @@ mod tests {
         let bar = create_path(&mut fs, "/dir2/bar").unwrap();
         assert_eq!(fs.write(foo, 0, b"foo").unwrap(), 3);
         assert_eq!(fs.write(bar, 0, b"bar").unwrap(), 3);
+        let foo = open_path(&mut fs, "/dir1/foo").unwrap();
+        assert_eq!(read_file(&mut fs, foo).unwrap(), b"foo");
+        let bar = open_path(&mut fs, "/dir2/bar").unwrap();
+        assert_eq!(read_file(&mut fs, bar).unwrap(), b"bar");
+        assert_matches!(
+            open_path(&mut fs, "/dir1/bar").unwrap_err(),
+            Error::NotFound
+        );
+        assert_matches!(
+            open_path(&mut fs, "/dir2/foo").unwrap_err(),
+            Error::NotFound
+        );
+        assert_matches!(open_path(&mut fs, "/dir3").unwrap_err(), Error::NotFound);
+    }
+
+    #[test]
+    // test unlink
+    fn unlink() {
+        let mut fs = TempFs::new();
+        mkdir_path(&mut fs, "/dir").unwrap();
+        let file1 = create_path(&mut fs, "/dir/1").unwrap();
+        assert_eq!(fs.write(file1, 0, b"test file").unwrap(), 9);
+        create_path(&mut fs, "/2").unwrap();
+        unlink_path(&mut fs, "/2").unwrap();
+        assert_matches!(open_path(&mut fs, "/2").unwrap_err(), Error::NotFound);
+        let file1 = open_path(&mut fs, "/dir/1").unwrap();
+        unlink_path(&mut fs, "/dir/1").unwrap();
+        assert_matches!(open_path(&mut fs, "/dir/1").unwrap_err(), Error::NotFound);
+        // file data should still exist since there are open handles to it!
+        assert_eq!(read_file(&mut fs, file1).unwrap(), b"test file");
+        fs.release(file1.inode);
+        assert_matches!(open_path(&mut fs, "/dir/1").unwrap_err(), Error::NotFound);
+    }
+
+    #[test]
+    // test rmdir
+    fn rmdir() {
+        let mut fs = TempFs::new();
+        mkdir_path(&mut fs, "/dir").unwrap();
+        mkdir_path(&mut fs, "/dir/1").unwrap();
+        mkdir_path(&mut fs, "/dir/1/2").unwrap();
+        assert_matches!(rmdir_path(&mut fs, "/dir").unwrap_err(), Error::NotEmpty);
+        rmdir_path(&mut fs, "/dir/1/2").unwrap();
+        assert_matches!(open_path(&mut fs, "/dir/1/2").unwrap_err(), Error::NotFound);
+        rmdir_path(&mut fs, "/dir/1").unwrap();
+        assert_matches!(open_path(&mut fs, "/dir/1").unwrap_err(), Error::NotFound);
+        rmdir_path(&mut fs, "/dir").unwrap();
+        assert_matches!(open_path(&mut fs, "/dir").unwrap_err(), Error::NotFound);
+        assert!(fs.inodes.len() == 1); // should only have root
+    }
+
+    #[test]
+    // test link
+    fn link() {
+        let mut fs = TempFs::new();
+        let one = create_path(&mut fs, "/1").unwrap();
+        link_path(&mut fs, "/1", "/2").unwrap();
+        link_path(&mut fs, "/2", "/3").unwrap();
+        fs.write(one, 0, b"hello").unwrap();
+        let two = open_path(&mut fs, "/2").unwrap();
+        let three = open_path(&mut fs, "/3").unwrap();
+        assert_eq!(read_file(&mut fs, two).unwrap(), b"hello");
+        assert_eq!(read_file(&mut fs, three).unwrap(), b"hello");
+        unlink_path(&mut fs, "/1").unwrap();
+        fs.release(one.inode);
+        assert_eq!(read_file(&mut fs, two).unwrap(), b"hello");
+        unlink_path(&mut fs, "/2").unwrap();
+        fs.release(two.inode);
+        assert_eq!(read_file(&mut fs, three).unwrap(), b"hello");
+        unlink_path(&mut fs, "/3").unwrap();
+        fs.release(three.inode);
+        assert!(fs.inodes.len() == 1); // should only have root
     }
 }
