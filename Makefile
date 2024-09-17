@@ -58,7 +58,7 @@ $(RAW_TRAMPOLINE): trampoline/Cargo.toml Cargo.lock
 $(TRAMPOLINE_DIR)/libkidneyos_trampoline: $(RAW_TRAMPOLINE)
 	rm -rf $@
 	mkdir -p $@
-	ar x $< --output=$@
+	i686-unknown-linux-gnu-ar x $< --output=$@
 
 $(TRAMPOLINE_DIR)/libkidneyos_trampoline_unlocalized.o: $(TRAMPOLINE_DIR)/libkidneyos_trampoline
 	i686-unknown-linux-gnu-ld -r -o $@ $</*.o
