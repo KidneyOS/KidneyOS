@@ -27,6 +27,7 @@ dependencies = [
  "arbitrary-int",
  "bitbybit",
  "kidneyos-shared",
+ "lazy_static",
 ]
 
 [[package]]

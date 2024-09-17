@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+make -f programs.mk
 cargo clippy --target i686-unknown-linux-gnu -- -D warnings
 cargo fmt -- --quiet --check
 

@@ -202,8 +202,7 @@ fn validate_segment(phdr: &Elf32Phdr, file_data: &[u8]) -> Result<(), ElfSegment
 }
 
 // Main function to load the ELF binary
-#[allow(unused)]
-fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
+pub fn parse_elf(elf_data: &[u8]) -> Result<(u32, Vec<VmAreaStruct>), ElfError> {
     let header = unsafe { &*(elf_data.as_ptr() as *const Elf32Ehdr) };
     let mut vm_areas = Vec::new();
 
@@ -221,7 +220,7 @@ fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
                 .cast::<Elf32Phdr>()
         };
 
-        if (ph.p_type == SegmentType::Load as u32) {
+        if ph.p_type == SegmentType::Load as u32 {
             validate_segment(ph, elf_data).map_err(ElfError::SegmentError)?;
             // The segment must not be empty, if yes, skip this segment.
             if ph.p_memsz == 0 {
@@ -229,19 +228,19 @@ fn load_elf(elf_data: &[u8]) -> Result<(), ElfError> {
             }
             let vm_start = ph.p_vaddr as usize;
             let vm_end = vm_start + ph.p_memsz as usize;
+            let offset = ph.p_offset as usize;
 
             let flags: VmFlags = Default::default();
-            let mut vma = VmAreaStruct::new(vm_start, vm_end, flags);
+            let mut vma = VmAreaStruct::new(vm_start, vm_end, offset, flags);
             // Set flags based on program header flags
             vma.flags.read = ph.p_flags & PF_R != 0;
             vma.flags.write = ph.p_flags & PF_W != 0;
             vma.flags.execute = ph.p_flags & PF_X != 0;
             vm_areas.push(vma);
-            // Here we would load the segment into memory, copy from `elf_data[ph.p_offset as usize..]` to `ph.p_vaddr` address in memory
         }
     }
 
-    Ok(())
+    Ok((header.e_entry, vm_areas))
 }
 
 #[allow(unused)]

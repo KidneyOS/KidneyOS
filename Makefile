@@ -1,10 +1,11 @@
 # Variable Setup
 
 PROJECT_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
-CARGO_TARGET_DIR := $(PROJECT_DIR)/build/target
-PROFILE := dev
 
 -include local.mk
+
+CARGO_TARGET_DIR ?= $(PROJECT_DIR)/build/target
+PROFILE ?= dev
 
 export CARGO_TARGET_DIR
 
@@ -25,10 +26,12 @@ ISO := build/kidneyos.iso
 .PHONY: default
 default: $(ISO)
 
+include programs.mk
+
 # Rust Builds
 
 -include $(ARTIFACT_DIR)/kidneyos.d
-$(RAW_KERNEL): kernel/Cargo.toml Cargo.lock build-support/i686.ld $(TRAMPOLINE)
+$(RAW_KERNEL): kernel/Cargo.toml Cargo.lock build-support/i686.ld $(TRAMPOLINE) $(PROGRAMS)
 	cargo rustc \
 	  --bin kidneyos \
 	  --manifest-path $< \
@@ -122,7 +125,7 @@ export LLVM_PROFILE_FILE
 LLVM_PROFILE_FILES := kernel/$(LLVM_PROFILE_FILE) shared/$(LLVM_PROFILE_FILE)
 
 .PHONY: test
-test $(LLVM_PROFILE_FILES):
+test $(LLVM_PROFILE_FILES): $(PROGRAMS)
 	RUSTFLAGS="-C instrument-coverage" cargo test \
 	   --target i686-unknown-linux-gnu --workspace
 
@@ -141,6 +144,6 @@ print-coverage: build/coverage.md
 	tail -n 1 $<
 
 .PHONY: clean
-clean:
+clean::
 	cargo clean
 	rm -rf build $(LLVM_PROFILE_FILES)

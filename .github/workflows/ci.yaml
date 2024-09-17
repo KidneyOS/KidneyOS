@@ -26,17 +26,21 @@ jobs:
       with:
         key: ${{ runner.os }}-nix-${{ hashFiles('nix/flake.lock', 'nix/flake.nix', 'rust-toolchain.toml') }}
         flake_paths: ./nix#devShells.x86_64-linux.build
-    - name: Check clippy
-      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
-      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c cargo-clippy -- --target i686-unknown-linux-gnu -- -Dwarnings
     - name: Check formatting
       if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
       run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c sh -c 'find -name "*.rs" -print0 | xargs -0 rustfmt --quiet --check --'
-    - name: Run tests
+    - name: Build test programs
+      id: test-programs
       if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make -f programs.mk
+    - name: Check clippy
+      if: ${{ !cancelled() && steps.test-programs.outcome == 'success' }}
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c cargo-clippy -- --target i686-unknown-linux-gnu -- -Dwarnings
+    - name: Run tests
+      if: ${{ !cancelled() && steps.test-programs.outcome == 'success' }}
       run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make print-coverage
     - name: Build ISO
-      if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
+      if: ${{ !cancelled() && steps.test-programs.outcome == 'success' }}
       run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c make
     - name: Build Docs
       id: docs
