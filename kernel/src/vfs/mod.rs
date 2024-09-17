@@ -1,9 +1,8 @@
 pub mod tempfs;
 
-use core::num::NonZeroUsize;
-
 pub type INodeNum = u64;
 pub type Path = str;
+pub type OwnedPath = String;
 
 /// Represents an open file
 ///
@@ -83,7 +82,29 @@ pub struct DirEntry<'a> {
     /// inode number
     pub inode: INodeNum,
     /// Name of entry
+    ///
+    /// Note that iterating through a [`DirectoryIterator`] may overwrite this path!
     pub name: &'a Path,
+}
+
+/// Directory entry which owns its path, for convenience.
+pub struct OwnedDirEntry {
+    /// Type of entry
+    pub r#type: INodeType,
+    /// inode number
+    pub inode: INodeNum,
+    /// Name of entry
+    pub name: OwnedPath,
+}
+
+impl DirEntry<'_> {
+    pub fn to_owned(&self) -> OwnedDirEntry {
+        OwnedDirEntry {
+            r#type: self.r#type,
+            inode: self.inode,
+            name: self.name.to_owned(),
+        }
+    }
 }
 
 pub trait DirectoryIterator<'a>: Sized {
@@ -94,9 +115,6 @@ pub trait DirectoryIterator<'a>: Sized {
 }
 
 pub trait FileSystem {
-    type DirectoryIterator<'a>: DirectoryIterator<'a>
-    where
-        Self: 'a;
     /// Get root inode number
     fn root(&self) -> INodeNum;
     /// Look up directory entry
@@ -124,7 +142,7 @@ pub trait FileSystem {
     /// read entries in a directory
     ///
     /// The kernel must ensure that `dir` is a directory before calling this.
-    fn readdir(&self, dir: FileHandle) -> Self::DirectoryIterator<'_>;
+    fn readdir(&self, dir: FileHandle) -> impl DirectoryIterator<'_>;
     /// Indicate that there are no more references to an open file/symlink/directory.
     ///
     /// If there are no links left to the file, the filesystem can delete it at this point.
@@ -154,13 +172,13 @@ pub trait FileSystem {
     fn symlink(&mut self, link: &Path, parent: FileHandle, name: &Path) -> Result<()>;
     /// Read a symbolic link
     ///
-    /// Returns the number of bytes filled into `buf`, or `Ok(None)` if `buf`
+    /// Returns the prefix of `buf` which has been filled with the desintation, or `Ok(None)` if `buf`
     /// is too short (in which case the contents of `buf` are unspecified).
     ///
     /// Note that you can get the size of buffer needed from calling [`FileInfo::size`]
     /// on the return value of [`Self::stat`], but this may still fail if the
     /// link is modified between the calls to stat and readlink.
-    fn readlink(&self, link: FileHandle, buf: &mut Path) -> Result<Option<NonZeroUsize>>;
+    fn readlink<'a>(&self, link: FileHandle, buf: &'a mut Path) -> Result<Option<&'a str>>;
     /// Set a new file size.
     ///
     /// If this is less than the previous size, the extra data is lost.

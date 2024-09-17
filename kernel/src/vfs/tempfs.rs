@@ -8,7 +8,7 @@ use crate::vfs::{
     Path, Result,
 };
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use core::{cmp::min, mem::size_of, num::NonZeroUsize};
+use core::{cmp::min, mem::size_of};
 
 struct TempFile {
     nlink: u16,
@@ -167,7 +167,6 @@ impl TempFs {
 const DEBUG_TEMPFS: bool = cfg!(test);
 
 impl FileSystem for TempFs {
-    type DirectoryIterator<'a> = TempDirectoryIterator<'a>;
     fn root(&self) -> INodeNum {
         ROOT_INO
     }
@@ -243,7 +242,7 @@ impl FileSystem for TempFs {
         }
         self.unlink_or_rmdir(parent, name, true)
     }
-    fn readdir(&self, dir: FileHandle) -> TempDirectoryIterator<'_> {
+    fn readdir(&self, dir: FileHandle) -> impl DirectoryIterator<'_> {
         if DEBUG_TEMPFS {
             println!("tempfs: readdir {}", dir.inode);
         }
@@ -426,7 +425,7 @@ impl FileSystem for TempFs {
         parent_dir.entries.insert(name.into(), link_inode_num);
         Ok(())
     }
-    fn readlink(&self, link: FileHandle, buf: &mut Path) -> Result<Option<NonZeroUsize>> {
+    fn readlink<'a>(&self, link: FileHandle, buf: &'a mut Path) -> Result<Option<&'a str>> {
         if DEBUG_TEMPFS {
             println!("tempfs: readlink {} (buf len = {})", link.inode, buf.len());
         }
@@ -440,7 +439,7 @@ impl FileSystem for TempFs {
             return Ok(None);
         }
         // unfortunately, unsafe code is currently the only way to write to a &mut str
-        // SAFETY: we ensure that bytes is valid UTF-8 after this call,
+        // SAFETY: we ensure that bytes is valid UTF-8 after readlink returns,
         //         since link.path must be valid UTF-8.
         let bytes = unsafe { buf.as_bytes_mut() };
         bytes[..link.path.len()].copy_from_slice(link.path.as_bytes());
@@ -453,9 +452,7 @@ impl FileSystem for TempFs {
                 break;
             }
         }
-        Ok(Some(
-            NonZeroUsize::new(link.path.len()).expect("symlink should have non-empty path"),
-        ))
+        Ok(Some(&buf[..link.path.len()]))
     }
     fn truncate(&mut self, file: FileHandle, size: u64) -> Result<()> {
         if DEBUG_TEMPFS {
@@ -518,6 +515,8 @@ impl FileSystem for TempFs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vfs;
+
     // https://github.com/rust-lang/rust/pull/120234
     macro_rules! assert_matches {
         ($expression:expr, $pattern:pat) => {
@@ -624,17 +623,33 @@ mod tests {
         let file = do_path(fs, source, Action::Open)?.unwrap();
         let mut buf = String::new();
         loop {
-            if let Some(n) = fs.readlink(file, &mut buf)? {
-                buf.truncate(n.into());
-                break;
+            if let Some(s) = fs.readlink(file, &mut buf)? {
+                return Ok(s.into());
             }
             buf.push('\0');
         }
-        Ok(buf)
+    }
+    // get inode of absolute path
+    fn inode_of_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<INodeNum> {
+        Ok(open_path(fs, path)?.inode)
+    }
+    // get directory entries sorted by name
+    fn readdir_path<'a, F: FileSystem>(
+        fs: &'a mut F,
+        path: &Path,
+    ) -> Result<Vec<vfs::OwnedDirEntry>> {
+        let handle = open_path(fs, path)?;
+        let mut it = fs.readdir(handle);
+        let mut v = vec![];
+        while let Some(entry) = it.next()? {
+            v.push(entry.to_owned());
+        }
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(v)
     }
     // read entire file contents
-    fn read_file<F: FileSystem>(fs: &mut F, file: FileHandle) -> Result<Vec<u8>> {
-        let mut buf = [0; 1024];
+    fn read_file<F: FileSystem>(fs: &F, file: FileHandle) -> Result<Vec<u8>> {
+        let mut buf = [0; 2]; // use just 2 bytes for buffer for more thorough testing
         let mut vec = Vec::new();
         loop {
             let n = fs.read(file, vec.len() as u64, &mut buf)?;
@@ -752,8 +767,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // a bit slow to run.
-              // test TooManyLinks error
+    #[ignore = "slow"]
+    /// test TooManyLinks error
     fn too_many_links() {
         let mut fs = TempFs::new();
         mkdir_path(&mut fs, "/dir").unwrap();
@@ -809,5 +824,48 @@ mod tests {
         assert_eq!(file2_stat.nlink, 2);
     }
 
-    // TODO : test readdir, truncate
+    #[test]
+    fn readdir() {
+        let mut fs = TempFs::new();
+        mkdir_path(&mut fs, "/dir").unwrap();
+        create_path(&mut fs, "/dir/a").unwrap();
+        create_path(&mut fs, "/dir/b").unwrap();
+        create_path(&mut fs, "/dir/c").unwrap();
+        create_path(&mut fs, "/dir/d").unwrap();
+        create_path(&mut fs, "/dir/e").unwrap();
+        symlink_path(&mut fs, "foo", "/dir/s").unwrap();
+        create_path(&mut fs, "/f").unwrap();
+        let root_entries = readdir_path(&mut fs, "/").unwrap();
+        let dir_entries = readdir_path(&mut fs, "/dir").unwrap();
+        let mut expect_entry = |entry: &vfs::OwnedDirEntry, r#type: INodeType, path: &Path| {
+            assert_eq!(entry.r#type, r#type);
+            assert_eq!(entry.name, path.rsplit_once('/').unwrap().1);
+            assert_eq!(entry.inode, inode_of_path(&mut fs, path).unwrap());
+        };
+        assert_eq!(root_entries.len(), 2);
+        expect_entry(&root_entries[0], INodeType::Directory, "/dir");
+        expect_entry(&root_entries[1], INodeType::File, "/f");
+        assert_eq!(dir_entries.len(), 6);
+        expect_entry(&dir_entries[0], INodeType::File, "/dir/a");
+        expect_entry(&dir_entries[1], INodeType::File, "/dir/b");
+        expect_entry(&dir_entries[2], INodeType::File, "/dir/c");
+        expect_entry(&dir_entries[3], INodeType::File, "/dir/d");
+        expect_entry(&dir_entries[4], INodeType::File, "/dir/e");
+        expect_entry(&dir_entries[5], INodeType::Link, "/dir/s");
+    }
+
+    #[test]
+    fn truncate() {
+        let mut fs = TempFs::new();
+        let test_file = create_path(&mut fs, "/test").unwrap();
+        assert_eq!(
+            fs.write(test_file, 0, b"hello world").unwrap(),
+            b"hello world".len()
+        );
+        assert_eq!(read_file(&fs, test_file).unwrap(), b"hello world");
+        fs.truncate(test_file, 5).unwrap();
+        assert_eq!(read_file(&fs, test_file).unwrap(), b"hello");
+        fs.truncate(test_file, 10).unwrap();
+        assert_eq!(read_file(&fs, test_file).unwrap(), b"hello\0\0\0\0\0");
+    }
 }
