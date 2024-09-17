@@ -1,6 +1,5 @@
 # KidneyOS
 
-<!-- [> about-body](docs/about-body.md) -->
 <!-- BEGIN mdsh -->
 KidneyOS is a toy OS written in Rust, designed for teaching operating systems concepts. It is loosely based on [PintOS](https://pintos-os.org/) (the name "KidneyOS" refers to kidney beans, and is a joke about how PintOS can be read as "pintos", another kind of bean). It is still a work in progress, and is not yet ready for use. If you're interested in using KidneyOS for teaching when it's ready, you can "watch" the repository for releases on [GitHub](https://github.com/KidneyOS/KidneyOS).
 

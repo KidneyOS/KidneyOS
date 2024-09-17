@@ -1,8 +1,8 @@
-# Package Manager/From Source
+# From Source
 
-This section describes how to build KidneyOS by installing dependencies using a package manager or building them from source.
+This section describes how to build KidneyOS by installing dependencies using a package manager and building it from source.
 
-> ❗ This method is only supported on `x86_64-linux` and `aarch64-linux` hosts, or in WSL.
+> ❗ This method is only supported on `x86_64-linux` and `aarch64-linux` hosts, or in WSL. For building on macOS (ARM), see [here](./macos.md).
 
 > ⚠️ The instructions that follow are designed to be as platform-agnostic as possible. However, the names of packages are not necessarily the same across different package managers. When mentioning package names, we will provide links to [Repology](https://repology.org/), which you should consult to determine the specific name used by your package manager.
 
@@ -43,7 +43,7 @@ A non-exhaustive list of the binaries you'll need to install includes `i686-unkn
 We'll also need to install the following packages:
 
 - [`grub`](https://repology.org/project/grub/versions)
-  - Make sure it's Grub version 2.
+  - Make sure it's Grub 2.
   - If you're on `aarch64-linux`, you'll need to make sure you have the right libraries to build `i386-pc` ISOs. This will be highly distro-specific specific. You may have to build Grub from source.
 - [`qemu`](https://repology.org/project/qemu/versions)
 - [`xorriso`](https://repology.org/project/xorriso/versions)
