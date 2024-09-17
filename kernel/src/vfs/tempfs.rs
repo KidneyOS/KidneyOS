@@ -5,48 +5,111 @@ use std::println;
 
 use crate::vfs::{
     DirEntry, DirectoryIterator, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType,
-    Path, Result,
+    OwnedPath, Path, Result,
 };
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use core::{cmp::min, mem::size_of};
+use core::cmp::min;
 
+#[derive(Default)]
 struct TempFile {
-    nlink: u16,
     data: Vec<u8>,
 }
 
+#[derive(Default)]
 struct TempDirectory {
-    entries: BTreeMap<String, INodeNum>,
-    nlink: u16,
+    curr_id: u64,
+    // unfortunately we need to keep track of a monotonically increasing ID,
+    // to properly support the `offset` parameter to `FileSystem::readdir`.
+    // (our readdir implementation returns the entries in the order they were
+    //  added, with `TempDirectoryIterator::offset` returning the ID,
+    //  so that we can meet all of the required guarantees for readdir).
+    entry_by_id: BTreeMap<u64, (INodeNum, OwnedPath)>,
+    id_by_name: BTreeMap<OwnedPath, u64>,
+}
+
+impl TempDirectory {
+    fn inode_by_name(&self, name: &Path) -> Option<INodeNum> {
+        let id = self.id_by_name.get(name)?;
+        Some(
+            self.entry_by_id
+                .get(id)
+                .expect("tempfs consistency error")
+                .0,
+        )
+    }
+    fn is_empty(&self) -> bool {
+        self.entry_count() == 0
+    }
+    /// number of entries in directory
+    fn entry_count(&self) -> usize {
+        self.id_by_name.len()
+    }
+    fn contains(&self, path: &Path) -> bool {
+        self.id_by_name.contains_key(path)
+    }
+    fn add_entry(&mut self, path: OwnedPath, inode: INodeNum) {
+        self.curr_id += 1;
+        let id = self.curr_id;
+        self.entry_by_id.insert(id, (inode, path.clone()));
+        self.id_by_name.insert(path, id);
+    }
 }
 
 struct TempLink {
-    path: String,
-    nlink: u16,
+    path: OwnedPath,
 }
 
-enum TempINode {
+enum TempINodeData {
     File(TempFile),
     Directory(TempDirectory),
     Link(TempLink),
 }
 
+struct TempINode {
+    nlink: u16,
+    data: TempINodeData,
+    // could add mode, owner, etc. here
+}
+
+impl TempINode {
+    fn new(data: TempINodeData) -> Self {
+        Self { nlink: 1, data }
+    }
+    fn empty_directory() -> Self {
+        Self::new(TempINodeData::Directory(TempDirectory::default()))
+    }
+    fn empty_file() -> Self {
+        Self::new(TempINodeData::File(TempFile { data: Vec::new() }))
+    }
+    fn link_to(path: String) -> Self {
+        Self::new(TempINodeData::Link(TempLink { path }))
+    }
+    fn type_of(&self) -> INodeType {
+        match &self.data {
+            TempINodeData::File(_) => INodeType::File,
+            TempINodeData::Directory(_) => INodeType::Directory,
+            TempINodeData::Link(_) => INodeType::Link,
+        }
+    }
+}
+
 /// in-memory filesystem
 pub struct TempFs {
     inodes: BTreeMap<INodeNum, TempINode>,
+    inode_counter: INodeNum,
 }
 
 const ROOT_INO: INodeNum = 1;
 
 pub struct TempDirectoryIterator<'a> {
     fs: &'a TempFs,
-    it: alloc::collections::btree_map::Iter<'a, String, INodeNum>,
-    filename: String,
+    it: alloc::collections::btree_map::Range<'a, u64, (INodeNum, OwnedPath)>,
+    offset: u64,
 }
 
 impl<'a> DirectoryIterator<'a> for TempDirectoryIterator<'a> {
     fn next(&mut self) -> Result<Option<DirEntry>> {
-        let Some((name, inode_num)) = self.it.next() else {
+        let Some((id, (inode_num, name))) = self.it.next() else {
             return Ok(None);
         };
         let inode_num = *inode_num;
@@ -55,17 +118,16 @@ impl<'a> DirectoryIterator<'a> for TempDirectoryIterator<'a> {
             .inodes
             .get(&inode_num)
             .expect("tempfs consistency error — reference to nonexistent inode");
-        self.filename = name.into();
-        let r#type = match inode {
-            TempINode::File(_) => INodeType::File,
-            TempINode::Directory(_) => INodeType::Directory,
-            TempINode::Link(_) => INodeType::Link,
-        };
+        let r#type = inode.type_of();
+        self.offset = *id;
         Ok(Some(DirEntry {
             inode: inode_num,
             r#type,
-            name: &self.filename,
+            name,
         }))
+    }
+    fn offset(&self) -> u64 {
+        self.offset
     }
 }
 
@@ -78,13 +140,13 @@ impl Default for TempFs {
 const NO_INODE: &str = "Couldn't find inode — either kernel is using filesystem incorrectly or we freed an inode when we shouldn't have.";
 impl TempFs {
     pub fn new() -> TempFs {
-        let root = TempINode::Directory(TempDirectory {
-            entries: BTreeMap::new(),
-            nlink: 1,
-        });
+        let root = TempINode::empty_directory();
         let mut inodes = BTreeMap::new();
         inodes.insert(ROOT_INO, root);
-        TempFs { inodes }
+        TempFs {
+            inodes,
+            inode_counter: 1,
+        }
     }
     fn get_inode(&self, handle: FileHandle) -> &TempINode {
         self.inodes.get(&handle.inode).expect(NO_INODE)
@@ -93,73 +155,72 @@ impl TempFs {
         self.inodes.get_mut(&handle.inode).expect(NO_INODE)
     }
     fn add_inode(&mut self, inode: TempINode) -> INodeNum {
-        // Since inodes are stored in a BTreeMap, the last entry is the maximum inode value.
-        // So we take one more than that. This isn't realistically going to overflow a u64.
-        if size_of::<INodeNum>() < 8 {
-            panic!(
-                "this function should be updated to handle smaller inode size (u32 could overflow)"
-            );
+        loop {
+            self.inode_counter = self.inode_counter.wrapping_add(1);
+            if !self.inodes.contains_key(&self.inode_counter) {
+                break;
+            }
         }
-        let inode_num = *self
-            .inodes
-            .last_entry()
-            .expect("filesystem should at least contain root")
-            .key()
-            + 1;
-        self.inodes.insert(inode_num, inode);
-        inode_num
+        self.inodes.insert(self.inode_counter, inode);
+        self.inode_counter
     }
     // performs either unlink or rmdir.
     fn unlink_or_rmdir(&mut self, parent: FileHandle, name: &Path, is_rmdir: bool) -> Result<()> {
+        if name.is_empty() {
+            panic!(
+                "Empty name passed to {}",
+                if is_rmdir { "rmdir" } else { "unlink" }
+            );
+        }
+        if name.contains('/') {
+            panic!("File name contains /");
+        }
         let parent_inode = self.get_inode(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
+        let TempINodeData::Directory(parent_dir) = &parent_inode.data else {
             panic!("Kernel should call stat to make sure this is a directory before removing something from it.");
         };
-        let inode_num = *parent_dir.entries.get(name).ok_or(Error::NotFound)?;
+        let id = *parent_dir.id_by_name.get(name).ok_or(Error::NotFound)?;
+        let inode_num = parent_dir
+            .entry_by_id
+            .get(&id)
+            .expect("tempfs consistency error")
+            .0;
         let inode = self
             .inodes
             .get_mut(&inode_num)
             .expect("inconsistent filesystem state — referenced inode doesn't exist");
-        // Note that we don't actually remove the inode from inodes here;
-        // we do that in `release`, so that existing file handles can still access
-        // the file until then.
-        match inode {
-            TempINode::Directory(d) => {
+        match &inode.data {
+            TempINodeData::Directory(d) => {
                 if !is_rmdir {
                     return Err(Error::NotDirectory);
                 }
-                if !d.entries.is_empty() {
+                if !d.is_empty() {
                     return Err(Error::NotEmpty);
                 }
-                assert!(
-                    d.nlink > 0,
-                    "VFS rmdir called on an already-deleted directory"
-                );
-                d.nlink -= 1;
             }
-            TempINode::File(f) => {
+            TempINodeData::File(_) => {
                 if is_rmdir {
                     return Err(Error::NotDirectory);
                 }
-                assert!(f.nlink > 0, "VFS unlink called on file with 0 links");
-                f.nlink -= 1;
             }
-            TempINode::Link(l) => {
+            TempINodeData::Link(_) => {
                 if is_rmdir {
                     return Err(Error::NotDirectory);
                 }
-                assert!(
-                    l.nlink > 0,
-                    "VFS unlink called on an already-deleted symlink"
-                );
-                l.nlink -= 1;
             }
         }
+        assert!(inode.nlink > 0, "removing a file with 0 links");
+        inode.nlink -= 1;
         let parent_inode = self.get_inode_mut(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
+        let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
             panic!("This should never happen due to check above.");
         };
-        parent_dir.entries.remove(name);
+        // remove directory entry
+        parent_dir.id_by_name.remove(name);
+        parent_dir.entry_by_id.remove(&id);
+        // Note that we don't actually remove the inode from self.inodes here;
+        // we do that in `release`, so that existing file handles can still access
+        // the file until then.
         Ok(())
     }
 }
@@ -175,10 +236,10 @@ impl FileSystem for TempFs {
             println!("tempfs: lookup in {}: {}", parent.inode, name);
         }
         let parent_inode = self.get_inode(parent);
-        let TempINode::Directory(dir) = parent_inode else {
+        let TempINodeData::Directory(dir) = &parent_inode.data else {
             return Err(Error::NotDirectory);
         };
-        dir.entries.get(name).ok_or(Error::NotFound).copied()
+        dir.inode_by_name(name).ok_or(Error::NotFound)
     }
     fn open(&mut self, inode: INodeNum) -> Result<FileHandle> {
         if DEBUG_TEMPFS {
@@ -196,27 +257,25 @@ impl FileSystem for TempFs {
         if name.is_empty() {
             panic!("Empty name passed to create");
         }
-        // first check if file already exists
+        if name.contains('/') {
+            panic!("File name contains /");
+        }
         let parent_inode = self.get_inode_mut(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
-            panic!("Kernel should call stat to make sure this is a directory before creating a file in it.");
-        };
-        if parent_dir.nlink == 0 {
+        if parent_inode.nlink == 0 {
             // this directory has been rmdir'd
             return Err(Error::NotDirectory);
         }
-        let inode_num = parent_dir.entries.get(name).copied().unwrap_or_else(|| {
+        let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
+            panic!("Kernel should call stat to make sure this is a directory before creating a file in it.");
+        };
+        let inode_num = parent_dir.inode_by_name(name).unwrap_or_else(|| {
             // create new file
-            let inode = TempINode::File(TempFile {
-                nlink: 1,
-                data: Vec::new(),
-            });
-            let inode_num = self.add_inode(inode);
+            let inode_num = self.add_inode(TempINode::empty_file());
             let parent_inode = self.get_inode_mut(parent);
-            let TempINode::Directory(parent_dir) = parent_inode else {
+            let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
                 panic!("should never happen due to check above");
             };
-            parent_dir.entries.insert(name.into(), inode_num);
+            parent_dir.add_entry(name.into(), inode_num);
             inode_num
         });
         Ok(FileHandle {
@@ -228,32 +287,26 @@ impl FileSystem for TempFs {
         if DEBUG_TEMPFS {
             println!("tempfs: unlink in {}: {}", parent.inode, name);
         }
-        if name.is_empty() {
-            panic!("Empty name passed to unlink");
-        }
         self.unlink_or_rmdir(parent, name, false)
     }
     fn rmdir(&mut self, parent: FileHandle, name: &Path) -> Result<()> {
         if DEBUG_TEMPFS {
             println!("tempfs: rmdir in {}: {}", parent.inode, name);
         }
-        if name.is_empty() {
-            panic!("Empty name passed to rmdir");
-        }
         self.unlink_or_rmdir(parent, name, true)
     }
-    fn readdir(&self, dir: FileHandle) -> impl DirectoryIterator<'_> {
+    fn readdir(&self, dir: FileHandle, offset: u64) -> impl DirectoryIterator<'_> {
         if DEBUG_TEMPFS {
             println!("tempfs: readdir {}", dir.inode);
         }
         let inode = self.get_inode(dir);
-        let TempINode::Directory(dir) = inode else {
+        let TempINodeData::Directory(dir) = &inode.data else {
             panic!("Kernel should call stat to make sure this is a directory before calling readdir on it.");
         };
         TempDirectoryIterator {
+            offset: 0,
             fs: self,
-            it: dir.entries.iter(),
-            filename: String::new(),
+            it: dir.entry_by_id.range(offset + 1..),
         }
     }
     fn release(&mut self, inode_num: INodeNum) {
@@ -264,12 +317,7 @@ impl FileSystem for TempFs {
             .inodes
             .get(&inode_num)
             .expect("kernel should only call release on inodes it knows to exist");
-        let should_delete = match inode {
-            TempINode::Link(l) => l.nlink == 0,
-            TempINode::Directory(d) => d.nlink == 0,
-            TempINode::File(f) => f.nlink == 0,
-        };
-        if should_delete {
+        if inode.nlink == 0 {
             // we can safely remove the inode.
             self.inodes.remove(&inode_num);
         }
@@ -284,7 +332,7 @@ impl FileSystem for TempFs {
             );
         }
         let inode = self.get_inode(file);
-        let TempINode::File(f) = inode else {
+        let TempINodeData::File(f) = &inode.data else {
             panic!("Kernel should make sure this is a regular file before reading from it.");
         };
         if offset >= f.data.len() as u64 {
@@ -306,7 +354,7 @@ impl FileSystem for TempFs {
             );
         }
         let inode = self.get_inode_mut(file);
-        let TempINode::File(f) = inode else {
+        let TempINodeData::File(f) = &mut inode.data else {
             panic!("Kernel should make sure this is a regular file before writing to it.");
         };
         if offset > (isize::MAX as u64).saturating_sub(buf.len() as u64) {
@@ -332,24 +380,24 @@ impl FileSystem for TempFs {
             println!("tempfs: stat {}", file.inode);
         }
         let inode = self.get_inode(file);
-        match inode {
-            TempINode::Directory(d) => Ok(FileInfo {
+        match &inode.data {
+            TempINodeData::Directory(d) => Ok(FileInfo {
                 r#type: INodeType::Directory,
                 inode: file.inode,
-                nlink: 1,
-                // pretend that each entry takes up 1 byte (this doesn't matter much)
-                size: d.entries.len() as u64,
+                nlink: inode.nlink,
+                // pretend that each entry takes up 16 bytes (chosen arbitrarily)
+                size: d.entry_count() as u64 * 16,
             }),
-            TempINode::File(f) => Ok(FileInfo {
+            TempINodeData::File(f) => Ok(FileInfo {
                 r#type: INodeType::File,
                 inode: file.inode,
-                nlink: f.nlink,
+                nlink: inode.nlink,
                 size: f.data.len() as u64,
             }),
-            TempINode::Link(l) => Ok(FileInfo {
+            TempINodeData::Link(l) => Ok(FileInfo {
                 r#type: INodeType::Link,
                 inode: file.inode,
-                nlink: 1,
+                nlink: inode.nlink,
                 size: l.path.len() as u64,
             }),
         }
@@ -363,31 +411,28 @@ impl FileSystem for TempFs {
         }
         // check for existence
         let parent_inode = self.get_inode(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
-            panic!("Kernel should make sure parent is a directory before creating a link in it.");
+        let TempINodeData::Directory(parent_dir) = &parent_inode.data else {
+            panic!("Kernel should make sure parent is a directory via stat before creating a link in it.");
         };
-        if parent_dir.nlink == 0 {
+        if parent_inode.nlink == 0 {
             // this directory has been rmdir'd
-            return Err(Error::NotDirectory);
+            return Err(Error::NotFound);
         }
-        if parent_dir.entries.contains_key(name) {
+        if parent_dir.contains(name) {
             return Err(Error::Exists);
         }
         // increment link count
         let source_inode = self.get_inode_mut(source);
-        let TempINode::File(f) = source_inode else {
-            // currently don't support hard-linking symlinks/directories
-            // (would be easy to fix)
-            return Err(Error::TooManyLinks);
-        };
-        f.nlink = f.nlink.checked_add(1).ok_or(Error::TooManyLinks)?;
+        source_inode.nlink = source_inode
+            .nlink
+            .checked_add(1)
+            .ok_or(Error::TooManyLinks)?;
         // insert directory entry
-        // we can't just reuse parent_inode from above, since we accessed self in between.
         let parent_inode = self.get_inode_mut(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
+        let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
             panic!("Should never happen since we did this check above.");
         };
-        parent_dir.entries.insert(name.into(), source.inode);
+        parent_dir.add_entry(name.into(), source.inode);
         Ok(())
     }
     fn symlink(&mut self, link: &Path, parent: FileHandle, name: &Path) -> Result<()> {
@@ -399,38 +444,37 @@ impl FileSystem for TempFs {
         }
         // check for existence
         let parent_inode = self.get_inode(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
-            panic!("Kernel should make sure parent is a directory before creating a link in it.");
+        let TempINodeData::Directory(parent_dir) = &parent_inode.data else {
+            panic!("Kernel should make sure parent is a directory via stat before creating a symlink in it.");
         };
         if name.is_empty() || link.is_empty() {
             panic!("Empty path passed to symlink.");
         }
-        if parent_dir.nlink == 0 {
-            // this directory has been rmdir'd
-            return Err(Error::NotDirectory);
+        if name.contains('/') {
+            panic!("File name contains /");
         }
-        if parent_dir.entries.contains_key(name) {
+        if parent_inode.nlink == 0 {
+            // this directory has been rmdir'd
+            return Err(Error::NotFound);
+        }
+        if parent_dir.contains(name) {
             return Err(Error::Exists);
         }
-        let link_inode = TempINode::Link(TempLink {
-            path: link.into(),
-            nlink: 1,
-        });
+        let link_inode = TempINode::link_to(link.into());
         let link_inode_num = self.add_inode(link_inode);
-        // we can't just reuse parent_inode from above, since we accessed self in between.
         let parent_inode = self.get_inode_mut(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
+        let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
             panic!("Should never happen since we did this check above.");
         };
-        parent_dir.entries.insert(name.into(), link_inode_num);
+        parent_dir.add_entry(name.into(), link_inode_num);
         Ok(())
     }
-    fn readlink<'a>(&self, link: FileHandle, buf: &'a mut Path) -> Result<Option<&'a str>> {
+    fn readlink<'a>(&self, link: FileHandle, buf: &'a mut str) -> Result<Option<&'a str>> {
         if DEBUG_TEMPFS {
             println!("tempfs: readlink {} (buf len = {})", link.inode, buf.len());
         }
         let inode = self.get_inode(link);
-        let TempINode::Link(link) = inode else {
+        let TempINodeData::Link(link) = &inode.data else {
             panic!(
                 "Kernel should use stat to make sure this is a link before calling readlink on it."
             );
@@ -459,7 +503,7 @@ impl FileSystem for TempFs {
             println!("tempfs: truncate {} to {} bytes", file.inode, size);
         }
         let inode = self.get_inode_mut(file);
-        let TempINode::File(file) = inode else {
+        let TempINodeData::File(file) = &mut inode.data else {
             panic!(
                 "Kernel should use stat to make sure this is a file before calling truncate on it."
             );
@@ -485,29 +529,29 @@ impl FileSystem for TempFs {
         if name.is_empty() {
             panic!("mkdir called with empty name");
         }
+        if name.contains('/') {
+            panic!("File name contains /");
+        }
         let parent_inode = self.get_inode(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
+        let TempINodeData::Directory(parent_dir) = &parent_inode.data else {
             panic!(
                 "Kernel should make sure parent is a directory before making a directory in it."
             );
         };
-        if parent_dir.nlink == 0 {
+        if parent_inode.nlink == 0 {
             // this directory has been rmdir'd
             return Err(Error::NotDirectory);
         }
-        if parent_dir.entries.contains_key(name) {
+        if parent_dir.contains(name) {
             return Err(Error::Exists);
         }
-        let inode = TempINode::Directory(TempDirectory {
-            entries: BTreeMap::new(),
-            nlink: 1,
-        });
+        let inode = TempINode::empty_directory();
         let inode_num = self.add_inode(inode);
         let parent_inode = self.get_inode_mut(parent);
-        let TempINode::Directory(parent_dir) = parent_inode else {
+        let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
             panic!("This should never happen due to the check above");
         };
-        parent_dir.entries.insert(name.into(), inode_num);
+        parent_dir.add_entry(name.into(), inode_num);
         Ok(())
     }
 }
@@ -619,9 +663,9 @@ mod tests {
         Ok(())
     }
     // read link from an absolute path
-    fn readlink_path<F: FileSystem>(fs: &mut F, source: &Path) -> Result<String> {
+    fn readlink_path<F: FileSystem>(fs: &mut F, source: &Path) -> Result<OwnedPath> {
         let file = do_path(fs, source, Action::Open)?.unwrap();
-        let mut buf = String::new();
+        let mut buf = OwnedPath::new();
         loop {
             if let Some(s) = fs.readlink(file, &mut buf)? {
                 return Ok(s.into());
@@ -639,10 +683,16 @@ mod tests {
         path: &Path,
     ) -> Result<Vec<vfs::OwnedDirEntry>> {
         let handle = open_path(fs, path)?;
-        let mut it = fs.readdir(handle);
+        let mut it = fs.readdir(handle, 0);
         let mut v = vec![];
+        let mut i = 0;
         while let Some(entry) = it.next()? {
             v.push(entry.to_owned());
+            if i % 2 == 0 {
+                // test readdir with offset
+                it = fs.readdir(handle, it.offset());
+            }
+            i += 1;
         }
         v.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(v)
@@ -771,16 +821,6 @@ mod tests {
     /// test TooManyLinks error
     fn too_many_links() {
         let mut fs = TempFs::new();
-        mkdir_path(&mut fs, "/dir").unwrap();
-        assert_matches!(
-            link_path(&mut fs, "/dir", "/x").unwrap_err(),
-            Error::TooManyLinks
-        );
-        symlink_path(&mut fs, "/dir", "/symlink").unwrap();
-        assert_matches!(
-            link_path(&mut fs, "/symlink", "/x").unwrap_err(),
-            Error::TooManyLinks
-        );
         let source = create_path(&mut fs, "/file").unwrap();
         let root = open_path(&mut fs, "/").unwrap();
         for i in 0..65534 {

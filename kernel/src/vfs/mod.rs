@@ -1,6 +1,9 @@
 pub mod tempfs;
 
-pub type INodeNum = u64;
+use alloc::borrow::ToOwned;
+use alloc::string::String;
+
+pub type INodeNum = u32;
 pub type Path = str;
 pub type OwnedPath = String;
 
@@ -14,7 +17,7 @@ pub struct FileHandle {
     /// inode number of this file
     pub inode: INodeNum,
     /// allows filesystem to store its own metadata about open files
-    pub fs_data: u64,
+    pub fs_data: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -33,6 +36,8 @@ pub enum Error {
     NotEmpty,
     /// Target destination already exists
     Exists,
+    /// Error accessing underlying storage device
+    IO,
 }
 
 impl core::fmt::Display for Error {
@@ -45,6 +50,7 @@ impl core::fmt::Display for Error {
             Self::TooManyLinks => write!(f, "too many hard links to file"),
             Self::NotEmpty => write!(f, "directory not empty"),
             Self::Exists => write!(f, "destination already exists"),
+            Self::IO => write!(f, "I/O error"),
         }
     }
 }
@@ -82,8 +88,6 @@ pub struct DirEntry<'a> {
     /// inode number
     pub inode: INodeNum,
     /// Name of entry
-    ///
-    /// Note that iterating through a [`DirectoryIterator`] may overwrite this path!
     pub name: &'a Path,
 }
 
@@ -112,40 +116,55 @@ pub trait DirectoryIterator<'a>: Sized {
     ///
     /// Returns `Ok(None)` if the end of the directory was reached.
     fn next(&mut self) -> Result<Option<DirEntry<'_>>>;
+    /// Get current offset into directory.
+    ///
+    /// The kernel should treat this as an opaque value that can be used for subsequent calls
+    /// to [`FileSystem::readdir`] — e.g. it doesn't necessarily represent the number of directory
+    /// entries that have been iterated.
+    fn offset(&self) -> u64;
 }
 
 pub trait FileSystem {
     /// Get root inode number
     fn root(&self) -> INodeNum;
-    /// Look up directory entry
+    /// Look up file in directory
     fn lookup(&self, parent: FileHandle, name: &Path) -> Result<INodeNum>;
     /// Open an existing file/directory/symlink.
+    ///
+    /// If the inode doesn't exist, returns [`Error::NotFound`].
     fn open(&mut self, inode: INodeNum) -> Result<FileHandle>;
     /// Create a new file in parent, or open it if it already exists (without truncating).
     ///
-    /// The kernel must ensure that `parent` is a directory and that `name` is non-empty.
+    /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`
     fn create(&mut self, parent: FileHandle, name: &Path) -> Result<FileHandle>;
     /// Make directory in parent
     ///
-    /// The kernel must ensure that `parent` is a directory and that `name` is non-empty.
-    /// If `name` already exists (whether as a directory or as a file), [`Error::Exists`] should be returned.
+    /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`
+    /// If `name` already exists (whether as a directory or as a file), returns [`Error::Exists`].
     fn mkdir(&mut self, parent: FileHandle, name: &Path) -> Result<()>;
     /// Remove a (link to a) file/symlink in parent
     ///
-    /// The kernel must ensure that `parent` is a directory and that `name` is non-empty.
-    /// The filesystem must keep around the file in memory or on disk until [`Self::release`] is called.
+    /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`
+    /// The filesystem must keep around the file data in memory or on disk until [`Self::release`] is called.
     fn unlink(&mut self, parent: FileHandle, name: &Path) -> Result<()>;
     /// Remove a directory in parent
     ///
-    /// The kernel must ensure that `parent` is a directory before calling this.
+    /// The kernel must ensure that `parent` is a directory before calling this
+    /// The filesystem must not free the inode corresponding to this directory until [`Self::release`] is called.
     fn rmdir(&mut self, parent: FileHandle, name: &Path) -> Result<()>;
-    /// read entries in a directory
+    /// Read entries in a directory
     ///
     /// The kernel must ensure that `dir` is a directory before calling this.
-    fn readdir(&self, dir: FileHandle) -> impl DirectoryIterator<'_>;
-    /// Indicate that there are no more references to an open file/symlink/directory.
     ///
-    /// If there are no links left to the file, the filesystem can delete it at this point.
+    /// `offset` must either be zero or a value previously returned by [`DirectoryIterator::offset`].
+    /// If entries are added/removed from the directory in between the call to [`DirectoryIterator::offset`]
+    /// and this call, they may or may not be listed. But modifications to the directory must not
+    /// cause directory entries to be repeated or unmodified entries to be skipped.
+    fn readdir(&self, dir: FileHandle, offset: u64) -> impl DirectoryIterator<'_>;
+    /// Indicate that there are no more references to an inode
+    /// (i.e. all file descriptors pointing to it have been closed).
+    ///
+    /// If there are no links left to the file, the filesystem should delete it at this point.
     /// The kernel must not use any file handle pointing to this inode after calling this.
     fn release(&mut self, inode: INodeNum);
     /// Read from file into buf at offset.
@@ -160,15 +179,15 @@ pub trait FileSystem {
     fn stat(&self, file: FileHandle) -> Result<FileInfo>;
     /// Create a hard link
     ///
-    /// As on Linux, this should return [`Error::Exists`] and do nothing if the destination already exists.
+    /// As on Linux, this returns [`Error::Exists`] and does nothing if the destination already exists.
     ///
-    /// The kernel must ensure that parent is a directory, and that `name` is non-empty.
+    /// The kernel must ensure that parent is a directory, and that `name` is non-empty and doesn't contain `/`
     fn link(&mut self, source: FileHandle, parent: FileHandle, name: &Path) -> Result<()>;
     /// Create a symbolic link
     ///
-    /// As on Linux, this should return [`Error::Exists`] and do nothing if the destination already exists.
+    /// As on Linux, this returns [`Error::Exists`] and does nothing if the destination already exists.
     ///
-    /// The kernel must ensure that parent is a directory, and that `link` and `name` are non-empty.
+    /// The kernel must ensure that parent is a directory, and that `link` and `name` are non-empty and that `name` doesn't contain `/`
     fn symlink(&mut self, link: &Path, parent: FileHandle, name: &Path) -> Result<()>;
     /// Read a symbolic link
     ///
@@ -176,8 +195,7 @@ pub trait FileSystem {
     /// is too short (in which case the contents of `buf` are unspecified).
     ///
     /// Note that you can get the size of buffer needed from calling [`FileInfo::size`]
-    /// on the return value of [`Self::stat`], but this may still fail if the
-    /// link is modified between the calls to stat and readlink.
+    /// on the return value of [`Self::stat`].
     fn readlink<'a>(&self, link: FileHandle, buf: &'a mut Path) -> Result<Option<&'a str>>;
     /// Set a new file size.
     ///
