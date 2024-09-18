@@ -1,10 +1,9 @@
+use super::inode::{InodeNum, MemInode, Stat};
 use crate::vfs::tempfs::*;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::BTreeSet;
 // use crate::sync::irq::MutexIrq;
-use alloc::{vec::Vec, string::String};
-use super::inode::{MemInode, Stat, InodeNum};
-use alloc::collections::btree_map::BTreeMap;
-
+use alloc::{string::String, vec::Vec};
 
 pub trait FileSystem {
     fn blkid(&self) -> Blkid;
@@ -13,7 +12,7 @@ pub trait FileSystem {
 }
 
 #[derive(Clone)]
-pub enum FsType{
+pub enum FsType {
     Tempfs(Tempfs),
 }
 
@@ -36,7 +35,7 @@ impl SuperBlock {
     pub fn blkid(&self) -> Blkid {
         self.fs.unwrap().blkid()
     }
-    
+
     pub fn root_ino(&self) -> InodeNum {
         self.root_ino
     }
@@ -45,18 +44,14 @@ impl SuperBlock {
         let fs: &dyn FileSystem = self.fs.unwrap();
         fs.read_ino(ino)
     }
-
-
-    
 }
-
 
 // For internal VFS use only
 struct Dentry {
     inode: MemInode,
     // Whether this directory or any of its children is a mountpoint, don't remove from vfs if so
-    contains_mountpoint: bool, 
-    // Dentry links for the VFS 
+    contains_mountpoint: bool,
+    // Dentry links for the VFS
     parent: usize,
     idx: usize,
     // Whether we need to read the disk to load dentries for children
@@ -65,28 +60,26 @@ struct Dentry {
     children_idx: BTreeSet<usize>,
 }
 impl Dentry {
-    fn new(inode: MemInode, parent: usize, mounted: bool, idx: usize) -> Option<Dentry>{
+    fn new(inode: MemInode, parent: usize, mounted: bool, idx: usize) -> Option<Dentry> {
         if inode.is_directory() {
-            Option::Some(
-                Dentry {
-                    inode,
-                    parent, 
-                    contains_mountpoint: mounted,
-                    idx,
-                    dirty: true,
-                    children_idx: BTreeSet::new()
-                }
-            )
-        } else{
+            Option::Some(Dentry {
+                inode,
+                parent,
+                contains_mountpoint: mounted,
+                idx,
+                dirty: true,
+                children_idx: BTreeSet::new(),
+            })
+        } else {
             Option::None
         }
     }
 
-    fn set_dirty(&mut self, b:  bool){
-            self.dirty =b; 
+    fn set_dirty(&mut self, b: bool) {
+        self.dirty = b;
     }
 
-    fn clean(&self) -> bool{
+    fn clean(&self) -> bool {
         !self.dirty
     }
 
@@ -101,7 +94,6 @@ impl Dentry {
     fn iter_children(&self) -> impl Iterator<Item = &usize> {
         self.children_idx.iter()
     }
-    
 
     fn idx(&self) -> usize {
         self.idx
@@ -111,7 +103,7 @@ impl Dentry {
         self.parent
     }
 
-    fn inode(&self) -> &MemInode{
+    fn inode(&self) -> &MemInode {
         &self.inode
     }
 
@@ -119,7 +111,7 @@ impl Dentry {
         self.inode.name()
     }
 
-fn ino(&self) -> InodeNum {
+    fn ino(&self) -> InodeNum {
         self.inode.ino()
     }
 
@@ -130,12 +122,10 @@ fn ino(&self) -> InodeNum {
     fn is_mountpoint(&self) -> bool {
         self.contains_mountpoint
     }
-
 }
 
-
 struct Path {
-    path: Vec<String>   
+    path: Vec<String>,
 }
 
 impl From<String> for Path {
@@ -146,37 +136,32 @@ impl From<String> for Path {
                 path.push(s.into())
             }
         }
-    Path {
-            path
-        }
+        Path { path }
     }
 }
 
 impl Path {
-
-    fn iter_to_parent(&self) -> impl Iterator<Item = &String>{
+    fn iter_to_parent(&self) -> impl Iterator<Item = &String> {
         let len = self.path.len();
-        return self.path[1..len-1].iter()
+        return self.path[1..len - 1].iter();
     }
 
     fn parent(&self) -> Path {
         Path {
-            path: self.iter_to_parent().map(|s| s.into()).collect() 
+            path: self.iter_to_parent().map(|s| s.into()).collect(),
         }
     }
 
     fn iter(&self) -> impl Iterator<Item = &String> {
-        return self.path.iter()
+        return self.path.iter();
     }
-
 }
-
 
 pub struct Vfs {
     registered: BTreeMap<Blkid, SuperBlock>,
     root_dentry_idx: usize,
     dentries: BTreeMap<usize, Dentry>,
-    next_idx : usize,
+    next_idx: usize,
 }
 
 impl Vfs {
@@ -188,7 +173,7 @@ impl Vfs {
             root_dentry_idx: 0,
             dentries: BTreeMap::new(),
             registered,
-            next_idx: 0, 
+            next_idx: 0,
         };
         let root = rtn.registered.get_mut(&root_blkid).unwrap();
         let root_ino = root.read_inode(root.root_ino());
@@ -196,13 +181,16 @@ impl Vfs {
         rtn
     }
     fn register_dentry(&mut self, inode: MemInode, parent: usize, mounted: bool) -> usize {
-        self.dentries.insert(self.next_idx, Dentry::new(inode, parent, mounted, self.next_idx).unwrap());
+        self.dentries.insert(
+            self.next_idx,
+            Dentry::new(inode, parent, mounted, self.next_idx).unwrap(),
+        );
         self.next_idx += 1;
-        self.next_idx-1
+        self.next_idx - 1
     }
 
     fn name_by_idx(&self, idx: usize) -> Option<&str> {
-        self.dentries.get(&idx).map(|x|x.name())
+        self.dentries.get(&idx).map(|x| x.name())
     }
 
     //TODO reevaluate mountpoints after free
@@ -210,43 +198,58 @@ impl Vfs {
         let mut dentry = self.dentries.remove(&idx).unwrap();
         let children: Vec<usize> = dentry.iter_children().copied().collect();
         if dentry.clean() {
-            return children        }
-        //otherwise, read children from disk and then iterate downwoards 
-        let block  = self.registered.get(&dentry.blkid()).unwrap();
-        let children_ino: Vec<MemInode> = dentry.inode().get_disk_children()
+            return children;
+        }
+        // otherwise, read children from disk and then iterate downwards
+        let block = self.registered.get(&dentry.blkid()).unwrap();
+        let children_ino: Vec<MemInode> = dentry
+            .inode()
+            .get_disk_children()
             .unwrap()
-            .map(|x: &InodeNum| -> MemInode {block.read_inode(*x)})
+            .map(|x: &InodeNum| -> MemInode { block.read_inode(*x) })
             .collect();
         for c in children_ino {
             let cidx = self.register_dentry(c, idx, false);
             dentry.push_child(cidx);
         }
         self.dentries.insert(idx, dentry);
-        self.dentries.get(&idx).unwrap().iter_children().copied().collect()
+        self.dentries
+            .get(&idx)
+            .unwrap()
+            .iter_children()
+            .copied()
+            .collect()
     }
-     /* 
-        Returns the dentry index associated with the absolute path  
-        ex: resolve_path("/a/b/c/d") should give Dentry for d
-     */
+    /*
+       Returns the dentry index associated with the absolute path
+       ex: resolve_path("/a/b/c/d") should give Dentry for d
+    */
     fn resolve_path(&mut self, path: Path) -> usize {
         let mut prev = 0;
         for dir in path.iter() {
             let mut next = prev;
             for c in self.forward(prev) {
                 if self.name_by_idx(c).unwrap() == dir {
-                   next = c 
+                    next = c
                 }
             }
             if next == prev {
-                return 0
+                return 0;
             }
             prev = next;
         }
-        prev 
+        prev
     }
 
-    fn children_inode_numbers(&self, idx: usize) -> Vec<InodeNum>{
-        self.dentries.get(&idx).unwrap().inode().get_disk_children().unwrap().copied().collect() 
+    fn children_inode_numbers(&self, idx: usize) -> Vec<InodeNum> {
+        self.dentries
+            .get(&idx)
+            .unwrap()
+            .inode()
+            .get_disk_children()
+            .unwrap()
+            .copied()
+            .collect()
     }
 
     //TODO: Remove Dentries
@@ -259,7 +262,6 @@ impl Vfs {
     }
 
     pub fn mkdir(&self, path: String) {
-
         todo!()
     }
 
@@ -269,7 +271,5 @@ impl Vfs {
 
     pub fn cp() {
         todo!()
-
     }
-
 }

@@ -16,26 +16,24 @@ pub enum InodeData {
 pub struct MemInode {
     ino: u32,
     name: String,
-    data: InodeData, 
+    data: InodeData,
     blkid: Blkid,
     stat: Stat,
     dirty: bool,
 }
 
 impl MemInode {
-    
     pub fn read_data(&self) -> &InodeData {
         &self.data
     }
 
     pub fn is_directory(&self) -> bool {
-    #[allow(clippy::match_like_matches_macro)]
+        #[allow(clippy::match_like_matches_macro)]
         match &self.data {
             InodeData::Directory(v) => true,
             _ => false,
         }
     }
-
 
     pub fn get_disk_children(&self) -> Option<impl Iterator<Item = &InodeNum>> {
         #[allow(clippy::match_like_matches_macro)]
@@ -56,5 +54,4 @@ impl MemInode {
     pub fn blkid(&self) -> Blkid {
         self.blkid
     }
-
 }
