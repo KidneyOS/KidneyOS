@@ -1,8 +1,8 @@
 mod context_switch;
+pub mod io;
 pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;
-pub mod io;
 
 use crate::{
     paging::PageManager,

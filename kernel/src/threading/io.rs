@@ -53,4 +53,3 @@ pub unsafe fn outsw(port: u16, buf: *const u8, count: usize) {
     in("ecx") count,
     );
 }
-
