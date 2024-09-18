@@ -19,6 +19,7 @@ mod user_program;
 
 extern crate alloc;
 
+use crate::threading::interrupt::{init_intr, Pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
@@ -48,6 +49,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up IDTR");
         interrupt_descriptor_table::load();
         println!("IDTR set up!");
+
+        println!("Setting up PIC");
+        let pic: Pic = init_intr();
+        pic.intr_context(); // Suppress unused warnings
+        println!("PIC set up!");
 
         println!("Enabling paging");
         let page_manager = paging::enable();

@@ -1,4 +1,7 @@
 mod context_switch;
+pub mod interrupt;
+mod intr_stubs;
+mod loader;
 pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;
