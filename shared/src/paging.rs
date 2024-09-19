@@ -432,7 +432,12 @@ impl<A: Allocator> Drop for PageManager<A> {
             let Some(page_table_addr) = NonNull::new(page_table_addr as *mut u8) else {
                 panic!("present page directory entry contained null page table address");
             };
-            unsafe { self.alloc.deallocate(page_table_addr, PAGE_TABLE_LAYOUT) };
+
+            // Huge Pages are not allocated with an allocator.
+            // Seems like we might not need to free them.
+            if !pde.page_size() {
+                unsafe { self.alloc.deallocate(page_table_addr, PAGE_TABLE_LAYOUT) };
+            }
         }
 
         unsafe {
