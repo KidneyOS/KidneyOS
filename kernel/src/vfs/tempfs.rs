@@ -10,6 +10,14 @@ use crate::vfs::{
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use core::cmp::min;
 
+#[derive(Debug, Clone, Copy)]
+pub struct TempFileHandle(INodeNum);
+impl FileHandle for TempFileHandle {
+    fn inode(self) -> INodeNum {
+        self.0
+    }
+}
+
 #[derive(Default)]
 struct TempFile {
     data: Vec<u8>,
@@ -148,11 +156,11 @@ impl TempFs {
             inode_counter: 1,
         }
     }
-    fn get_inode(&self, handle: FileHandle) -> &TempINode {
-        self.inodes.get(&handle.inode).expect(NO_INODE)
+    fn get_inode(&self, handle: TempFileHandle) -> &TempINode {
+        self.inodes.get(&handle.inode()).expect(NO_INODE)
     }
-    fn get_inode_mut(&mut self, handle: FileHandle) -> &mut TempINode {
-        self.inodes.get_mut(&handle.inode).expect(NO_INODE)
+    fn get_inode_mut(&mut self, handle: TempFileHandle) -> &mut TempINode {
+        self.inodes.get_mut(&handle.inode()).expect(NO_INODE)
     }
     fn add_inode(&mut self, inode: TempINode) -> INodeNum {
         loop {
@@ -165,7 +173,12 @@ impl TempFs {
         self.inode_counter
     }
     // performs either unlink or rmdir.
-    fn unlink_or_rmdir(&mut self, parent: FileHandle, name: &Path, is_rmdir: bool) -> Result<()> {
+    fn unlink_or_rmdir(
+        &mut self,
+        parent: TempFileHandle,
+        name: &Path,
+        is_rmdir: bool,
+    ) -> Result<()> {
         if name.is_empty() {
             panic!(
                 "Empty name passed to {}",
@@ -228,12 +241,14 @@ impl TempFs {
 const DEBUG_TEMPFS: bool = cfg!(test);
 
 impl FileSystem for TempFs {
+    type FileHandle = TempFileHandle;
+    type DirectoryIterator<'a> = TempDirectoryIterator<'a>;
     fn root(&self) -> INodeNum {
         ROOT_INO
     }
-    fn lookup(&self, parent: FileHandle, name: &Path) -> Result<INodeNum> {
+    fn lookup(&self, parent: TempFileHandle, name: &Path) -> Result<INodeNum> {
         if DEBUG_TEMPFS {
-            println!("tempfs: lookup in {}: {}", parent.inode, name);
+            println!("tempfs: lookup in {parent:?}: {name}");
         }
         let parent_inode = self.get_inode(parent);
         let TempINodeData::Directory(dir) = &parent_inode.data else {
@@ -241,18 +256,18 @@ impl FileSystem for TempFs {
         };
         dir.inode_by_name(name).ok_or(Error::NotFound)
     }
-    fn open(&mut self, inode: INodeNum) -> Result<FileHandle> {
+    fn open(&mut self, inode: INodeNum) -> Result<TempFileHandle> {
         if DEBUG_TEMPFS {
-            println!("tempfs: open {}", inode);
+            println!("tempfs: open {inode}");
         }
         if self.inodes.get(&inode).is_none() {
             return Err(Error::NotFound);
         }
-        Ok(FileHandle { inode, fs_data: 0 })
+        Ok(TempFileHandle(inode))
     }
-    fn create(&mut self, parent: FileHandle, name: &Path) -> Result<FileHandle> {
+    fn create(&mut self, parent: TempFileHandle, name: &Path) -> Result<TempFileHandle> {
         if DEBUG_TEMPFS {
-            println!("tempfs: create in {}: {}", parent.inode, name);
+            println!("tempfs: create in {parent:?}: {name}");
         }
         if name.is_empty() {
             panic!("Empty name passed to create");
@@ -278,26 +293,23 @@ impl FileSystem for TempFs {
             parent_dir.add_entry(name.into(), inode_num);
             inode_num
         });
-        Ok(FileHandle {
-            inode: inode_num,
-            fs_data: 0,
-        })
+        Ok(TempFileHandle(inode_num))
     }
-    fn unlink(&mut self, parent: FileHandle, name: &Path) -> Result<()> {
+    fn unlink(&mut self, parent: TempFileHandle, name: &Path) -> Result<()> {
         if DEBUG_TEMPFS {
-            println!("tempfs: unlink in {}: {}", parent.inode, name);
+            println!("tempfs: unlink in {parent:?}: {name}");
         }
         self.unlink_or_rmdir(parent, name, false)
     }
-    fn rmdir(&mut self, parent: FileHandle, name: &Path) -> Result<()> {
+    fn rmdir(&mut self, parent: TempFileHandle, name: &Path) -> Result<()> {
         if DEBUG_TEMPFS {
-            println!("tempfs: rmdir in {}: {}", parent.inode, name);
+            println!("tempfs: rmdir in {parent:?}: {name}");
         }
         self.unlink_or_rmdir(parent, name, true)
     }
-    fn readdir(&self, dir: FileHandle, offset: u64) -> impl '_ + DirectoryIterator {
+    fn readdir(&self, dir: TempFileHandle, offset: u64) -> TempDirectoryIterator<'_> {
         if DEBUG_TEMPFS {
-            println!("tempfs: readdir {}", dir.inode);
+            println!("tempfs: readdir {dir:?}");
         }
         let inode = self.get_inode(dir);
         let TempINodeData::Directory(dir) = &inode.data else {
@@ -311,7 +323,7 @@ impl FileSystem for TempFs {
     }
     fn release(&mut self, inode_num: INodeNum) {
         if DEBUG_TEMPFS {
-            println!("tempfs: release {}", inode_num);
+            println!("tempfs: release {inode_num}");
         }
         let inode = self
             .inodes
@@ -322,12 +334,10 @@ impl FileSystem for TempFs {
             self.inodes.remove(&inode_num);
         }
     }
-    fn read(&self, file: FileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
+    fn read(&self, file: TempFileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
         if DEBUG_TEMPFS {
             println!(
-                "tempfs: read from {} @ offset {} length {}",
-                file.inode,
-                offset,
+                "tempfs: read from {file:?} @ offset {offset} length {}",
                 buf.len()
             );
         }
@@ -344,12 +354,10 @@ impl FileSystem for TempFs {
         buf[..read_len].copy_from_slice(&f.data[offset..offset + read_len]);
         Ok(read_len)
     }
-    fn write(&mut self, file: FileHandle, offset: u64, buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, file: TempFileHandle, offset: u64, buf: &[u8]) -> Result<usize> {
         if DEBUG_TEMPFS {
             println!(
-                "tempfs: write to {} @ offset {} length {}",
-                file.inode,
-                offset,
+                "tempfs: write to {file:?} @ offset {offset} length {}",
                 buf.len()
             );
         }
@@ -375,39 +383,36 @@ impl FileSystem for TempFs {
         f.data[offset..offset + buf.len()].copy_from_slice(buf);
         Ok(buf.len())
     }
-    fn stat(&self, file: FileHandle) -> Result<FileInfo> {
+    fn stat(&self, file: TempFileHandle) -> Result<FileInfo> {
         if DEBUG_TEMPFS {
-            println!("tempfs: stat {}", file.inode);
+            println!("tempfs: stat {file:?}");
         }
         let inode = self.get_inode(file);
         match &inode.data {
             TempINodeData::Directory(d) => Ok(FileInfo {
                 r#type: INodeType::Directory,
-                inode: file.inode,
-                nlink: inode.nlink,
+                inode: file.inode(),
+                nlink: inode.nlink.into(),
                 // pretend that each entry takes up 16 bytes (chosen arbitrarily)
                 size: d.entry_count() as u64 * 16,
             }),
             TempINodeData::File(f) => Ok(FileInfo {
                 r#type: INodeType::File,
-                inode: file.inode,
-                nlink: inode.nlink,
+                inode: file.inode(),
+                nlink: inode.nlink.into(),
                 size: f.data.len() as u64,
             }),
             TempINodeData::Link(l) => Ok(FileInfo {
                 r#type: INodeType::Link,
-                inode: file.inode,
-                nlink: inode.nlink,
+                inode: file.inode(),
+                nlink: inode.nlink.into(),
                 size: l.path.len() as u64,
             }),
         }
     }
-    fn link(&mut self, source: FileHandle, parent: FileHandle, name: &Path) -> Result<()> {
+    fn link(&mut self, source: TempFileHandle, parent: TempFileHandle, name: &Path) -> Result<()> {
         if DEBUG_TEMPFS {
-            println!(
-                "tempfs: create link to {} in {}: {}",
-                source.inode, parent.inode, name
-            );
+            println!("tempfs: create link to {source:?} in {parent:?}: {name}",);
         }
         // check for existence
         let parent_inode = self.get_inode(parent);
@@ -432,15 +437,12 @@ impl FileSystem for TempFs {
         let TempINodeData::Directory(parent_dir) = &mut parent_inode.data else {
             panic!("Should never happen since we did this check above.");
         };
-        parent_dir.add_entry(name.into(), source.inode);
+        parent_dir.add_entry(name.into(), source.inode());
         Ok(())
     }
-    fn symlink(&mut self, link: &Path, parent: FileHandle, name: &Path) -> Result<()> {
+    fn symlink(&mut self, link: &Path, parent: TempFileHandle, name: &Path) -> Result<()> {
         if DEBUG_TEMPFS {
-            println!(
-                "tempfs: create symlink to {} in {}: {}",
-                link, parent.inode, name
-            );
+            println!("tempfs: create symlink to {link} in {parent:?}: {name}",);
         }
         // check for existence
         let parent_inode = self.get_inode(parent);
@@ -469,9 +471,9 @@ impl FileSystem for TempFs {
         parent_dir.add_entry(name.into(), link_inode_num);
         Ok(())
     }
-    fn readlink<'a>(&self, link: FileHandle, buf: &'a mut str) -> Result<Option<&'a str>> {
+    fn readlink<'a>(&self, link: TempFileHandle, buf: &'a mut str) -> Result<Option<&'a str>> {
         if DEBUG_TEMPFS {
-            println!("tempfs: readlink {} (buf len = {})", link.inode, buf.len());
+            println!("tempfs: readlink {link:?} (buf len = {})", buf.len());
         }
         let inode = self.get_inode(link);
         let TempINodeData::Link(link) = &inode.data else {
@@ -498,9 +500,9 @@ impl FileSystem for TempFs {
         }
         Ok(Some(&buf[..link.path.len()]))
     }
-    fn truncate(&mut self, file: FileHandle, size: u64) -> Result<()> {
+    fn truncate(&mut self, file: TempFileHandle, size: u64) -> Result<()> {
         if DEBUG_TEMPFS {
-            println!("tempfs: truncate {} to {} bytes", file.inode, size);
+            println!("tempfs: truncate {file:?} to {size} bytes");
         }
         let inode = self.get_inode_mut(file);
         let TempINodeData::File(file) = &mut inode.data else {
@@ -522,9 +524,9 @@ impl FileSystem for TempFs {
         }
         Ok(())
     }
-    fn mkdir(&mut self, parent: FileHandle, name: &Path) -> Result<()> {
+    fn mkdir(&mut self, parent: TempFileHandle, name: &Path) -> Result<()> {
         if DEBUG_TEMPFS {
-            println!("tempfs: mkdir in {}: {}", parent.inode, name);
+            println!("tempfs: mkdir in {parent:?}: {name}");
         }
         if name.is_empty() {
             panic!("mkdir called with empty name");
@@ -568,21 +570,21 @@ mod tests {
         };
     }
     #[derive(Clone, Copy)]
-    enum Action<'a> {
+    enum Action<'a, F: FileSystem> {
         Open,
         Create,
         Mkdir,
         Rmdir,
         Unlink,
-        Link(FileHandle),
+        Link(F::FileHandle),
         SymLink(&'a Path),
     }
     // open/create/mkdir/rmdir/unlink an absolute path
     fn do_path<F: FileSystem>(
         fs: &mut F,
         path: &Path,
-        action: Action,
-    ) -> Result<Option<FileHandle>> {
+        action: Action<F>,
+    ) -> Result<Option<F::FileHandle>> {
         if !path.starts_with("/") {
             panic!("not an absolute path");
         }
@@ -634,11 +636,11 @@ mod tests {
         Ok(())
     }
     // create an absolute path
-    fn create_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<FileHandle> {
+    fn create_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<F::FileHandle> {
         Ok(do_path(fs, path, Action::Create)?.unwrap())
     }
     // open an absolute path
-    fn open_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<FileHandle> {
+    fn open_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<F::FileHandle> {
         Ok(do_path(fs, path, Action::Open)?.unwrap())
     }
     // rmdir an absolute path
@@ -675,7 +677,7 @@ mod tests {
     }
     // get inode of absolute path
     fn inode_of_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<INodeNum> {
-        Ok(open_path(fs, path)?.inode)
+        Ok(open_path(fs, path)?.inode())
     }
     // get directory entries sorted by name
     fn readdir_path<'a, F: FileSystem>(
@@ -698,7 +700,7 @@ mod tests {
         Ok(v)
     }
     // read entire file contents
-    fn read_file<F: FileSystem>(fs: &F, file: FileHandle) -> Result<Vec<u8>> {
+    fn read_file<F: FileSystem>(fs: &F, file: F::FileHandle) -> Result<Vec<u8>> {
         let mut buf = [0; 2]; // use just 2 bytes for buffer for more thorough testing
         let mut vec = Vec::new();
         loop {
@@ -716,7 +718,7 @@ mod tests {
         let mut fs = TempFs::new();
         let test = create_path(&mut fs, "/test").unwrap();
         assert_eq!(fs.write(test, 0, b"hello").unwrap(), 5);
-        fs.release(test.inode); // this should do nothing since there is still a link to /test
+        fs.release(test.inode()); // this should do nothing since there is still a link to /test
         let test = open_path(&mut fs, "/test").unwrap();
         assert_eq!(read_file(&mut fs, test).unwrap(), b"hello");
     }
@@ -760,7 +762,7 @@ mod tests {
         assert_matches!(open_path(&mut fs, "/dir/1").unwrap_err(), Error::NotFound);
         // file data should still exist since there are open handles to it!
         assert_eq!(read_file(&mut fs, file1).unwrap(), b"test file");
-        fs.release(file1.inode);
+        fs.release(file1.inode());
         assert_matches!(open_path(&mut fs, "/dir/1").unwrap_err(), Error::NotFound);
     }
 
@@ -794,13 +796,13 @@ mod tests {
         assert_eq!(read_file(&mut fs, two).unwrap(), b"hello");
         assert_eq!(read_file(&mut fs, three).unwrap(), b"hello");
         unlink_path(&mut fs, "/1").unwrap();
-        fs.release(one.inode);
+        fs.release(one.inode());
         assert_eq!(read_file(&mut fs, two).unwrap(), b"hello");
         unlink_path(&mut fs, "/2").unwrap();
-        fs.release(two.inode);
+        fs.release(two.inode());
         assert_eq!(read_file(&mut fs, three).unwrap(), b"hello");
         unlink_path(&mut fs, "/3").unwrap();
-        fs.release(three.inode);
+        fs.release(three.inode());
         assert_eq!(fs.inodes.len(), 1); // should only have root
     }
 
