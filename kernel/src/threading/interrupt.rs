@@ -13,7 +13,6 @@ use crate::println;
 use crate::threading::intr_stubs::INTR_STUBS;
 use crate::threading::loader::SEL_KCSEG;
 use core::arch::asm;
-use core::cmp::PartialEq;
 
 /// Master PIC - Command
 const PIC0_CTRL: u16 = 0x20;
@@ -26,21 +25,6 @@ const PIC1_DATA: u16 = 0xA1;
 
 /// Number of x86 interrupt vectors.
 const INTR_CNT: usize = 256;
-
-/// Whether the interrupt is enabled.
-pub enum IntrLevel {
-    IntrOn,
-    IntrOff,
-}
-
-impl PartialEq for IntrLevel {
-    fn eq(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (IntrLevel::IntrOn, IntrLevel::IntrOn) | (IntrLevel::IntrOff, IntrLevel::IntrOff)
-        )
-    }
-}
 
 // TODO: push registers in stub
 #[repr(C)]
@@ -169,8 +153,8 @@ pub unsafe fn init_intr() -> Pic {
 }
 
 impl Pic {
-    /// Returns the current interrupt level.
-    pub fn intr_get_level(&self) -> IntrLevel {
+    /// Returns true if interrupts are enabled, false otherwise.
+    pub fn get_intr_enabled(&self) -> bool {
         let flags: u32;
 
         // Push the flags register on the processor stack, then pop the value off the stack into
@@ -180,26 +164,23 @@ impl Pic {
             asm!("pushf; pop {0}", out(reg) flags);
         }
 
-        if flags & 0x200 != 0 {
-            IntrLevel::IntrOn
-        } else {
-            IntrLevel::IntrOff
-        }
+        flags & 0x200 != 0
     }
 
-    /// Enables or disables interrupts as specified by `level'.
+    /// Enables or disables interrupts as specified by `enable'.
     ///
     /// Returns the previous interrupt state.
-    pub fn intr_set_level(&self, level: IntrLevel) -> IntrLevel {
-        match level {
-            IntrLevel::IntrOn => self.iter_enable(),
-            IntrLevel::IntrOff => self.intr_disable(),
+    pub fn set_intr_enabled(&self, level: bool) -> bool {
+        if level {
+            self.iter_enable()
+        } else {
+            self.intr_disable()
         }
     }
 
     /// Enables interrupts and returns the previous interrupt state.
-    pub fn iter_enable(&self) -> IntrLevel {
-        let old_level = self.intr_get_level();
+    pub fn iter_enable(&self) -> bool {
+        let old_level = self.get_intr_enabled();
         assert!(!self.intr_context());
 
         unsafe {
@@ -209,8 +190,8 @@ impl Pic {
     }
 
     /// Disables interrupts and returns the previous interrupt status
-    pub fn intr_disable(&self) -> IntrLevel {
-        let old_level = self.intr_get_level();
+    pub fn intr_disable(&self) -> bool {
+        let old_level = self.get_intr_enabled();
 
         // Disable interrupts by clearing the interrupt flag. See [IA32-v2b] "CLI" and [IA32-v3a]
         // 5.8.1 "Masking Maskable Hardware Interrupts".
@@ -224,11 +205,11 @@ impl Pic {
         &mut self,
         vec_no: u8,
         dpl: u8,
-        level: IntrLevel,
+        level: bool,
         handler: IntrHandlerFunc,
         name: &'static str,
     ) {
-        if level == IntrLevel::IntrOn {
+        if level {
             unsafe {
                 self.idt[vec_no as usize] = self.make_trap_gate(INTR_STUBS[vec_no as usize], dpl);
             }
@@ -245,7 +226,7 @@ impl Pic {
     /// Registers external interrupt VEC_NO to invoke HANDLER, which is named NAME for debugging
     /// purposes. The handler will execute with interrupts disabled.
     pub fn intr_register_ext(&mut self, vec_no: u8, handler: IntrHandlerFunc, name: &'static str) {
-        self.register_handler(vec_no, 0, IntrLevel::IntrOn, handler, name);
+        self.register_handler(vec_no, 0, true, handler, name);
     }
 
     /// Registers internal interrupt `vec_no` to invoke HANDLER, which is named `name` for debugging
@@ -261,13 +242,13 @@ impl Pic {
         &mut self,
         vec_no: u8,
         _dpl: u8,
-        _level: IntrLevel,
+        _level: bool,
         handler: IntrHandlerFunc,
         name: &'static str,
     ) {
         assert!(vec_no < 0x20 || vec_no == 0x2f);
 
-        self.register_handler(vec_no, 0, IntrLevel::IntrOff, handler, name);
+        self.register_handler(vec_no, 0, false, handler, name);
     }
 
     /// Returns true during processing of an external interrupt and false at all other times.
@@ -342,7 +323,7 @@ impl Pic {
     fn intr_handler(&mut self, frame: &IntrFrame) {
         let external = frame.vec_no >= 0x20 && frame.vec_no < 0x30;
         if external {
-            assert!(self.intr_get_level() == IntrLevel::IntrOff);
+            assert!(!self.get_intr_enabled());
             assert!(!self.intr_context());
 
             self.in_external_intr = true;
@@ -366,7 +347,7 @@ impl Pic {
 
         // Complete the processing of an external interrupt
         if external {
-            assert!(self.intr_get_level() == IntrLevel::IntrOff);
+            assert!(!self.get_intr_enabled());
             assert!(self.intr_context());
 
             self.in_external_intr = false;
