@@ -2,11 +2,6 @@
 // Reference: https://wiki.osdev.org/8259_PIC
 // Reference: pintos/src/threads/interrupt.h/.c
 
-// PIC registers.
-//  A PIC has two PICs, called the master and slave PICs, with the slave attached ("cascaded") to
-// the master IRQ line 2.
-// Reference: https://wiki.osdev.org/8259_PIC#Programming_with_the_8259_PIC
-
 #![allow(dead_code)] // Suppress unused warnings
 
 use crate::println;
@@ -14,6 +9,11 @@ use crate::threading::intr_stubs::INTR_STUBS;
 use crate::threading::loader::SEL_KCSEG;
 use core::arch::asm;
 
+// PIC registers.
+// A PIC has two PICs, called the master and slave PICs, with the slave attached ("cascaded") to
+// the master IRQ line 2.
+//
+// Reference: https://wiki.osdev.org/8259_PIC#Programming_with_the_8259_PIC
 /// Master PIC - Command
 const PIC0_CTRL: u16 = 0x20;
 /// Master PIC - Data
@@ -81,8 +81,9 @@ pub type IntrHandlerFunc = fn(frame: &IntrFrame);
 
 /// Programmable Interrupt Controller (PIC)
 pub struct Pic {
-    /// The Interrupt Descriptor Table (IDT).  The format is fixed by the CPU.  See [IA32-v3a]
-    /// sections 5.10 "Interrupt Descriptor Table (IDT)", 5.11 "IDT Descriptors", 5.12.1.2 "Flag
+    /// The Interrupt Descriptor Table (IDT).  The format is fixed by the CPU.  See
+    /// [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+    /// sections 6.10 "Interrupt Descriptor Table (IDT)", 6.11 "IDT Descriptors", 6.12.1.3 "Flag
     /// Usage By Exception- or Interrupt-Handler Procedure".
     idt: [u64; INTR_CNT],
 
@@ -118,7 +119,11 @@ pub unsafe fn init_intr() -> Pic {
     }
 
     // Load IDT register.
-    // See [IA32-v2a] "LIDT" and [IA32-v3a] 5.10 "Interrupt Descriptor Table (IDT)".
+    // See
+    // [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 2A: Instruction Set Reference, A-L](https://www.intel.com/content/www/us/en/content-details/825747/)
+    // "LGDT/LIDT—Load Global/Interrupt Descriptor Table Register" and
+    // [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+    // 6.10 "Interrupt Descriptor Table (IDT)".
     let idtr_operand = make_idtr_operand(
         (pic.idt.len() * core::mem::size_of::<u64>() - 1) as u16,
         pic.idt.as_ptr(),
@@ -158,8 +163,13 @@ impl Pic {
         let flags: u32;
 
         // Push the flags register on the processor stack, then pop the value off the stack into
-        // `flags'.  See [IA32-v2b] "PUSHF" and "POP" and [IA32-v3a] 5.8.1 "Masking Maskable Hardware
-        // Interrupts"
+        // `flags'.
+        //
+        // See
+        // [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 2B: Instruction Set Reference, M-U](https://www.intel.com/content/www/us/en/content-details/825757/)
+        // "PUSHF/PUSHFD/PUSHFQ—Push EFLAGS Register Onto the Stack" and "POP—Pop a Value From the Stack" and
+        // [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+        // 6.8.1 "Masking Maskable Hardware Interrupts"
         unsafe {
             asm!("pushf; pop {0}", out(reg) flags);
         }
@@ -193,8 +203,13 @@ impl Pic {
     pub fn intr_disable(&self) -> bool {
         let old_level = self.get_intr_enabled();
 
-        // Disable interrupts by clearing the interrupt flag. See [IA32-v2b] "CLI" and [IA32-v3a]
-        // 5.8.1 "Masking Maskable Hardware Interrupts".
+        // Disable interrupts by clearing the interrupt flag.
+        //
+        // See
+        // [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 2A: Instruction Set Reference, A-L](https://www.intel.com/content/www/us/en/content-details/825747/)
+        // "CLI—Clear Interrupt Flag" and
+        // [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+        // 6.8.1 "Masking Maskable Hardware Interrupts".
         unsafe {
             asm!("cli", options(nostack, preserves_flags));
         }
@@ -235,8 +250,11 @@ impl Pic {
     /// The handler will have descriptor privilege level `dpl`, meaning that it can be invoked
     /// intentionally when the processor is in the `dpl` or lower-numbered ring.  In practice, `dpl==3`
     /// allows user mode to invoke the interrupts and `dpl==0` prevents such invocation. Faults and
-    /// exceptions that occur in user mode still cause interrupts with `dpl==0` to be invoked. See
-    /// [IA32-v3a] sections 4.5 "Privilege Levels" and 4.8.1.1 "Accessing Nonconforming Code Segments"
+    /// exceptions that occur in user mode still cause interrupts with `dpl==0` to be invoked.
+    ///
+    /// See
+    /// [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+    /// sections 5.5 "Privilege Levels" and 5.8.1.1 "Accessing Nonconforming Code Segments"
     /// for further discussion.
     pub fn intr_register_int(
         &mut self,
@@ -284,14 +302,21 @@ impl Pic {
     /// The gate has descriptor privilege level `dpl`, meaning that it can be invoked intentionally
     /// when the processor is in the `dpl` or lower-numbered ring.  In practice, `dpl==3` allows
     /// user mode to call into the gate and `dpl==0` prevents such calls. Faults and exceptions that
-    /// occur in user mode still cause gates with `dpl==0` to be invoked. See [IA32-v3a] sections
-    /// 4.5 "Privilege Levels" and 4.8.1.1 "Accessing Nonconforming Code Segments" for further
-    /// discussion.
+    /// occur in user mode still cause gates with `dpl==0` to be invoked.
+    ///
+    /// See
+    /// [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+    /// sections 5.5 "Privilege Levels" and 4.8.1.1 "Accessing Nonconforming Code Segments"
+    /// for further discussion.
     ///
     /// `gate_type` must be either 14 (for an interrupt gate) or 15 (for a trap gate). The
     /// difference is that entering an interrupt gate disables interrupts, but entering a trap gate
-    /// does not. See [IA32-v3a] section 5.12.1.2 "Flag Usage By Exception- or Interrupt-Handler
-    /// Procedure" for discussion.
+    /// does not.
+    ///
+    /// See
+    /// [Intel® 64 and IA-32 Architectures Software Developer's Manual Volume 3A: System Programming Guide, Part 1](https://www.intel.com/content/www/us/en/content-details/825758/)
+    /// section 6.12.1.3 "Flag Usage By Exception- or Interrupt-Handler Procedure"
+    /// for discussion.
     fn make_gate(&self, function: fn() -> (), dpl: u8, gate_type: u8) -> u64 {
         // Assert function != null
         // assert!(dpl >= 0 && dpl <= 3);
@@ -385,11 +410,11 @@ impl Pic {
     }
 }
 
-/// Initializes the PICs.  Refer to [8259A] for details.
+/// Initializes the PICs.
 ///
-/// By default, interrupts 0...15 delivered by the PICs will go to interrupt vectors 0...15.
-/// Those vectors are also used for CPU traps and exceptions, so we reprogram the PICs so that
-/// interrupts 0...15 are delivered to interrupt vectors 32...47 (0x20...0x2f) instead.
+/// Refer to
+/// [8259A PROGRAMMABLE INTERRUPT CONTROLLER (8259A8259A-2)](https://www.scs.stanford.edu/10wi-cs140/pintos/specs/8259A.pdf)
+/// for details.
 fn pic_init() -> Pic {
     let pic = Pic::new();
     // TODO: use [`threading::io::outb`] instead
