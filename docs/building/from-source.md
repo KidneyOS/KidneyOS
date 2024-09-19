@@ -2,7 +2,7 @@
 
 This section describes how to build KidneyOS by installing dependencies using a package manager and building it from source.
 
-> ❗ This method is only supported on `x86_64-linux` and `aarch64-linux` hosts, or in WSL. For building on macOS (ARM), see [here](./macos.md).
+> ❗ This method is only supported on `x86_64-linux` and `aarch64-linux` hosts, or in WSL. For additional instructions on building for macOS (ARM), see [here](./macos.md).
 
 > ⚠️ The instructions that follow are designed to be as platform-agnostic as possible. However, the names of packages are not necessarily the same across different package managers. When mentioning package names, we will provide links to [Repology](https://repology.org/), which you should consult to determine the specific name used by your package manager.
 
