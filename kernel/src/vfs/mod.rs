@@ -194,7 +194,7 @@ pub trait FileSystem {
     /// Returns the prefix of `buf` which has been filled with the desintation, or `Ok(None)` if `buf`
     /// is too short (in which case the contents of `buf` are unspecified).
     ///
-    /// Note that you can get the size of buffer needed from calling [`FileInfo::size`]
+    /// Note that you can get the size of buffer needed by accessing [`FileInfo::size`]
     /// on the return value of [`Self::stat`].
     fn readlink<'a>(&self, link: FileHandle, buf: &'a mut Path) -> Result<Option<&'a str>>;
     /// Set a new file size.
