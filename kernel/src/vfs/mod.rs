@@ -111,7 +111,7 @@ impl DirEntry<'_> {
     }
 }
 
-pub trait DirectoryIterator<'a>: Sized {
+pub trait DirectoryIterator: Sized {
     /// Get next file.
     ///
     /// Returns `Ok(None)` if the end of the directory was reached.
@@ -160,7 +160,7 @@ pub trait FileSystem {
     /// If entries are added/removed from the directory in between the call to [`DirectoryIterator::offset`]
     /// and this call, they may or may not be listed. But modifications to the directory must not
     /// cause directory entries to be repeated or unmodified entries to be skipped.
-    fn readdir(&self, dir: FileHandle, offset: u64) -> impl DirectoryIterator<'_>;
+    fn readdir(&self, dir: FileHandle, offset: u64) -> impl '_ + DirectoryIterator;
     /// Indicate that there are no more references to an inode
     /// (i.e. all file descriptors pointing to it have been closed).
     ///

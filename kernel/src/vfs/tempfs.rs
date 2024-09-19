@@ -107,7 +107,7 @@ pub struct TempDirectoryIterator<'a> {
     offset: u64,
 }
 
-impl<'a> DirectoryIterator<'a> for TempDirectoryIterator<'a> {
+impl<'a> DirectoryIterator for TempDirectoryIterator<'a> {
     fn next(&mut self) -> Result<Option<DirEntry>> {
         let Some((id, (inode_num, name))) = self.it.next() else {
             return Ok(None);
@@ -295,7 +295,7 @@ impl FileSystem for TempFs {
         }
         self.unlink_or_rmdir(parent, name, true)
     }
-    fn readdir(&self, dir: FileHandle, offset: u64) -> impl DirectoryIterator<'_> {
+    fn readdir(&self, dir: FileHandle, offset: u64) -> impl '_ + DirectoryIterator {
         if DEBUG_TEMPFS {
             println!("tempfs: readdir {}", dir.inode);
         }
