@@ -1,9 +1,22 @@
 use crate::block::block_core::Block;
-use crate::vfs::{DirectoryIterator, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result};
+use crate::vfs::{
+    DirectoryIterator, Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result,
+};
+// These are little-endian unaligned integer types
+use zerocopy::little_endian::{U16, U32};
+use zerocopy::{FromBytes, FromZeroes, Unaligned};
 
 pub struct FatFS {
     // underlying block device
     block: Block,
+    #[allow(dead_code)] // TODO : delete me
+    fat_type: FatType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FatType {
+    Fat16,
+    Fat32,
 }
 
 #[derive(Clone, Copy)]
@@ -30,10 +43,148 @@ impl DirectoryIterator for FatDirectoryIterator<'_> {
     }
 }
 
+// Base BPB (BIOS Parameter Block) for a FAT 16/32 filesystem
+#[repr(C)]
+#[allow(dead_code)]
+#[derive(FromZeroes, FromBytes, Unaligned)]
+struct FatBaseHeader {
+    jmp_boot: [u8; 3],
+    oem_name: [u8; 8],
+    bytes_per_sector: U16,
+    sectors_per_cluster: u8,
+    reserved_sector_count: U16,
+    num_fats: u8,
+    fat16_root_ent_count: U16,
+    total_sectors16: U16,
+    media: u8,
+    fat16_fat_size: U16,
+    sectors_per_track: U16,
+    num_heads: U16,
+    hidden_sectors: U32,
+    total_sectors32: U32,
+}
+
+// convenience macro for returning errors
+macro_rules! error {
+    ($($args:expr),*) => {
+        Err(Error::IO(format!($($args),*)))
+    }
+}
+
+impl FatBaseHeader {
+    fn bytes_per_sector(&self) -> u16 {
+        self.bytes_per_sector.into()
+    }
+    fn reserved_sector_count(&self) -> u16 {
+        self.reserved_sector_count.into()
+    }
+    fn total_sectors(&self) -> u32 {
+        let total_sectors16: u16 = self.total_sectors16.into();
+        if total_sectors16 == 0 {
+            self.total_sectors32.into()
+        } else {
+            total_sectors16.into()
+        }
+    }
+    fn check_integrity(&self) -> Result<()> {
+        if !matches!(self.bytes_per_sector(), 512 | 1024 | 2048 | 4096) {
+            return error!(
+                "invalid number of bytes per sector: {}",
+                self.bytes_per_sector
+            );
+        }
+        if !self.sectors_per_cluster.is_power_of_two() {
+            return error!(
+                "number of sectors per cluster ({}) is not a power of two",
+                self.sectors_per_cluster
+            );
+        }
+        if self.reserved_sector_count() == 0 {
+            return error!("reserved sector count must be nonzero");
+        }
+        Ok(())
+    }
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+#[derive(FromZeroes, FromBytes, Unaligned)]
+struct Fat16Header {
+    base: FatBaseHeader,
+    drive_num: u8,
+    _reserved: u8,
+    boot_signature: u8,
+    volume_id: U32,
+    volume_label: [u8; 11],
+    fs_type: [u8; 8],
+    _unused: [u8; 448],
+    signature_word: [u8; 2],
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+#[derive(FromZeroes, FromBytes, Unaligned)]
+struct Fat32Header {
+    base: FatBaseHeader,
+    fat_size: U32,
+    ext_flags: U16,
+    fs_version: U16,
+    root_cluster: U32,
+    fs_info: U16,
+    bk_boot_sector: U16,
+    _reserved: [u8; 12],
+    drive_num: u8,
+    _reserved1: u8,
+    boot_signature: u8,
+    volume_id: U32,
+    volume_label: [u8; 11],
+    fs_type: [u8; 8],
+    _unused: [u8; 420],
+    signature_word: [u8; 2],
+}
+
+impl Fat32Header {
+    fn fat_size(&self) -> u32 {
+        self.fat_size.into()
+    }
+}
+
 impl FatFS {
     /// Create new FAT filesystem from block device
-    pub fn new(block: Block) -> Self {
-        Self { block }
+    pub fn new(mut block: Block) -> Result<Self> {
+        let mut first_sector = [0; 512];
+        block.read(0, &mut first_sector)?;
+        let fat16_header: &Fat16Header =
+            Fat16Header::ref_from(&first_sector).expect("Fat16Header type should be 512 bytes");
+        let fat32_header: &Fat32Header =
+            Fat32Header::ref_from(&first_sector).expect("Fat32Header type should be 512 bytes");
+        let base_header: &FatBaseHeader = &fat16_header.base;
+        base_header.check_integrity()?;
+        // very strangely, although there are many easy-to-detect differences
+        // between FAT 16 and 32, the "correct" way to determine the type is
+        // quite elaborate.
+
+        // this will always be zero for FAT32
+        let root_dir_sectors = (u32::from(base_header.fat16_root_ent_count) * 32)
+            .div_ceil(base_header.bytes_per_sector().into());
+        let mut fat_size: u32 = base_header.fat16_fat_size.into();
+        if fat_size == 0 {
+            fat_size = fat32_header.fat_size();
+        }
+        let total_sectors = base_header.total_sectors();
+        let data_sectors = total_sectors
+            - u32::from(base_header.reserved_sector_count())
+            - u32::from(base_header.num_fats) * fat_size
+            - root_dir_sectors;
+        let fat_type;
+        if data_sectors < 4085 {
+            return error!("FAT-12 is not supported. Try creating a larger volume.");
+        } else if data_sectors < 65525 {
+            fat_type = FatType::Fat16;
+        } else {
+            fat_type = FatType::Fat32;
+        }
+        Ok(Self { block, fat_type })
     }
 }
 
@@ -109,11 +260,12 @@ mod test {
         let mut gz_decoder = flate2::read::GzDecoder::new(file);
         let mut buf = vec![];
         gz_decoder.read_to_end(&mut buf).unwrap();
-        FatFS::new(block_from_file(Cursor::new(buf)))
+        FatFS::new(block_from_file(Cursor::new(buf))).unwrap()
     }
     #[test]
     fn test() {
-        println!("{:?}", std::env::current_dir());
-        let _fat = open_img_gz("tests/fat16.img.gz");
+        let fat = open_img_gz("tests/fat16.img.gz");
+        println!("{:?}", fat.fat_type);
+        panic!();
     }
 }
