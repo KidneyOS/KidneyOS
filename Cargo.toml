@@ -16,3 +16,10 @@ transmute_ptr_to_ptr = "warn"
 transmute_undefined_repr = "warn"
 unwrap_used = "warn"
 wildcard_imports = "warn"
+
+# Build these packages with optimizations even in
+# debug builds, to speed up tests.
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
