@@ -1,5 +1,6 @@
 #![allow(dead_code)] // Suppress unused warnings
 
+use crate::block::block_error::BlockError;
 use crate::drivers::dummy_device::DummyDevice;
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
@@ -16,9 +17,6 @@ pub const BLOCK_SECTOR_SIZE: usize = 512;
 ///
 /// Good enough for devices up to 2 TB.
 pub type BlockSector = u32;
-
-/// Error type for block operations
-pub struct BlockError;
 
 /// Types of blocks
 #[derive(PartialEq, Copy, Clone)]
@@ -53,28 +51,10 @@ impl fmt::Display for BlockType {
 /// Lower-level interface to block device drivers
 pub trait BlockOp {
     /// Read a block sector
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the buffer is the correct size (i.e., `BLOCK_SECTOR_SIZE` bytes).
-    ///
-    /// The caller must also ensure that the sector is within the bounds of the block device.
-    ///
-    /// This function is labelled unsafe because the underlying driver implementation requires
-    /// the use of assembly code to access the hardware.
-    unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError>;
+    fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError>;
 
     /// Write a block sector
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the buffer is the correct size (i.e., `BLOCK_SECTOR_SIZE` bytes).
-    ///
-    /// The caller must also ensure that the sector is within the bounds of the block device.
-    ///
-    /// This function is labelled unsafe because the underlying driver implementation requires
-    /// the use of assembly code to access the hardware.
-    unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError>;
+    fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError>;
 }
 
 /// Supported block drivers
@@ -124,9 +104,12 @@ impl Block {
 
     /// Reads sector `sector` from the block device into `buf`, which must have room for
     /// `BLOCK_SECTOR_SIZE` bytes.
-    pub unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
-        if !self.is_sector_valid(sector) || !Self::is_buffer_valid(buf) {
-            return Err(BlockError);
+    pub fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+        if !self.is_sector_valid(sector) {
+            return Err(BlockError::SectorOutOfBounds);
+        }
+        if !Self::is_buffer_valid(buf) {
+            return Err(BlockError::BufferInvalid);
         }
 
         self.read_count += 1;
@@ -135,9 +118,12 @@ impl Block {
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
     /// after the block device has acknowledged receiving the data.
-    pub unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
-        if !self.is_sector_valid(sector) || !Self::is_buffer_valid(buf) {
-            return Err(BlockError);
+    pub fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+        if !self.is_sector_valid(sector) {
+            return Err(BlockError::SectorOutOfBounds);
+        }
+        if !Self::is_buffer_valid(buf) {
+            return Err(BlockError::BufferInvalid);
         }
 
         // Ensure that we are not writing to a foreign block

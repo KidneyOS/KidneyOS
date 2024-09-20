@@ -1,6 +1,7 @@
 #![feature(allocator_api)]
 #![feature(asm_const)]
 #![feature(btreemap_alloc)]
+#![feature(error_in_core)]
 #![feature(naked_functions)]
 #![feature(non_null_convenience)]
 #![feature(offset_of)]
