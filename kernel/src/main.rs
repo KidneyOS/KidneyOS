@@ -1,6 +1,7 @@
 #![feature(allocator_api)]
 #![feature(asm_const)]
 #![feature(btreemap_alloc)]
+#![feature(error_in_core)]
 #![feature(naked_functions)]
 #![feature(non_null_convenience)]
 #![feature(offset_of)]
@@ -9,6 +10,8 @@
 #![cfg_attr(not(test), no_main)]
 #![feature(negative_impls)]
 
+mod block;
+mod drivers;
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;
@@ -19,6 +22,7 @@ mod user_program;
 
 extern crate alloc;
 
+use crate::block::block_core::block_init;
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
@@ -61,6 +65,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);
         timer::init_pit();
         println!("PIT set up!");
+
+        println!("Setting up block layer");
+        let block_manager = block_init();
+        println!("{}", block_manager);
+        println!("Block layer set up!");
 
         println!("Initializing Thread System...");
         thread_system_initialization();
