@@ -12,6 +12,7 @@
 
 mod block;
 mod drivers;
+pub mod fs;
 mod interrupt_descriptor_table;
 mod mem;
 mod paging;

@@ -12,3 +12,6 @@ lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 [features]
 default = ["ticket_mutex"]
 ticket_mutex = []
+
+[dev-dependencies]
+flate2 = "1.0.33"
