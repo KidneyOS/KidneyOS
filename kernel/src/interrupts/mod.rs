@@ -1,8 +1,9 @@
 pub mod idt;
-pub mod timer;
+pub mod mutex_irq;
+pub mod pic;
 
 mod intr_handler;
-pub(crate) mod mutex_irq;
+mod timer;
 
 use core::{
     arch::asm,

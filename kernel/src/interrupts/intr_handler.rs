@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::interrupts::timer;
+use crate::interrupts::{pic, timer};
 use crate::threading::scheduling;
 use crate::user_program::syscall;
 
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
         iretd
         ",
     sym timer::step_sys_clock,
-    sym timer::send_eoi,
+    sym pic::send_eoi,
     sym scheduling::scheduler_yield_and_continue,
     options(noreturn),
     );

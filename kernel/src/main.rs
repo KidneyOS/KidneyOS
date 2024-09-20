@@ -22,7 +22,7 @@ mod user_program;
 extern crate alloc;
 
 use crate::block::block_core::block_init;
-use interrupts::{idt, timer};
+use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
@@ -62,8 +62,8 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("GDTR set up!");
 
         println!("Setting up PIT");
-        timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);
-        timer::init_pit();
+        pic::pic_remap(pic::PIC1_OFFSET, pic::PIC2_OFFSET);
+        pic::init_pit();
         println!("PIT set up!");
 
         println!("Setting up block layer");
