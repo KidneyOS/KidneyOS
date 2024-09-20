@@ -1,4 +1,5 @@
 [toolchain]
+# NOTE: If this is changed, docs/building/from-source.md needs to be updated accordingly.
 channel = "nightly-2024-01-04"
 components = ["clippy", "llvm-tools-preview", "rustfmt", "rust-analyzer", "rust-src", "rust-std"]
 targets = ["i686-unknown-linux-gnu"]
