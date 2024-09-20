@@ -57,13 +57,6 @@ pub trait BlockOp {
     fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError>;
 }
 
-/// Supported block drivers
-#[derive(Clone, Copy, PartialEq)]
-pub enum BlockDriver {
-    // TODO: Add drivers here
-    Dummy(DummyDevice),
-}
-
 /// A block device
 ///
 /// **Note:** Once blocks are made they are immutable
