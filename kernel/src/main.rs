@@ -6,7 +6,6 @@
 #![feature(non_null_convenience)]
 #![feature(offset_of)]
 #![feature(slice_ptr_get)]
-#![feature(error_in_core)] // stabilized in 1.81.0
 #![cfg_attr(target_os = "none", no_std)]
 #![cfg_attr(not(test), no_main)]
 #![feature(negative_impls)]
