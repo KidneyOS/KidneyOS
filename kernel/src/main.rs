@@ -12,17 +12,17 @@
 
 mod block;
 mod drivers;
-mod interrupt_descriptor_table;
+mod interrupts;
 mod mem;
 mod paging;
 mod sync;
 mod threading;
-mod timer;
 mod user_program;
 
 extern crate alloc;
 
 use crate::block::block_core::block_init;
+use interrupts::{idt, timer};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
@@ -50,7 +50,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         KERNEL_ALLOCATOR.init(mem_upper);
 
         println!("Setting up IDTR");
-        interrupt_descriptor_table::load();
+        idt::load();
         println!("IDTR set up!");
 
         println!("Enabling paging");

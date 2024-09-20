@@ -1,11 +1,32 @@
+use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::sync::mutex::{Mutex, MutexGuard};
 use core::{
     fmt,
     ops::{Deref, DerefMut},
 };
 
-use super::intr::{hold_interrupts, InterruptsGuard};
+/// A guard for withholding interrupts.
+#[derive(Default)]
+pub struct InterruptsGuard(bool);
 
-use crate::sync::mutex::{Mutex, MutexGuard};
+impl !Send for InterruptsGuard {}
+
+/// Prevents interrupts from occurring until the `InterruptsGuard` is dropped.
+/// After it is dropped, the interrupts are returned to the previous state.
+pub fn hold_interrupts() -> InterruptsGuard {
+    let enabled = intr_get_level() == IntrLevel::IntrOn;
+    let retval = InterruptsGuard(enabled);
+    intr_disable();
+    retval
+}
+
+impl Drop for InterruptsGuard {
+    fn drop(&mut self) {
+        if self.0 {
+            intr_enable();
+        }
+    }
+}
 
 pub struct MutexIrq<T: ?Sized> {
     lock: Mutex<T>,
@@ -20,6 +41,7 @@ pub struct MutexGuardIrq<'a, T: ?Sized + 'a> {
 unsafe impl<T: ?Sized + Send> Sync for MutexIrq<T> {}
 unsafe impl<T: ?Sized + Send> Send for MutexIrq<T> {}
 
+#[allow(unused)]
 impl<T> MutexIrq<T> {
     pub const fn new(data: T) -> MutexIrq<T> {
         MutexIrq {
@@ -33,6 +55,7 @@ impl<T> MutexIrq<T> {
     }
 }
 
+#[allow(unused)]
 impl<T: ?Sized> MutexIrq<T> {
     #[inline(always)]
     pub fn lock(&self) -> MutexGuardIrq<T> {

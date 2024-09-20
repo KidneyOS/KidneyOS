@@ -4,8 +4,8 @@ pub mod thread_control_block;
 pub mod thread_functions;
 
 use crate::{
+    interrupts::{intr_enable, intr_get_level, IntrLevel},
     paging::PageManager,
-    sync::intr::{intr_enable, intr_get_level, IntrLevel},
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;

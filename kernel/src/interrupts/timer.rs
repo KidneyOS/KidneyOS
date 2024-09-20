@@ -1,4 +1,5 @@
-use crate::{sync::irq::MutexIrq, threading::scheduling::scheduler_yield_and_continue};
+use super::mutex_irq::MutexIrq;
+use crate::threading::scheduling::scheduler_yield_and_continue;
 use core::{arch::asm, time::Duration};
 use kidneyos_shared::serial::{inb, outb};
 
