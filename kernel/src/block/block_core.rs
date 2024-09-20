@@ -1,8 +1,10 @@
 #![allow(dead_code)] // Suppress unused warnings
 
 use crate::drivers::dummy_device::DummyDevice;
+use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
 use core::fmt;
+use core::result::Result;
 use kidneyos_shared::println;
 
 /// Size of a block device in bytes.
@@ -15,32 +17,35 @@ pub const BLOCK_SECTOR_SIZE: usize = 512;
 /// Good enough for devices up to 2 TB.
 pub type BlockSector = u32;
 
+/// Error type for block operations
+pub struct BlockError;
+
 /// Types of blocks
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockType {
     /// OS Kernel
-    Kernel(BlockSector),
+    Kernel,
     /// File system
-    FileSystem(BlockSector),
+    FileSystem,
     /// Scratch
-    Scratch(BlockSector),
+    Scratch,
     /// Swap
-    Swap(BlockSector),
+    Swap,
     /// "Raw" device with unidentified contents
-    Raw(BlockSector),
+    Raw,
     /// Owned by non-KidneyOS operating system
-    Foreign(BlockSector),
+    Foreign,
 }
 
 impl fmt::Display for BlockType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            BlockType::Kernel(_) => write!(f, "Kernel"),
-            BlockType::FileSystem(_) => write!(f, "File System"),
-            BlockType::Scratch(_) => write!(f, "Scratch"),
-            BlockType::Swap(_) => write!(f, "Swap"),
-            BlockType::Raw(_) => write!(f, "Raw"),
-            BlockType::Foreign(_) => write!(f, "Foreign"),
+            BlockType::Kernel => write!(f, "Kernel"),
+            BlockType::FileSystem => write!(f, "File System"),
+            BlockType::Scratch => write!(f, "Scratch"),
+            BlockType::Swap => write!(f, "Swap"),
+            BlockType::Raw => write!(f, "Raw"),
+            BlockType::Foreign => write!(f, "Foreign"),
         }
     }
 }
@@ -48,9 +53,28 @@ impl fmt::Display for BlockType {
 /// Lower-level interface to block device drivers
 pub trait BlockOp {
     /// Read a block sector
-    unsafe fn read(&self, sector: BlockSector, buf: &mut [u8]);
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the buffer is the correct size (i.e., `BLOCK_SECTOR_SIZE` bytes).
+    ///
+    /// The caller must also ensure that the sector is within the bounds of the block device.
+    ///
+    /// This function is labelled unsafe because the underlying driver implementation requires
+    /// the use of assembly code to access the hardware.
+    unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError>;
+
     /// Write a block sector
-    unsafe fn write(&self, sector: BlockSector, buf: &[u8]);
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the buffer is the correct size (i.e., `BLOCK_SECTOR_SIZE` bytes).
+    ///
+    /// The caller must also ensure that the sector is within the bounds of the block device.
+    ///
+    /// This function is labelled unsafe because the underlying driver implementation requires
+    /// the use of assembly code to access the hardware.
+    unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError>;
 }
 
 /// Supported block drivers
@@ -60,34 +84,9 @@ pub enum BlockDriver {
     Dummy(DummyDevice),
 }
 
-impl BlockDriver {
-    /// Unwrap the block driver to get the underlying block operation
-    fn unwrap(&self) -> &dyn BlockOp {
-        match self {
-            // TODO: Add drivers here
-            BlockDriver::Dummy(driver) => driver,
-        }
-    }
-
-    /// Read a block sector
-    fn read(&self, sector: BlockSector, buf: &mut [u8]) {
-        unsafe {
-            self.unwrap().read(sector, buf);
-        }
-    }
-
-    /// Write a block sector
-    fn write(&self, sector: BlockSector, buf: &[u8]) {
-        unsafe {
-            self.unwrap().write(sector, buf);
-        }
-    }
-}
-
 /// A block device
 ///
 /// **Note:** Once blocks are made they are immutable
-#[derive(PartialEq, Clone)]
 pub struct Block {
     /// Unique and immutable index of the block
     index: usize,
@@ -97,7 +96,7 @@ pub struct Block {
     /// The type of block
     block_type: BlockType,
     /// The block driver
-    driver: BlockDriver,
+    driver: Box<dyn BlockOp>,
 
     /// The size of the block device in sectors
     block_size: BlockSector,
@@ -111,49 +110,44 @@ pub struct Block {
 impl Block {
     /// Verifies that `buf` is a valid buffer for reading or writing a block sector.
     ///
-    /// Panics if the buffer is not the correct size (i.e., `BLOCK_SECTOR_SIZE` bytes).
-    fn verify_buffer(buf: &[u8]) {
-        if buf.len() != BLOCK_SECTOR_SIZE {
-            panic!("Invalid buffer size {}", buf.len());
-        }
+    /// Returns `true` if the buffer is valid, `false` otherwise.
+    fn is_buffer_valid(buf: &[u8]) -> bool {
+        buf.len() == BLOCK_SECTOR_SIZE
     }
 
     /// Verifies that `sector` is a valid offset within the block device.
     ///
-    /// Panics if the sector is out of bounds.
-    fn check_sector(&self, sector: BlockSector) {
-        if sector >= self.block_size {
-            panic!(
-                "{}: Invalid sector {} (block size: {})",
-                self.block_name, sector, self.block_size
-            );
-        }
+    /// Returns `true` if the sector is valid, `false` otherwise.
+    fn is_sector_valid(&self, sector: BlockSector) -> bool {
+        sector < self.block_size
     }
 
     /// Reads sector `sector` from the block device into `buf`, which must have room for
     /// `BLOCK_SECTOR_SIZE` bytes.
-    pub fn read(&mut self, sector: BlockSector, buf: &mut [u8]) {
-        self.check_sector(sector);
-        Self::verify_buffer(buf);
+    pub unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+        if !self.is_sector_valid(sector) || !Self::is_buffer_valid(buf) {
+            return Err(BlockError);
+        }
 
-        self.driver.read(sector, buf);
         self.read_count += 1;
+        self.driver.read(sector, buf)
     }
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
     /// after the block device has acknowledged receiving the data.
-    pub fn write(&mut self, sector: BlockSector, buf: &[u8]) {
-        self.check_sector(sector);
-        Self::verify_buffer(buf);
+    pub unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+        if !self.is_sector_valid(sector) || !Self::is_buffer_valid(buf) {
+            return Err(BlockError);
+        }
 
         // Ensure that we are not writing to a foreign block
         assert!(
-            self.block_type != BlockType::Foreign(0),
+            self.block_type != BlockType::Foreign,
             "Cannot write to foreign block"
         );
 
-        self.driver.write(sector, buf);
         self.write_count += 1;
+        self.driver.write(sector, buf)
     }
 
     // Block getters -----------------------------------------------------------
@@ -218,7 +212,7 @@ impl BlockManager {
         block_type: BlockType,
         block_name: &str,
         block_size: BlockSector,
-        driver: BlockDriver,
+        driver: Box<dyn BlockOp>,
     ) -> usize {
         self.all_blocks.push(Block {
             index: self.max_index,
@@ -243,11 +237,7 @@ impl BlockManager {
     ///
     /// If the index is out of bounds, returns `None`.
     pub fn by_id(&mut self, idx: usize) -> Option<&mut Block> {
-        if idx >= self.all_blocks.len() {
-            return None;
-        }
-
-        Some(&mut self.all_blocks[idx])
+        self.all_blocks.get_mut(idx)
     }
 
     /// Get the block device with the given `name`.
@@ -278,12 +268,7 @@ pub fn block_init() -> BlockManager {
     let mut block_manager = BlockManager::new();
 
     // Register a dummy block device
-    block_manager.register_block(
-        BlockType::Raw(0),
-        "Dummy",
-        4,
-        BlockDriver::Dummy(DummyDevice::new()),
-    );
+    block_manager.register_block(BlockType::Raw, "Dummy", 4, Box::new(DummyDevice::new()));
 
     block_manager
 }
