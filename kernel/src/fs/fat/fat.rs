@@ -3,17 +3,27 @@ use crate::fs::fat::{error, FatType};
 use crate::vfs::Result;
 use zerocopy::AsBytes;
 
-pub(super) struct Fat {
+/// File Allocation Table
+///
+/// Lists the clusters which are allocated or free,
+/// and maintains linked lists of clusters for files.
+pub struct Fat {
     r#type: FatType,
     data: Vec<u32>,
 }
 
 #[derive(Clone, Copy)]
-enum FatEntry {
+pub enum FatEntry {
     Free,
     Eof,
     Defective,
     HasNext(u32),
+}
+
+impl FatEntry {
+    pub fn is_allocated(self) -> bool {
+        matches!(self, FatEntry::Eof | FatEntry::HasNext(_))
+    }
 }
 
 impl core::fmt::Debug for Fat {
@@ -23,7 +33,7 @@ impl core::fmt::Debug for Fat {
 }
 
 impl Fat {
-    pub(super) fn new(
+    pub fn new(
         device: &mut Block,
         cluster_count: u32,
         r#type: FatType,
@@ -52,7 +62,7 @@ impl Fat {
         }
         Ok(fat)
     }
-    fn entry(&self, i: u32) -> FatEntry {
+    pub fn entry(&self, i: u32) -> FatEntry {
         match self.r#type {
             FatType::Fat16 => {
                 let first_half = if cfg!(target_endian = "little") { 0 } else { 1 };
@@ -77,7 +87,7 @@ impl Fat {
         }
     }
     #[allow(dead_code)] // TODO : delete me
-    pub(super) fn flush(&mut self, _device: &mut Block) -> Result<()> {
+    pub fn flush(&mut self, _device: &mut Block) -> Result<()> {
         todo!()
     }
 }

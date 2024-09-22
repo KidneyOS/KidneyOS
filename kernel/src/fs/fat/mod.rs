@@ -1,9 +1,13 @@
+mod dirent;
 #[allow(clippy::module_inception)]
-pub mod fat;
+mod fat;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
-use crate::vfs::{DirectoryIterator, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result};
-// These are little-endian unaligned integer types
+use crate::vfs::{
+    DirEntry, DirectoryIterator, Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result,
+};
+use dirent::parse_dir_entry;
 use fat::Fat;
+// These are little-endian unaligned integer types
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
 
@@ -19,6 +23,12 @@ pub(super) use error;
 pub struct FatFS {
     /// Underlying block device
     block: Block,
+    /// Cluster number of root
+    root_inode: INodeNum,
+    /// Number of disk sectors (size = `BLOCK_SECTOR_SIZE`) per FAT cluster
+    disk_sectors_per_cluster: u32,
+    /// Disk sector which contains the start of the first FAT cluster
+    first_cluster_disk_sector: u32,
     /// File allocation table
     #[allow(dead_code)] // TODO : delete me
     fat: Fat,
@@ -30,24 +40,45 @@ enum FatType {
     Fat32,
 }
 
-#[derive(Clone, Copy)]
-pub struct FatFileHandle {
-    inode: INodeNum,
-}
-
-impl FileHandle for FatFileHandle {
-    fn inode(self) -> INodeNum {
-        self.inode
-    }
-}
-
 pub struct FatDirectoryIterator<'a> {
-    _foo: core::marker::PhantomData<&'a u8>,
+    fs: &'a mut FatFS,
+    // current cluster number
+    cluster: u32,
+    // offset within cluster
+    offset: u32,
+    // data in current disk sector
+    data: [u8; BLOCK_SECTOR_SIZE],
+    // read error to be returned later
+    error: Option<Error>,
+    // buffer to store file name
+    name: String,
 }
 
 impl DirectoryIterator for FatDirectoryIterator<'_> {
-    fn next(&mut self) -> Result<Option<crate::vfs::DirEntry<'_>>> {
-        todo!()
+    fn next(&mut self) -> Result<Option<DirEntry<'_>>> {
+        let dir_entry = loop {
+            if let Some(error) = self.error.take() {
+                return Err(error);
+            }
+            let dir_entry: [u8; 32] = self.data[self.offset as usize..self.offset as usize + 32]
+                .try_into()
+                .unwrap();
+            self.offset += 32;
+            if self.offset % (BLOCK_SECTOR_SIZE as u32) == 0 {
+                // read next disk sector in directory
+                let _ = self.cluster;
+                todo!();
+            }
+            let dir_entry = parse_dir_entry(self.fs, dir_entry, &mut self.name)?;
+            if let Some(dir_entry) = dir_entry {
+                break dir_entry;
+            }
+        };
+        Ok(Some(DirEntry {
+            name: &self.name,
+            inode: dir_entry.inode,
+            r#type: dir_entry.r#type,
+        }))
     }
     fn offset(&self) -> u64 {
         todo!()
@@ -191,9 +222,9 @@ impl FatFS {
         } else {
             fat_type = FatType::Fat32;
         }
-        let fat_sectors_per_disk_sector = bytes_per_sector / BLOCK_SECTOR_SIZE as u32;
-        let fat_first_disk_sector = reserved_sector_count / fat_sectors_per_disk_sector;
-        let fat_disk_sector_count = fat_size / fat_sectors_per_disk_sector;
+        let disk_sectors_per_fat_sector = bytes_per_sector / BLOCK_SECTOR_SIZE as u32;
+        let fat_first_disk_sector = reserved_sector_count * disk_sectors_per_fat_sector;
+        let fat_disk_sector_count = fat_size * disk_sectors_per_fat_sector;
         println!("reserved sectors={reserved_sector_count} FAT disk sector count={fat_disk_sector_count}");
         let fat = Fat::new(
             &mut block,
@@ -201,65 +232,97 @@ impl FatFS {
             fat_type,
             fat_first_disk_sector..fat_first_disk_sector + fat_disk_sector_count,
         )?;
-        Ok(Self { block, fat })
+        let first_cluster_disk_sector = fat_first_disk_sector + fat_disk_sector_count;
+        let root_inode: u32 = if fat_type == FatType::Fat32 {
+            fat32_header.root_cluster.into()
+        } else {
+            0
+        };
+        let disk_sectors_per_cluster =
+            disk_sectors_per_fat_sector * u32::from(base_header.sectors_per_cluster);
+        Ok(Self {
+            block,
+            fat,
+            root_inode,
+            disk_sectors_per_cluster,
+            first_cluster_disk_sector,
+        })
+    }
+    fn first_disk_sector_in_cluster(&self, cluster: u32) -> u32 {
+        self.first_cluster_disk_sector + cluster * self.disk_sectors_per_cluster
     }
 }
 
 impl FileSystem for FatFS {
-    type FileHandle = FatFileHandle;
     type DirectoryIterator<'a> = FatDirectoryIterator<'a>;
     fn root(&self) -> INodeNum {
-        let _ = self.block;
+        self.root_inode
+    }
+    fn lookup(&mut self, _parent: FileHandle, _name: &Path) -> Result<INodeNum> {
         todo!()
     }
-    fn lookup(&self, _parent: Self::FileHandle, _name: &Path) -> Result<INodeNum> {
+    fn open(&mut self, inode: INodeNum) -> Result<FileHandle> {
+        let fat_entry = self.fat.entry(inode);
+        if !fat_entry.is_allocated() {
+            return Err(Error::NotFound);
+        }
+        Ok(FileHandle { inode })
+    }
+    fn create(&mut self, _parent: FileHandle, _name: &Path) -> Result<FileHandle> {
         todo!()
     }
-    fn open(&mut self, _inode: INodeNum) -> Result<Self::FileHandle> {
+    fn mkdir(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn create(&mut self, _parent: Self::FileHandle, _name: &Path) -> Result<Self::FileHandle> {
+    fn unlink(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn mkdir(&mut self, _parent: Self::FileHandle, _name: &Path) -> Result<()> {
+    fn rmdir(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn unlink(&mut self, _parent: Self::FileHandle, _name: &Path) -> Result<()> {
-        todo!()
-    }
-    fn rmdir(&mut self, _parent: Self::FileHandle, _name: &Path) -> Result<()> {
-        todo!()
-    }
-    fn readdir(&self, _dir: Self::FileHandle, _offset: u64) -> Self::DirectoryIterator<'_> {
-        todo!()
+    fn readdir(&mut self, dir: FileHandle, _offset: u64) -> Self::DirectoryIterator<'_> {
+        if _offset > 0 {
+            todo!("non-zero directory iterator offset");
+        }
+        let mut data = [0; BLOCK_SECTOR_SIZE];
+        let cluster = dir.inode;
+        let first_sector = self.first_disk_sector_in_cluster(cluster);
+        let err = self
+            .block
+            .read(first_sector, &mut data)
+            .err()
+            .map(Error::from);
+        FatDirectoryIterator {
+            name: String::new(),
+            fs: self,
+            error: err,
+            cluster,
+            offset: 0,
+            data,
+        }
     }
     fn release(&mut self, _inode: INodeNum) {
         todo!()
     }
-    fn read(&self, _file: Self::FileHandle, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, _file: FileHandle, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
         todo!()
     }
-    fn write(&mut self, _file: Self::FileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, _file: FileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
         todo!()
     }
-    fn stat(&self, _file: Self::FileHandle) -> Result<FileInfo> {
+    fn stat(&mut self, _file: FileHandle) -> Result<FileInfo> {
         todo!()
     }
-    fn link(
-        &mut self,
-        _source: Self::FileHandle,
-        _parent: Self::FileHandle,
-        _name: &Path,
-    ) -> Result<()> {
-        todo!()
+    fn link(&mut self, _source: FileHandle, _parent: FileHandle, _name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
     }
-    fn symlink(&mut self, _link: &Path, _parent: Self::FileHandle, _name: &Path) -> Result<()> {
-        todo!()
+    fn symlink(&mut self, _link: &Path, _parent: FileHandle, _name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
     }
-    fn readlink<'a>(&self, _link: Self::FileHandle, _buf: &'a mut Path) -> Result<Option<&'a str>> {
-        todo!()
+    fn readlink<'a>(&mut self, _link: FileHandle, _buf: &'a mut Path) -> Result<Option<&'a str>> {
+        panic!("this should never be called by the kernel, since we never tell it something is a symlink")
     }
-    fn truncate(&mut self, _file: Self::FileHandle, _size: u64) -> Result<()> {
+    fn truncate(&mut self, _file: FileHandle, _size: u64) -> Result<()> {
         todo!()
     }
     fn sync(&mut self) -> Result<()> {
@@ -284,8 +347,9 @@ mod test {
     }
     #[test]
     fn test() {
-        let fat = open_img_gz("tests/fat16.img.gz");
-        println!("{:?}", fat.fat);
+        let mut fat = open_img_gz("tests/fat16.img.gz");
+        let root = fat.open(fat.root()).unwrap();
+        println!("{:?}", root);
         panic!();
     }
 }
