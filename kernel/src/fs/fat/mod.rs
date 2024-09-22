@@ -2,14 +2,11 @@ mod dirent;
 #[allow(clippy::module_inception)]
 mod fat;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
-use crate::vfs::{
-    DirEntry, DirectoryIterator, Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result,
-    INodeType,
-};
+use crate::vfs::{Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result};
+use alloc::collections::BTreeMap;
+use core::ops::Range;
 use dirent::Directory;
 use fat::Fat;
-use core::ops::Range;
-use alloc::collections::BTreeMap;
 // These are little-endian unaligned integer types
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
@@ -100,6 +97,9 @@ impl FatBaseHeader {
                 self.sectors_per_cluster
             );
         }
+        if self.num_fats == 0 {
+            return error!("must have at least one FAT");
+        }
         if self.reserved_sector_count() == 0 {
             return error!("reserved sector count must be nonzero");
         }
@@ -156,6 +156,7 @@ impl Fat32Header {
 impl FatFS {
     /// Create new FAT filesystem from block device
     pub fn new(mut block: Block) -> Result<Self> {
+        // TODO: check FAT signatures
         let mut first_sector = [0; 512];
         block.read(0, &mut first_sector)?;
         let fat16_header: &Fat16Header =
@@ -177,11 +178,10 @@ impl FatFS {
         if fat_size == 0 {
             fat_size = fat32_header.fat_size();
         }
+        let num_fats = u32::from(base_header.num_fats);
         let total_sectors = base_header.total_sectors();
-        let data_sectors = total_sectors
-            - reserved_sector_count
-            - u32::from(base_header.num_fats) * fat_size
-            - root_dir_sectors;
+        let data_sectors =
+            total_sectors - reserved_sector_count - num_fats * fat_size - root_dir_sectors;
         let cluster_count = data_sectors / u32::from(base_header.sectors_per_cluster);
         let fat_type;
         if cluster_count < 4085 {
@@ -194,15 +194,15 @@ impl FatFS {
         let disk_sectors_per_fat_sector = bytes_per_sector / BLOCK_SECTOR_SIZE as u32;
         let fat_first_disk_sector = reserved_sector_count * disk_sectors_per_fat_sector;
         let fat_disk_sector_count = fat_size * disk_sectors_per_fat_sector;
-        println!("reserved sectors={reserved_sector_count} FAT disk sector count={fat_disk_sector_count}");
         let fat = Fat::new(
             &mut block,
             cluster_count,
             fat_type,
             fat_first_disk_sector..fat_first_disk_sector + fat_disk_sector_count,
         )?;
-        let first_cluster_disk_sector = fat_first_disk_sector + fat_disk_sector_count
-            + root_dir_sectors * disk_sectors_per_fat_sector;
+        let fat16_first_root_disk_sector = fat_first_disk_sector + fat_disk_sector_count * num_fats;
+        let first_cluster_disk_sector =
+            fat16_first_root_disk_sector + root_dir_sectors * disk_sectors_per_fat_sector;
         let root_inode: u32 = if fat_type == FatType::Fat32 {
             fat32_header.root_cluster.into()
         } else {
@@ -216,9 +216,10 @@ impl FatFS {
             root_inode,
             disk_sectors_per_cluster,
             first_cluster_disk_sector,
-            fat16_first_root_disk_sector: fat_first_disk_sector + fat_disk_sector_count,
-            fat16_root_disk_sector_count: base_header.fat16_root_ent_count() * 32 / BLOCK_SECTOR_SIZE as u32,
-            cached_directories: BTreeMap::new()
+            fat16_first_root_disk_sector,
+            fat16_root_disk_sector_count: base_header.fat16_root_ent_count() * 32
+                / BLOCK_SECTOR_SIZE as u32,
+            cached_directories: BTreeMap::new(),
         })
     }
     fn first_disk_sector_in_cluster(&self, cluster: u32) -> u32 {
@@ -234,11 +235,16 @@ impl FatFS {
         first..first + self.fat16_root_disk_sector_count
     }
     fn get_directory(&mut self, inode: INodeNum) -> Result<&Directory> {
+        // clippy wants us to use or_insert_with, but we can't because we need to
+        // mutably borrow self to read the directory.
+        #[allow(clippy::map_entry)]
         if !self.cached_directories.contains_key(&inode) {
             let directory = Directory::read(self, inode);
             self.cached_directories.insert(inode, directory);
         }
-        self.cached_directories[&inode].as_ref().map_err(|e| e.clone())
+        self.cached_directories[&inode]
+            .as_ref()
+            .map_err(|e| e.clone())
     }
 }
 
@@ -307,6 +313,7 @@ impl FileSystem for FatFS {
 mod test {
     use super::*;
     use crate::block::block_core::test::block_from_file;
+    use crate::vfs::DirectoryIterator;
     use std::fs::File;
     use std::io::{prelude::*, Cursor};
     /// Open a gzip-compressed raw disk image containing a FAT filesystem.

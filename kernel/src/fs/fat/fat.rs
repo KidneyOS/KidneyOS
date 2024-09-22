@@ -47,13 +47,13 @@ impl Fat {
                 data[i * (BLOCK_SECTOR_SIZE / 4)..(i + 1) * (BLOCK_SECTOR_SIZE / 4)].as_bytes_mut(),
             )?;
         }
-        
+
         #[cfg(target_endian = "big")]
         // FAT entries are stored in little endian
         for entry in data.iter_mut() {
             *entry = entry.swap_bytes();
         }
-        
+
         let max_fat_count = data.len() as u32 * if r#type == FatType::Fat16 { 2 } else { 1 };
         if max_fat_count < cluster_count {
             return error!("FAT size is too small");
