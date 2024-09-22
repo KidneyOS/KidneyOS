@@ -2,14 +2,60 @@ mod dirent;
 #[allow(clippy::module_inception)]
 mod fat;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
-use crate::vfs::{Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result};
+use crate::vfs::{Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, Result};
 use alloc::collections::BTreeMap;
+use core::cmp::min;
 use core::ops::Range;
 use dirent::Directory;
-use fat::Fat;
+use fat::{Fat, FatEntry};
 // These are little-endian unaligned integer types
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
+
+#[derive(Debug, Clone, Copy)]
+pub struct FatFileHandle {
+    inode: INodeNum,
+    file_offset: u32,
+    curr_cluster: u32,
+    version_number: u64,
+}
+
+struct FatFileInfo {
+    vfs: FileInfo,
+    version_number: u64,
+}
+
+impl FileHandle for FatFileHandle {
+    fn inode(self) -> INodeNum {
+        self.inode
+    }
+}
+
+impl FatFileHandle {
+    fn advance_cluster(&mut self, fs: &FatFS) -> Result<bool> {
+        if self.curr_cluster == u32::MAX {
+            return Ok(false);
+        }
+        match fs.fat.entry(self.curr_cluster) {
+            FatEntry::Eof => {
+                self.curr_cluster = u32::MAX;
+                Ok(false)
+            }
+            FatEntry::Defective => {
+                self.curr_cluster = u32::MAX;
+                error!("defective cluster referenced in file")
+            }
+            FatEntry::Free => {
+                self.curr_cluster = u32::MAX;
+                error!("free cluster referenced in file")
+            }
+            FatEntry::HasNext(n) => {
+                self.curr_cluster = n;
+                Ok(true)
+            }
+        }
+    }
+}
 
 // convenience macro for returning errors
 macro_rules! error {
@@ -37,6 +83,8 @@ pub struct FatFS {
     fat: Fat,
     /// In-memory copies of directory entries
     cached_directories: BTreeMap<INodeNum, Result<Directory>>,
+    /// In-memory file information
+    file_info: BTreeMap<INodeNum, FatFileInfo>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,10 +258,22 @@ impl FatFS {
         };
         let disk_sectors_per_cluster =
             disk_sectors_per_fat_sector * u32::from(base_header.sectors_per_cluster);
+        let root_info = FatFileInfo {
+            vfs: FileInfo {
+                inode: root_inode,
+                size: 0,
+                r#type: INodeType::Directory,
+                nlink: 1,
+            },
+            version_number: 0,
+        };
+        let mut file_info = BTreeMap::new();
+        file_info.insert(root_inode, root_info);
         Ok(Self {
             block,
             fat,
             root_inode,
+            file_info,
             disk_sectors_per_cluster,
             first_cluster_disk_sector,
             fat16_first_root_disk_sector,
@@ -249,59 +309,143 @@ impl FatFS {
 }
 
 impl FileSystem for FatFS {
+    type FileHandle = FatFileHandle;
     type DirectoryIterator<'a> = dirent::FatDirectoryIterator<'a>;
     fn root(&self) -> INodeNum {
         self.root_inode
     }
-    fn lookup(&mut self, parent: FileHandle, name: &Path) -> Result<INodeNum> {
+    fn lookup(&mut self, parent: &mut FatFileHandle, name: &Path) -> Result<INodeNum> {
         let dir = self.get_directory(parent.inode)?;
         dir.lookup(name).ok_or(Error::NotFound)
     }
-    fn open(&mut self, inode: INodeNum) -> Result<FileHandle> {
+    fn open(&mut self, inode: INodeNum) -> Result<FatFileHandle> {
         let fat_entry = self.fat.entry(inode);
         if !fat_entry.is_allocated() {
             return Err(Error::NotFound);
         }
-        Ok(FileHandle { inode })
+        let info = self
+            .file_info
+            .get(&inode)
+            .expect("FAT consistency error: inode not in file_info");
+        Ok(FatFileHandle {
+            inode,
+            curr_cluster: inode,
+            file_offset: 0,
+            version_number: info.version_number,
+        })
     }
-    fn create(&mut self, _parent: FileHandle, _name: &Path) -> Result<FileHandle> {
+    fn create(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<FatFileHandle> {
         todo!()
     }
-    fn mkdir(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
+    fn mkdir(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn unlink(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
+    fn unlink(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn rmdir(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
+    fn rmdir(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn readdir(&mut self, dir: FileHandle, offset: u64) -> Self::DirectoryIterator<'_> {
+    fn readdir(&mut self, dir: &mut FatFileHandle, offset: u64) -> Self::DirectoryIterator<'_> {
         let dir = self.get_directory(dir.inode);
         dirent::FatDirectoryIterator::new(dir, offset)
     }
     fn release(&mut self, _inode: INodeNum) {
         todo!()
     }
-    fn read(&mut self, _file: FileHandle, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, file: &mut FatFileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        let Ok(offset) = u32::try_from(offset) else {
+            // FAT files can't exceed 4GB, so if offset > u32::MAX, it's definitely past EOF
+            return Ok(0);
+        };
+        let cluster_size = self.disk_sectors_per_cluster * BLOCK_SECTOR_SIZE as u32;
+        let curr_cluster_index = file.file_offset / cluster_size;
+        let new_cluster_index = offset / cluster_size;
+        let info = self
+            .file_info
+            .get(&file.inode())
+            .expect("FAT consistency error: file not in file_info");
+        let file_size: u32 = info.vfs.size.try_into().expect("FAT files should be <4GB");
+        if file.version_number != info.version_number || new_cluster_index < curr_cluster_index {
+            // need to recompute cluster from the start for backwards access,
+            // or if the file has been concurrently modified
+            file.curr_cluster = file.inode();
+            for _ in 0..new_cluster_index {
+                if !file.advance_cluster(self)? {
+                    // end-of-file reached
+                    return Ok(0);
+                }
+            }
+        } else if new_cluster_index > curr_cluster_index {
+            // advance to new cluster
+            for _ in 0..new_cluster_index - curr_cluster_index {
+                if !file.advance_cluster(self)? {
+                    // end-of-file reached
+                    return Ok(0);
+                }
+            }
+        } else if file.curr_cluster == u32::MAX {
+            // already reached end-of-file
+            return Ok(0);
+        }
+        // file.curr_cluster should now be correct
+        let mut offset = offset;
+        let mut buf = buf;
+        let mut read_count = 0;
+        let mut sector_data = [0; BLOCK_SECTOR_SIZE];
+        while !buf.is_empty() {
+            let cluster_offset = offset % cluster_size;
+            let sector_offset = offset % BLOCK_SECTOR_SIZE as u32;
+            let disk_sector = self.first_disk_sector_in_cluster(file.curr_cluster)
+                + cluster_offset / BLOCK_SECTOR_SIZE as u32;
+            self.block.read(disk_sector, &mut sector_data)?;
+            let mut n = min(buf.len() as u32, BLOCK_SECTOR_SIZE as u32 - sector_offset);
+            n = min(n, file_size - offset);
+            buf[..n as usize].copy_from_slice(
+                &sector_data[sector_offset as usize..(sector_offset + n) as usize],
+            );
+            offset += n;
+            read_count += n;
+            buf = &mut buf[n as usize..];
+            if offset >= file_size {
+                break;
+            }
+            if offset % cluster_size == 0 {
+                // new cluster
+                if !file.advance_cluster(self)? {
+                    return error!(
+                        "corrupt FAT filesystem: file size exceeds number of allocated clusters"
+                    );
+                }
+            }
+        }
+        Ok(read_count as usize)
+    }
+    fn write(&mut self, _file: &mut FatFileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
         todo!()
     }
-    fn write(&mut self, _file: FileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
+    fn stat(&mut self, _file: &FatFileHandle) -> Result<FileInfo> {
         todo!()
     }
-    fn stat(&mut self, _file: FileHandle) -> Result<FileInfo> {
-        todo!()
-    }
-    fn link(&mut self, _source: FileHandle, _parent: FileHandle, _name: &Path) -> Result<()> {
+    fn link(
+        &mut self,
+        _source: &mut FatFileHandle,
+        _parent: &mut FatFileHandle,
+        _name: &Path,
+    ) -> Result<()> {
         Err(Error::Unsupported)
     }
-    fn symlink(&mut self, _link: &Path, _parent: FileHandle, _name: &Path) -> Result<()> {
+    fn symlink(&mut self, _link: &Path, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
         Err(Error::Unsupported)
     }
-    fn readlink<'a>(&mut self, _link: FileHandle, _buf: &'a mut Path) -> Result<Option<&'a str>> {
+    fn readlink<'a>(
+        &mut self,
+        _link: &mut FatFileHandle,
+        _buf: &'a mut Path,
+    ) -> Result<Option<&'a str>> {
         panic!("this should never be called by the kernel, since we never tell it something is a symlink")
     }
-    fn truncate(&mut self, _file: FileHandle, _size: u64) -> Result<()> {
+    fn truncate(&mut self, _file: &mut FatFileHandle, _size: u64) -> Result<()> {
         todo!()
     }
     fn sync(&mut self) -> Result<()> {
@@ -328,8 +472,8 @@ mod test {
     #[test]
     fn test() {
         let mut fat = open_img_gz("tests/fat16.img.gz");
-        let root = fat.open(fat.root()).unwrap();
-        let mut it = fat.readdir(root, 0);
+        let mut root = fat.open(fat.root()).unwrap();
+        let mut it = fat.readdir(&mut root, 0);
         while let Some(entry) = it.next().unwrap() {
             println!("{entry:?}");
         }
