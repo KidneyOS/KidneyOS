@@ -8,7 +8,7 @@ pub type INodeNum = u32;
 pub type Path = str;
 pub type OwnedPath = String;
 
-/// A handle to an open file
+/// Represents an open file
 ///
 /// **IMPORTANT**: the kernel must call [`FileSystem::release`]
 /// when it closes its last open file to an inode. Otherwise,
@@ -119,21 +119,8 @@ pub struct DirEntry<'a> {
     pub name: Cow<'a, str>,
 }
 
-<<<<<<< HEAD
 /// A directory entry which owns its path
 pub type OwnedDirEntry = DirEntry<'static>;
-=======
-/// Directory entry which owns its path, for convenience.
-#[derive(Debug, Clone)]
-pub struct OwnedDirEntry {
-    /// Type of entry
-    pub r#type: INodeType,
-    /// inode number
-    pub inode: INodeNum,
-    /// Name of entry
-    pub name: OwnedPath,
-}
->>>>>>> 91a21f5 (Start FAT directory iterator)
 
 impl DirEntry<'_> {
     pub fn to_owned(&self) -> OwnedDirEntry {
@@ -225,8 +212,12 @@ pub trait FileSystem: Sized {
     fn open(&mut self, inode: INodeNum) -> Result<Self::FileHandle>;
 =======
     /// If the inode doesn't exist, returns [`Error::NotFound`].
+<<<<<<< HEAD
     fn open(&mut self, inode: INodeNum) -> Result<FileHandle>;
 >>>>>>> 2e812b7 (Start FAT directory iterator)
+=======
+    fn open(&mut self, inode: INodeNum) -> Result<Self::FileHandle>;
+>>>>>>> 5b04507 (Start dirent parsing)
     /// Create a new file in parent, or open it if it already exists (without truncating).
     ///
     /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`
