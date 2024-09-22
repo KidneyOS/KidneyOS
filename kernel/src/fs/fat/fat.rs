@@ -40,13 +40,20 @@ impl Fat {
         sectors: core::ops::Range<u32>,
     ) -> Result<Self> {
         let mut data =
-            vec![0; ((sectors.end - sectors.start) * (BLOCK_SECTOR_SIZE as u32 / 4)) as usize];
+            vec![0u32; ((sectors.end - sectors.start) * (BLOCK_SECTOR_SIZE as u32 / 4)) as usize];
         for (i, sector) in sectors.enumerate() {
             device.read(
                 sector,
                 data[i * (BLOCK_SECTOR_SIZE / 4)..(i + 1) * (BLOCK_SECTOR_SIZE / 4)].as_bytes_mut(),
             )?;
         }
+        
+        #[cfg(target_endian = "big")]
+        // FAT entries are stored in little endian
+        for entry in data.iter_mut() {
+            *entry = entry.swap_bytes();
+        }
+        
         let max_fat_count = data.len() as u32 * if r#type == FatType::Fat16 { 2 } else { 1 };
         if max_fat_count < cluster_count {
             return error!("FAT size is too small");
@@ -55,7 +62,7 @@ impl Fat {
         // the first two FAT entries are reserved
         for i in 2..cluster_count {
             if let FatEntry::HasNext(n) = fat.entry(i) {
-                if n >= cluster_count {
+                if n < 2 || n >= cluster_count {
                     return error!("invalid entry in FAT: {n} (cluster count = {cluster_count})");
                 }
             }
