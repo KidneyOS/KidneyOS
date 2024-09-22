@@ -4,9 +4,12 @@ mod fat;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
 use crate::vfs::{
     DirEntry, DirectoryIterator, Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result,
+    INodeType,
 };
-use dirent::parse_dir_entry;
+use dirent::Directory;
 use fat::Fat;
+use core::ops::Range;
+use alloc::collections::BTreeMap;
 // These are little-endian unaligned integer types
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
@@ -25,64 +28,24 @@ pub struct FatFS {
     block: Block,
     /// Cluster number of root
     root_inode: INodeNum,
+    /// First sector number of root directory entries (FAT-12/16 only)
+    fat16_first_root_disk_sector: u32,
+    /// Number of disk sectors reserved for root directory (FAT-12/16 only)
+    fat16_root_disk_sector_count: u32,
     /// Number of disk sectors (size = `BLOCK_SECTOR_SIZE`) per FAT cluster
     disk_sectors_per_cluster: u32,
     /// Disk sector which contains the start of the first FAT cluster
     first_cluster_disk_sector: u32,
     /// File allocation table
-    #[allow(dead_code)] // TODO : delete me
     fat: Fat,
+    /// In-memory copies of directory entries
+    cached_directories: BTreeMap<INodeNum, Result<Directory>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FatType {
     Fat16,
     Fat32,
-}
-
-pub struct FatDirectoryIterator<'a> {
-    fs: &'a mut FatFS,
-    // current cluster number
-    cluster: u32,
-    // offset within cluster
-    offset: u32,
-    // data in current disk sector
-    data: [u8; BLOCK_SECTOR_SIZE],
-    // read error to be returned later
-    error: Option<Error>,
-    // buffer to store file name
-    name: String,
-}
-
-impl DirectoryIterator for FatDirectoryIterator<'_> {
-    fn next(&mut self) -> Result<Option<DirEntry<'_>>> {
-        let dir_entry = loop {
-            if let Some(error) = self.error.take() {
-                return Err(error);
-            }
-            let dir_entry: [u8; 32] = self.data[self.offset as usize..self.offset as usize + 32]
-                .try_into()
-                .unwrap();
-            self.offset += 32;
-            if self.offset % (BLOCK_SECTOR_SIZE as u32) == 0 {
-                // read next disk sector in directory
-                let _ = self.cluster;
-                todo!();
-            }
-            let dir_entry = parse_dir_entry(self.fs, dir_entry, &mut self.name)?;
-            if let Some(dir_entry) = dir_entry {
-                break dir_entry;
-            }
-        };
-        Ok(Some(DirEntry {
-            name: &self.name,
-            inode: dir_entry.inode,
-            r#type: dir_entry.r#type,
-        }))
-    }
-    fn offset(&self) -> u64 {
-        todo!()
-    }
 }
 
 // Base BPB (BIOS Parameter Block) for a FAT 16/32 filesystem
@@ -121,6 +84,9 @@ impl FatBaseHeader {
             total_sectors16.into()
         }
     }
+    fn fat16_root_ent_count(&self) -> u32 {
+        self.fat16_root_ent_count.into()
+    }
     fn check_integrity(&self) -> Result<()> {
         if !matches!(self.bytes_per_sector(), 512 | 1024 | 2048 | 4096) {
             return error!(
@@ -136,6 +102,9 @@ impl FatBaseHeader {
         }
         if self.reserved_sector_count() == 0 {
             return error!("reserved sector count must be nonzero");
+        }
+        if self.fat16_root_ent_count() * 32 % self.bytes_per_sector() != 0 {
+            return error!("root entry count * 32B must be an integer number of sectors");
         }
         Ok(())
     }
@@ -232,7 +201,8 @@ impl FatFS {
             fat_type,
             fat_first_disk_sector..fat_first_disk_sector + fat_disk_sector_count,
         )?;
-        let first_cluster_disk_sector = fat_first_disk_sector + fat_disk_sector_count;
+        let first_cluster_disk_sector = fat_first_disk_sector + fat_disk_sector_count
+            + root_dir_sectors * disk_sectors_per_fat_sector;
         let root_inode: u32 = if fat_type == FatType::Fat32 {
             fat32_header.root_cluster.into()
         } else {
@@ -246,20 +216,40 @@ impl FatFS {
             root_inode,
             disk_sectors_per_cluster,
             first_cluster_disk_sector,
+            fat16_first_root_disk_sector: fat_first_disk_sector + fat_disk_sector_count,
+            fat16_root_disk_sector_count: base_header.fat16_root_ent_count() * 32 / BLOCK_SECTOR_SIZE as u32,
+            cached_directories: BTreeMap::new()
         })
     }
     fn first_disk_sector_in_cluster(&self, cluster: u32) -> u32 {
-        self.first_cluster_disk_sector + cluster * self.disk_sectors_per_cluster
+        assert!(cluster >= 2);
+        self.first_cluster_disk_sector + (cluster - 2) * self.disk_sectors_per_cluster
+    }
+    pub(super) fn disk_sectors_in_cluster(&self, cluster: u32) -> Range<u32> {
+        let first = self.first_disk_sector_in_cluster(cluster);
+        first..first + self.disk_sectors_per_cluster
+    }
+    pub(super) fn fat16_root_disk_sectors(&self) -> Range<u32> {
+        let first = self.fat16_first_root_disk_sector;
+        first..first + self.fat16_root_disk_sector_count
+    }
+    fn get_directory(&mut self, inode: INodeNum) -> Result<&Directory> {
+        if !self.cached_directories.contains_key(&inode) {
+            let directory = Directory::read(self, inode);
+            self.cached_directories.insert(inode, directory);
+        }
+        self.cached_directories[&inode].as_ref().map_err(|e| e.clone())
     }
 }
 
 impl FileSystem for FatFS {
-    type DirectoryIterator<'a> = FatDirectoryIterator<'a>;
+    type DirectoryIterator<'a> = dirent::FatDirectoryIterator<'a>;
     fn root(&self) -> INodeNum {
         self.root_inode
     }
-    fn lookup(&mut self, _parent: FileHandle, _name: &Path) -> Result<INodeNum> {
-        todo!()
+    fn lookup(&mut self, parent: FileHandle, name: &Path) -> Result<INodeNum> {
+        let dir = self.get_directory(parent.inode)?;
+        dir.lookup(name).ok_or(Error::NotFound)
     }
     fn open(&mut self, inode: INodeNum) -> Result<FileHandle> {
         let fat_entry = self.fat.entry(inode);
@@ -280,26 +270,9 @@ impl FileSystem for FatFS {
     fn rmdir(&mut self, _parent: FileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn readdir(&mut self, dir: FileHandle, _offset: u64) -> Self::DirectoryIterator<'_> {
-        if _offset > 0 {
-            todo!("non-zero directory iterator offset");
-        }
-        let mut data = [0; BLOCK_SECTOR_SIZE];
-        let cluster = dir.inode;
-        let first_sector = self.first_disk_sector_in_cluster(cluster);
-        let err = self
-            .block
-            .read(first_sector, &mut data)
-            .err()
-            .map(Error::from);
-        FatDirectoryIterator {
-            name: String::new(),
-            fs: self,
-            error: err,
-            cluster,
-            offset: 0,
-            data,
-        }
+    fn readdir(&mut self, dir: FileHandle, offset: u64) -> Self::DirectoryIterator<'_> {
+        let dir = self.get_directory(dir.inode);
+        dirent::FatDirectoryIterator::new(dir, offset)
     }
     fn release(&mut self, _inode: INodeNum) {
         todo!()
@@ -349,7 +322,10 @@ mod test {
     fn test() {
         let mut fat = open_img_gz("tests/fat16.img.gz");
         let root = fat.open(fat.root()).unwrap();
-        println!("{:?}", root);
+        let mut it = fat.readdir(root, 0);
+        while let Some(entry) = it.next().unwrap() {
+            println!("{entry:?}");
+        }
         panic!();
     }
 }
