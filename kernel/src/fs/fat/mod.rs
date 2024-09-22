@@ -1,16 +1,27 @@
-use crate::block::block_core::Block;
-use crate::vfs::{
-    DirectoryIterator, Error, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result,
-};
+#[allow(clippy::module_inception)]
+pub mod fat;
+use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
+use crate::vfs::{DirectoryIterator, FileHandle, FileInfo, FileSystem, INodeNum, Path, Result};
 // These are little-endian unaligned integer types
+use fat::Fat;
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
 
+// convenience macro for returning errors
+macro_rules! error {
+    ($($args:expr),*) => {
+        Err(crate::vfs::Error::IO(format!($($args),*)))
+    }
+}
+pub(super) use error;
+
+/// A FAT-16 or FAT-32 filesystem
 pub struct FatFS {
-    // underlying block device
+    /// Underlying block device
     block: Block,
+    /// File allocation table
     #[allow(dead_code)] // TODO : delete me
-    fat_type: FatType,
+    fat: Fat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,18 +75,11 @@ struct FatBaseHeader {
     total_sectors32: U32,
 }
 
-// convenience macro for returning errors
-macro_rules! error {
-    ($($args:expr),*) => {
-        Err(Error::IO(format!($($args),*)))
-    }
-}
-
 impl FatBaseHeader {
-    fn bytes_per_sector(&self) -> u16 {
+    fn bytes_per_sector(&self) -> u32 {
         self.bytes_per_sector.into()
     }
-    fn reserved_sector_count(&self) -> u16 {
+    fn reserved_sector_count(&self) -> u32 {
         self.reserved_sector_count.into()
     }
     fn total_sectors(&self) -> u32 {
@@ -160,31 +164,44 @@ impl FatFS {
             Fat32Header::ref_from(&first_sector).expect("Fat32Header type should be 512 bytes");
         let base_header: &FatBaseHeader = &fat16_header.base;
         base_header.check_integrity()?;
+        let reserved_sector_count: u32 = base_header.reserved_sector_count();
+        let bytes_per_sector: u32 = base_header.bytes_per_sector();
         // very strangely, although there are many easy-to-detect differences
         // between FAT 16 and 32, the "correct" way to determine the type is
         // quite elaborate.
 
         // this will always be zero for FAT32
-        let root_dir_sectors = (u32::from(base_header.fat16_root_ent_count) * 32)
-            .div_ceil(base_header.bytes_per_sector().into());
+        let root_dir_sectors =
+            (u32::from(base_header.fat16_root_ent_count) * 32).div_ceil(bytes_per_sector);
         let mut fat_size: u32 = base_header.fat16_fat_size.into();
         if fat_size == 0 {
             fat_size = fat32_header.fat_size();
         }
         let total_sectors = base_header.total_sectors();
         let data_sectors = total_sectors
-            - u32::from(base_header.reserved_sector_count())
+            - reserved_sector_count
             - u32::from(base_header.num_fats) * fat_size
             - root_dir_sectors;
+        let cluster_count = data_sectors / u32::from(base_header.sectors_per_cluster);
         let fat_type;
-        if data_sectors < 4085 {
+        if cluster_count < 4085 {
             return error!("FAT-12 is not supported. Try creating a larger volume.");
-        } else if data_sectors < 65525 {
+        } else if cluster_count < 65525 {
             fat_type = FatType::Fat16;
         } else {
             fat_type = FatType::Fat32;
         }
-        Ok(Self { block, fat_type })
+        let fat_sectors_per_disk_sector = bytes_per_sector / BLOCK_SECTOR_SIZE as u32;
+        let fat_first_disk_sector = reserved_sector_count / fat_sectors_per_disk_sector;
+        let fat_disk_sector_count = fat_size / fat_sectors_per_disk_sector;
+        println!("reserved sectors={reserved_sector_count} FAT disk sector count={fat_disk_sector_count}");
+        let fat = Fat::new(
+            &mut block,
+            cluster_count,
+            fat_type,
+            fat_first_disk_sector..fat_first_disk_sector + fat_disk_sector_count,
+        )?;
+        Ok(Self { block, fat })
     }
 }
 
@@ -245,6 +262,9 @@ impl FileSystem for FatFS {
     fn truncate(&mut self, _file: Self::FileHandle, _size: u64) -> Result<()> {
         todo!()
     }
+    fn sync(&mut self) -> Result<()> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -265,7 +285,7 @@ mod test {
     #[test]
     fn test() {
         let fat = open_img_gz("tests/fat16.img.gz");
-        println!("{:?}", fat.fat_type);
+        println!("{:?}", fat.fat);
         panic!();
     }
 }
