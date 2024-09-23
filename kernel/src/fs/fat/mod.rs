@@ -20,6 +20,7 @@ pub struct FatFileHandle {
     version_number: u64,
 }
 
+#[derive(Debug)]
 struct FatFileInfo {
     vfs: FileInfo,
     version_number: u64,
@@ -82,7 +83,7 @@ pub struct FatFS {
     /// File allocation table
     fat: Fat,
     /// In-memory copies of directory entries
-    cached_directories: BTreeMap<INodeNum, Result<Directory>>,
+    cached_directories: BTreeMap<INodeNum, Directory>,
     /// In-memory file information
     file_info: BTreeMap<INodeNum, FatFileInfo>,
 }
@@ -295,16 +296,34 @@ impl FatFS {
         first..first + self.fat16_root_disk_sector_count
     }
     fn get_directory(&mut self, inode: INodeNum) -> Result<&Directory> {
-        // clippy wants us to use or_insert_with, but we can't because we need to
-        // mutably borrow self to read the directory.
-        #[allow(clippy::map_entry)]
-        if !self.cached_directories.contains_key(&inode) {
-            let directory = Directory::read(self, inode);
-            self.cached_directories.insert(inode, directory);
+        fn insert_directory_if_missing(
+            fs: &mut FatFS,
+            inode: INodeNum,
+            cached_directories: &mut BTreeMap<INodeNum, Directory>,
+        ) -> Result<()> {
+            use alloc::collections::btree_map::Entry;
+            if let Entry::Vacant(v) = cached_directories.entry(inode) {
+                let directory = Directory::read(fs, inode)?;
+                for (_, info) in directory.entries() {
+                    let inode = info.inode;
+                    fs.file_info.insert(
+                        inode,
+                        FatFileInfo {
+                            version_number: 0,
+                            vfs: info.clone(),
+                        },
+                    );
+                }
+                v.insert(directory);
+            }
+            Ok(())
         }
-        self.cached_directories[&inode]
-            .as_ref()
-            .map_err(|e| e.clone())
+        // temporarily move out cached_directories to appease the borrow checker
+        let mut cached_directories = core::mem::take(&mut self.cached_directories);
+        let result = insert_directory_if_missing(self, inode, &mut cached_directories);
+        self.cached_directories = cached_directories;
+        result?;
+        Ok(&self.cached_directories[&inode])
     }
 }
 
@@ -350,8 +369,11 @@ impl FileSystem for FatFS {
         let dir = self.get_directory(dir.inode);
         dirent::FatDirectoryIterator::new(dir, offset)
     }
-    fn release(&mut self, _inode: INodeNum) {
-        todo!()
+    fn release(&mut self, inode: INodeNum) {
+        if let Some(mut dir) = self.cached_directories.remove(&inode) {
+            // just ignore any disk errors, at least for now.
+            let _ = dir.sync(self);
+        }
     }
     fn read(&mut self, file: &mut FatFileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
         let Ok(offset) = u32::try_from(offset) else {
@@ -424,8 +446,13 @@ impl FileSystem for FatFS {
     fn write(&mut self, _file: &mut FatFileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
         todo!()
     }
-    fn stat(&mut self, _file: &FatFileHandle) -> Result<FileInfo> {
-        todo!()
+    fn stat(&mut self, file: &FatFileHandle) -> Result<FileInfo> {
+        Ok(self
+            .file_info
+            .get(&file.inode)
+            .expect("FAT inconsistency error")
+            .vfs
+            .clone())
     }
     fn link(
         &mut self,
@@ -449,7 +476,22 @@ impl FileSystem for FatFS {
         todo!()
     }
     fn sync(&mut self) -> Result<()> {
-        todo!()
+        fn sync_directories(
+            fs: &mut FatFS,
+            directories: &mut BTreeMap<INodeNum, Directory>,
+        ) -> Result<()> {
+            for dir in directories.values_mut() {
+                dir.sync(fs)?;
+            }
+            Ok(())
+        }
+        // temporarily move out cached_directories to appease the borrow checker
+        let mut directories = core::mem::take(&mut self.cached_directories);
+        let result = sync_directories(self, &mut directories);
+        self.cached_directories = directories;
+        result?;
+
+        Ok(())
     }
 }
 
@@ -457,7 +499,7 @@ impl FileSystem for FatFS {
 mod test {
     use super::*;
     use crate::block::block_core::test::block_from_file;
-    use crate::vfs::DirectoryIterator;
+    use crate::vfs::{DirectoryIterator, OwnedDirEntry};
     use std::fs::File;
     use std::io::{prelude::*, Cursor};
     /// Open a gzip-compressed raw disk image containing a FAT filesystem.
@@ -469,14 +511,36 @@ mod test {
         gz_decoder.read_to_end(&mut buf).unwrap();
         FatFS::new(block_from_file(Cursor::new(buf))).unwrap()
     }
-    #[test]
-    fn test() {
-        let mut fat = open_img_gz("tests/fat16.img.gz");
+    fn test_simple(mut fat: FatFS) {
         let mut root = fat.open(fat.root()).unwrap();
         let mut it = fat.readdir(&mut root, 0);
+        let mut entries = vec![];
         while let Some(entry) = it.next().unwrap() {
-            println!("{entry:?}");
+            entries.push(entry.to_owned());
         }
-        panic!();
+        entries.sort_by_key(|e| e.name.clone());
+        fn check_entry(entry: &OwnedDirEntry, name: &str, r#type: INodeType) {
+            assert_eq!(&entry.name, name);
+            assert_eq!(entry.r#type, r#type);
+        }
+        check_entry(&entries[0], "a", INodeType::File);
+        check_entry(&entries[1], "b", INodeType::File);
+        check_entry(&entries[2], "c", INodeType::File);
+        check_entry(&entries[3], "d", INodeType::Directory);
+        let file_a_inode = fat.lookup(&mut root, "a").unwrap();
+        let mut file_a = fat.open(file_a_inode).unwrap();
+        let mut buf = [0; 512];
+        let n = fat.read(&mut file_a, 0, &mut buf[..]).unwrap();
+        assert_eq!(&buf[..n], b"file a\n");
+    }
+    #[test]
+    fn simple_fat16() {
+        let fat = open_img_gz("tests/fat16.img.gz");
+        test_simple(fat);
+    }
+    #[test]
+    fn simple_fat32() {
+        let fat = open_img_gz("tests/fat32.img.gz");
+        test_simple(fat);
     }
 }
