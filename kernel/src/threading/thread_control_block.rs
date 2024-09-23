@@ -1,4 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
@@ -11,7 +12,6 @@ use core::{
     sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 
 pub type Pid = u16;
 pub type Tid = u16;
@@ -63,19 +63,20 @@ impl ProcessControlBlock {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(elf: Elf) -> ThreadControlBlock {
         if elf.header.architecture != ElfArchitecture::X86
-            || elf.header.usage != ElfUsage::Executable {
+            || elf.header.usage != ElfUsage::Executable
+        {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
-        
+
         let pid: Pid = allocate_pid();
-        
+
         let mut page_manager = PageManager::default();
-        
+
         for program_header in elf.program_headers {
             if program_header.program_type != ElfProgramType::Load {
-                continue
+                continue;
             }
-            
+
             let frames = program_header.data.len().div_ceil(PAGE_FRAME_SIZE);
 
             unsafe {
@@ -103,11 +104,19 @@ impl ProcessControlBlock {
                 );
 
                 // Load so we can write to the virtual addresses mapped above.
-                copy_nonoverlapping(program_header.data.as_ptr(), kernel_virt_addr, program_header.data.len());
+                copy_nonoverlapping(
+                    program_header.data.as_ptr(),
+                    kernel_virt_addr,
+                    program_header.data.len(),
+                );
 
                 // Zero the sliver of addresses between the end of the region, and
                 // the end of the region we had to map due to page
-                write_bytes(kernel_virt_addr.add(program_header.data.len()), 0, frames * PAGE_FRAME_SIZE - program_header.data.len());
+                write_bytes(
+                    kernel_virt_addr.add(program_header.data.len()),
+                    0,
+                    frames * PAGE_FRAME_SIZE - program_header.data.len(),
+                );
             }
         }
 
@@ -118,7 +127,8 @@ impl ProcessControlBlock {
             exit_code: None,
         };
         let new_tcb = ThreadControlBlock::new_with_elf(
-            NonNull::new(elf.header.program_entry as *mut u8).expect("fail to create PCB entry point"),
+            NonNull::new(elf.header.program_entry as *mut u8)
+                .expect("fail to create PCB entry point"),
             pid,
             page_manager,
         );
