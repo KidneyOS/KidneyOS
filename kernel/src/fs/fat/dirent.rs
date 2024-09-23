@@ -1,6 +1,7 @@
 use crate::block::block_core::BLOCK_SECTOR_SIZE;
 use crate::fs::fat::{error, fat::FatEntry, FatFS};
 use crate::vfs::{FileInfo, INodeNum, INodeType, Result};
+use core::ops::ControlFlow;
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
 
@@ -55,10 +56,15 @@ pub struct Directory {
 }
 
 impl Directory {
-    fn read_one_entry(&mut self, bytes: &[u8]) -> Result<()> {
+    fn read_one_entry(&mut self, bytes: &[u8]) -> Result<ControlFlow<()>> {
         let entry: &FatDirEntry = FatDirEntry::ref_from(bytes).unwrap();
         let attr = entry.attr;
-        if attr == ATTR_LONG_NAME {
+        if bytes[0] == 0 {
+            // this entry is free, and all entries following it are free.
+            return Ok(ControlFlow::Break(()));
+        } else if bytes[0] == 0xE5 {
+            // this entry is free, but there may be more entries after it.
+        } else if attr == ATTR_LONG_NAME {
             // a "long name" entry (stores part of a file name)
             let entry: &FatDirEntryLongName = FatDirEntryLongName::ref_from(bytes).unwrap();
             let mut utf16 = [0u16; 13];
@@ -84,9 +90,8 @@ impl Directory {
             // Oddly, the "long name" entries are stored in reverse.
             // So we reverse each entry, then reverse the whole thing at the end.
             self.names.extend(utf8[..utf8_len].iter().copied().rev());
-        } else if entry.name[0] == 0 || entry.name[0] == 0xE5 {
-            // this entry is free.
-            return Ok(());
+        } else if (attr & ATTR_VOLUME_ID) != 0 {
+            // Volume ID. Let's just ignore this for now.
         } else {
             // ordinary directory entry
             let name = self.prev_name_end;
@@ -140,7 +145,7 @@ impl Directory {
                 // This seems to be against the spec, since 0x2e == '.' is not
                 // allowed in short file names.
                 if &entry.name == b".          " || &entry.name == b"..         " {
-                    return Ok(());
+                    return Ok(ControlFlow::Continue(()));
                 }
                 if &entry.name == b"           " {
                     return error!("empty file name");
@@ -169,13 +174,16 @@ impl Directory {
             self.prev_name_end = self.names.len();
             self.entries.push(DirEntry { name, info })
         }
-        Ok(())
+        Ok(ControlFlow::Continue(()))
     }
     fn read_from_disk_sector(&mut self, fs: &mut FatFS, sector: u32) -> Result<()> {
         let mut data = [0; BLOCK_SECTOR_SIZE];
         fs.block.read(sector, &mut data)?;
         for i in 0..BLOCK_SECTOR_SIZE / 32 {
-            self.read_one_entry(&data[32 * i..32 * (i + 1)])?;
+            if self.read_one_entry(&data[32 * i..32 * (i + 1)])?.is_break() {
+                // end-of-directory reached.
+                break;
+            }
         }
         Ok(())
     }
