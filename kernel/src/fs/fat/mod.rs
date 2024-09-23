@@ -2,11 +2,13 @@ mod dirent;
 #[allow(clippy::module_inception)]
 mod fat;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
-use crate::vfs::{Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, Result};
+use crate::vfs::{
+    DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, RawDirEntry,
+    Result,
+};
 use alloc::collections::BTreeMap;
 use core::cmp::min;
 use core::ops::Range;
-use dirent::Directory;
 use fat::{Fat, FatEntry};
 // These are little-endian unaligned integer types
 use zerocopy::little_endian::{U16, U32};
@@ -82,8 +84,6 @@ pub struct FatFS {
     first_cluster_disk_sector: u32,
     /// File allocation table
     fat: Fat,
-    /// In-memory copies of directory entries
-    cached_directories: BTreeMap<INodeNum, Directory>,
     /// In-memory file information
     file_info: BTreeMap<INodeNum, FatFileInfo>,
 }
@@ -280,7 +280,6 @@ impl FatFS {
             fat16_first_root_disk_sector,
             fat16_root_disk_sector_count: base_header.fat16_root_ent_count() * 32
                 / BLOCK_SECTOR_SIZE as u32,
-            cached_directories: BTreeMap::new(),
         })
     }
     fn first_disk_sector_in_cluster(&self, cluster: u32) -> u32 {
@@ -295,47 +294,12 @@ impl FatFS {
         let first = self.fat16_first_root_disk_sector;
         first..first + self.fat16_root_disk_sector_count
     }
-    fn get_directory(&mut self, inode: INodeNum) -> Result<&Directory> {
-        fn insert_directory_if_missing(
-            fs: &mut FatFS,
-            inode: INodeNum,
-            cached_directories: &mut BTreeMap<INodeNum, Directory>,
-        ) -> Result<()> {
-            use alloc::collections::btree_map::Entry;
-            if let Entry::Vacant(v) = cached_directories.entry(inode) {
-                let directory = Directory::read(fs, inode)?;
-                for (_, info) in directory.entries() {
-                    let inode = info.inode;
-                    fs.file_info.insert(
-                        inode,
-                        FatFileInfo {
-                            version_number: 0,
-                            vfs: info.clone(),
-                        },
-                    );
-                }
-                v.insert(directory);
-            }
-            Ok(())
-        }
-        // temporarily move out cached_directories to appease the borrow checker
-        let mut cached_directories = core::mem::take(&mut self.cached_directories);
-        let result = insert_directory_if_missing(self, inode, &mut cached_directories);
-        self.cached_directories = cached_directories;
-        result?;
-        Ok(&self.cached_directories[&inode])
-    }
 }
 
 impl FileSystem for FatFS {
     type FileHandle = FatFileHandle;
-    type DirectoryIterator<'a> = dirent::FatDirectoryIterator<'a>;
     fn root(&self) -> INodeNum {
         self.root_inode
-    }
-    fn lookup(&mut self, parent: &mut FatFileHandle, name: &Path) -> Result<INodeNum> {
-        let dir = self.get_directory(parent.inode)?;
-        dir.lookup(name).ok_or(Error::NotFound)
     }
     fn open(&mut self, inode: INodeNum) -> Result<FatFileHandle> {
         let fat_entry = self.fat.entry(inode);
@@ -365,20 +329,37 @@ impl FileSystem for FatFS {
     fn rmdir(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
         todo!()
     }
-    fn readdir(&mut self, dir: &mut FatFileHandle, offset: u64) -> Self::DirectoryIterator<'_> {
-        let dir = self.get_directory(dir.inode);
-        dirent::FatDirectoryIterator::new(dir, offset)
-    }
-    fn release(&mut self, inode: INodeNum) {
-        if inode == self.root() {
-            // don't ever remove root from cache.
-            return;
+    fn readdir(&mut self, dir: &mut FatFileHandle) -> Result<DirEntries> {
+        let dir = dirent::Directory::read(self, dir.inode)?;
+        let dirent::Directory {
+            names,
+            entries: fat_entries,
+            ..
+        } = dir;
+        let names = String::from_utf8(names)
+            .map_err(|_| Error::IO(String::from("bad Unicode in file name")))?;
+        let mut entries = vec![];
+        for entry in &fat_entries {
+            let inode = entry.info.inode;
+            self.file_info.insert(
+                inode,
+                FatFileInfo {
+                    version_number: 0,
+                    vfs: entry.info.clone(),
+                },
+            );
+            entries.push(RawDirEntry {
+                inode,
+                r#type: entry.info.r#type,
+                name: entry.name,
+            });
         }
-        if let Some(mut dir) = self.cached_directories.remove(&inode) {
-            // just ignore any disk errors, at least for now.
-            let _ = dir.sync(self);
-        }
+        Ok(DirEntries {
+            filenames: names,
+            entries,
+        })
     }
+    fn release(&mut self, _inode: INodeNum) {}
     fn read(&mut self, file: &mut FatFileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
         let Ok(offset) = u32::try_from(offset) else {
             // FAT files can't exceed 4GB, so if offset > u32::MAX, it's definitely past EOF
@@ -480,21 +461,6 @@ impl FileSystem for FatFS {
         todo!()
     }
     fn sync(&mut self) -> Result<()> {
-        fn sync_directories(
-            fs: &mut FatFS,
-            directories: &mut BTreeMap<INodeNum, Directory>,
-        ) -> Result<()> {
-            for dir in directories.values_mut() {
-                dir.sync(fs)?;
-            }
-            Ok(())
-        }
-        // temporarily move out cached_directories to appease the borrow checker
-        let mut directories = core::mem::take(&mut self.cached_directories);
-        let result = sync_directories(self, &mut directories);
-        self.cached_directories = directories;
-        result?;
-
         Ok(())
     }
 }
@@ -503,7 +469,7 @@ impl FileSystem for FatFS {
 mod test {
     use super::*;
     use crate::block::block_core::test::block_from_file;
-    use crate::vfs::{DirectoryIterator, OwnedDirEntry};
+    use crate::vfs::OwnedDirEntry;
     use std::fs::File;
     use std::io::{prelude::*, Cursor};
     /// Open a gzip-compressed raw disk image containing a FAT filesystem.
@@ -517,12 +483,12 @@ mod test {
     }
     fn test_simple(mut fat: FatFS) {
         let mut root = fat.open(fat.root()).unwrap();
-        let mut it = fat.readdir(&mut root, 0);
-        let mut entries = vec![];
-        while let Some(entry) = it.next().unwrap() {
-            entries.push(entry.to_owned());
-        }
-        entries.sort_by_key(|e| e.name.clone());
+        let entries: Vec<OwnedDirEntry> = fat
+            .readdir(&mut root)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.to_owned())
+            .collect();
         fn check_entry(entry: &OwnedDirEntry, name: &str, r#type: INodeType) {
             assert_eq!(&entry.name, name);
             assert_eq!(entry.r#type, r#type);
@@ -531,18 +497,19 @@ mod test {
         check_entry(&entries[1], "b", INodeType::File);
         check_entry(&entries[2], "c", INodeType::File);
         check_entry(&entries[3], "d", INodeType::Directory);
-        let mut dir_d = fat.open(entries[3].inode).unwrap();
-        let file_a_inode = fat.lookup(&mut root, "a").unwrap();
-        let mut file_a = fat.open(file_a_inode).unwrap();
+        let dir_d = fat.open(entries[3].inode).unwrap();
+        let mut file_a = fat.open(entries[0].inode).unwrap();
         let mut buf = [0; 512];
         let n = fat.read(&mut file_a, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"file a\n");
         fat.release(file_a.inode);
-        let file_f_inode = fat.lookup(&mut dir_d, "f").unwrap();
+        /*
+        let file_f_inode = ...;
         let mut file_f = fat.open(file_f_inode).unwrap();
         let n = fat.read(&mut file_f, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"inner file\n");
         fat.release(file_f.inode);
+        */
         fat.release(dir_d.inode);
         fat.release(root.inode);
     }
