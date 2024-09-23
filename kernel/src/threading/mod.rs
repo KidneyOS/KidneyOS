@@ -10,6 +10,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use thread_control_block::{ProcessControlBlock, ThreadControlBlock, Tid};
+use crate::user_program::elf::Elf;
 
 pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
@@ -44,8 +45,12 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
     let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager);
 
+    let elf = Elf::parse_bytes(init_elf);
+    
+    let elf = elf.expect("failed to parse provided elf file");
+    
     // Create the initial user program thread.
-    let user_tcb = ProcessControlBlock::new(init_elf);
+    let user_tcb = ProcessControlBlock::new(elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
