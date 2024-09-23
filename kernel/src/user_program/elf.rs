@@ -179,7 +179,7 @@ pub struct ElfProgramHeader<'a> {
     pub virtual_address: u32,
 
     // Typically ignored, unless our operating system cares about physical addresses.
-    // I fing this is typically equal to the virtual_address field.
+    // I find this is typically equal to the virtual_address field.
     pub physical_address: u32,
 
     // Content of the program section.
