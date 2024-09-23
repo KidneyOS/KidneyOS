@@ -93,8 +93,4 @@ impl Fat {
             },
         }
     }
-    #[allow(dead_code)] // TODO : delete me
-    pub fn flush(&mut self, _device: &mut Block) -> Result<()> {
-        todo!()
-    }
 }
