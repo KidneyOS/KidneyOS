@@ -370,6 +370,10 @@ impl FileSystem for FatFS {
         dirent::FatDirectoryIterator::new(dir, offset)
     }
     fn release(&mut self, inode: INodeNum) {
+        if inode == self.root() {
+            // don't ever remove root from cache.
+            return;
+        }
         if let Some(mut dir) = self.cached_directories.remove(&inode) {
             // just ignore any disk errors, at least for now.
             let _ = dir.sync(self);
@@ -527,20 +531,29 @@ mod test {
         check_entry(&entries[1], "b", INodeType::File);
         check_entry(&entries[2], "c", INodeType::File);
         check_entry(&entries[3], "d", INodeType::Directory);
+        let mut dir_d = fat.open(entries[3].inode).unwrap();
         let file_a_inode = fat.lookup(&mut root, "a").unwrap();
         let mut file_a = fat.open(file_a_inode).unwrap();
         let mut buf = [0; 512];
         let n = fat.read(&mut file_a, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"file a\n");
+        fat.release(file_a.inode);
+        let file_f_inode = fat.lookup(&mut dir_d, "f").unwrap();
+        let mut file_f = fat.open(file_f_inode).unwrap();
+        let n = fat.read(&mut file_f, 0, &mut buf[..]).unwrap();
+        assert_eq!(&buf[..n], b"inner file\n");
+        fat.release(file_f.inode);
+        fat.release(dir_d.inode);
+        fat.release(root.inode);
     }
     #[test]
     fn simple_fat16() {
-        let fat = open_img_gz("tests/fat16.img.gz");
+        let fat = open_img_gz("tests/fat/simple_fat16.img.gz");
         test_simple(fat);
     }
     #[test]
     fn simple_fat32() {
-        let fat = open_img_gz("tests/fat32.img.gz");
+        let fat = open_img_gz("tests/fat/simple_fat32.img.gz");
         test_simple(fat);
     }
 }
