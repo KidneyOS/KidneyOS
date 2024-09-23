@@ -198,7 +198,14 @@ impl Directory {
         }
         Ok(dir)
     }
-    pub(super) fn lookup(&self, name: &str) -> Option<INodeNum> {
+    pub fn sync(&mut self, _fs: &mut FatFS) -> Result<()> {
+        // TODO: write changes to disk
+        Ok(())
+    }
+    pub fn entries(&self) -> impl '_ + Iterator<Item = &(String, FileInfo)> {
+        self.entries.values()
+    }
+    pub fn lookup(&self, name: &str) -> Option<INodeNum> {
         let id = self.lookup.get(name)?;
         Some(self.entries[&id].1.inode)
     }
