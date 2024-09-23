@@ -483,43 +483,42 @@ mod test {
     }
     fn test_simple(mut fat: FatFS) {
         let mut root = fat.open(fat.root()).unwrap();
-        let entries: Vec<OwnedDirEntry> = fat
-            .readdir(&mut root)
-            .unwrap()
-            .into_iter()
-            .map(|e| e.to_owned())
-            .collect();
+        let entries: Vec<OwnedDirEntry> = fat.readdir(&mut root).unwrap().to_sorted_vec();
         fn check_entry(entry: &OwnedDirEntry, name: &str, r#type: INodeType) {
             assert_eq!(&entry.name, name);
             assert_eq!(entry.r#type, r#type);
         }
+        assert_eq!(entries.len(), 4);
         check_entry(&entries[0], "a", INodeType::File);
         check_entry(&entries[1], "b", INodeType::File);
         check_entry(&entries[2], "c", INodeType::File);
         check_entry(&entries[3], "d", INodeType::Directory);
-        let dir_d = fat.open(entries[3].inode).unwrap();
+        let mut dir_d = fat.open(entries[3].inode).unwrap();
         let mut file_a = fat.open(entries[0].inode).unwrap();
         let mut buf = [0; 512];
         let n = fat.read(&mut file_a, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"file a\n");
         fat.release(file_a.inode);
-        /*
-        let file_f_inode = ...;
+        let dir_d_entries = fat.readdir(&mut dir_d).unwrap().to_sorted_vec();
+        assert_eq!(dir_d_entries.len(), 1);
+        check_entry(&dir_d_entries[0], "f", INodeType::File);
+        let file_f_inode = dir_d_entries[0].inode;
         let mut file_f = fat.open(file_f_inode).unwrap();
         let n = fat.read(&mut file_f, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"inner file\n");
         fat.release(file_f.inode);
-        */
         fat.release(dir_d.inode);
         fat.release(root.inode);
     }
     #[test]
     fn simple_fat16() {
+        // simple disk image, with no multi-cluster files or directories
         let fat = open_img_gz("tests/fat/simple_fat16.img.gz");
         test_simple(fat);
     }
     #[test]
     fn simple_fat32() {
+        // FAT-32 version of simple_fat16.img.gz
         let fat = open_img_gz("tests/fat/simple_fat32.img.gz");
         test_simple(fat);
     }
