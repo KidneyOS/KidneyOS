@@ -63,7 +63,9 @@ impl Fat {
         for i in 2..cluster_count {
             if let FatEntry::HasNext(n) = fat.entry(i) {
                 if n < 2 || n >= cluster_count {
-                    return error!("invalid entry in FAT: {n} (cluster count = {cluster_count})");
+                    return error!(
+                        "invalid entry in FAT: 0x{n:08x} (cluster count = {cluster_count})"
+                    );
                 }
             }
         }
@@ -81,14 +83,18 @@ impl Fat {
                 match raw_entry {
                     0 => FatEntry::Free,
                     0xFFF7 => FatEntry::Defective,
-                    u16::MAX => FatEntry::Eof,
+                    0xFFF8..=0xFFFF => FatEntry::Eof,
                     x => FatEntry::HasNext(x.into()),
                 }
             }
-            FatType::Fat32 => match self.data[i as usize] {
+            FatType::Fat32 => match self.data[i as usize] & 0xFFF_FFFF {
                 0 => FatEntry::Free,
-                0xFFFF_FFF7 => FatEntry::Defective,
-                u32::MAX => FatEntry::Eof,
+                0xFFF_FFF7 => FatEntry::Defective,
+                // in theory, this should just need to test for 0xfffffff, but
+                // mkfs.vfat sets FAT[2] to 0xffffff8 for some reason.
+                // according to the spec:
+                // "should not be used. May be interpreted as an allocated cluster and the final cluster in the file"
+                0xFFF_FFF8..=0xFFF_FFFF => FatEntry::Eof,
                 x => FatEntry::HasNext(x),
             },
         }

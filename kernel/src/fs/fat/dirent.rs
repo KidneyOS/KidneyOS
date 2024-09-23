@@ -126,6 +126,12 @@ impl Directory {
                     }
                     Ok(())
                 }
+                // Linux stores directory entries for . and ..
+                // This seems to be against the spec, since 0x2e == '.' is not
+                // allowed in short file names.
+                if &entry.name == b".          " || &entry.name == b"..         " {
+                    return Ok(());
+                }
                 read_short_name_part(&mut name, &entry.name[..8])?;
                 if &entry.name[8..] != b"   " {
                     name.push('.');
