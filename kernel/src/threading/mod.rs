@@ -45,8 +45,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
     let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager);
 
-    let elf = Elf::parse_bytes(init_elf)
-        .expect("failed to parse provided elf file");
+    let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
 
     // Create the initial user program thread.
     let user_tcb = ProcessControlBlock::new(elf);
