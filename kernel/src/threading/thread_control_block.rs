@@ -352,7 +352,7 @@ impl Clone for ThreadControlBlock {
         // TODO: figure out if we should use self.page_manager.clone() as the starting point instead
         // page fault when allocating a new PAGE_DIRECTORY_LAYOUT
 
-        let mut page_manager = PageManager::default();
+        let mut page_manager = self.page_manager.clone();
 
         let (kernel_stack, _, user_stack) = ThreadControlBlock::map_stacks(&mut page_manager);
 
