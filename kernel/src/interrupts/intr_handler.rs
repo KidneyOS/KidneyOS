@@ -4,6 +4,10 @@ use crate::interrupts::{pic, timer};
 use crate::threading::scheduling;
 use crate::user_program::syscall;
 
+/* This file contains all the interrupt handlers to be installed in the IDT when the kernel is initialized.
+ * Each must be naked function with C linkage and the type fn() -> !
+ */
+
 #[naked]
 pub unsafe extern "C" fn unhandled_handler() -> ! {
     fn inner() -> ! {
@@ -11,9 +15,9 @@ pub unsafe extern "C" fn unhandled_handler() -> ! {
     }
 
     asm!(
-    "call {}",
-    sym inner,
-    options(noreturn),
+        "call {}",
+        sym inner,
+        options(noreturn),
     );
 }
 
@@ -26,16 +30,16 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
     }
 
     asm!(
-    "call {}",
-    sym inner,
-    options(noreturn),
+        "call {}",
+        sym inner,
+        options(noreturn),
     );
 }
 
 #[naked]
 pub unsafe extern "C" fn syscall_handler() -> ! {
     asm!(
-    "
+        "
         // Push arguments to stack.
         push edx
         push ecx
@@ -55,15 +59,15 @@ pub unsafe extern "C" fn syscall_handler() -> ! {
 
         iretd
         ",
-    sym syscall::handler,
-    options(noreturn),
+        sym syscall::handler,
+        options(noreturn),
     );
 }
 
 #[naked]
 pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
     asm!(
-    "
+        "
         // Push IRQ0 value onto the stack.
         push 0x0
         call {} // Update system clock
@@ -73,9 +77,9 @@ pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
         add esp, 4 // Drop arguments from stack
         iretd
         ",
-    sym timer::step_sys_clock,
-    sym pic::send_eoi,
-    sym scheduling::scheduler_yield_and_continue,
-    options(noreturn),
+        sym timer::step_sys_clock,
+        sym pic::send_eoi,
+        sym scheduling::scheduler_yield_and_continue,
+        options(noreturn),
     );
 }

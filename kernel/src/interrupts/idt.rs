@@ -48,7 +48,7 @@ static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
 /// # Safety
 ///
 /// Can only be executed within code that expects the interrupt handlers to be
-/// defined as they are above.
+/// defined as they are described in intr_handler.rs
 pub unsafe fn load() {
     IDT_DESCRIPTOR.offset = IDT.as_ptr() as u32;
 

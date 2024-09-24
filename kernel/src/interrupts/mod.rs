@@ -22,10 +22,10 @@ pub fn intr_get_level() -> IntrLevel {
     let flags: u32;
     unsafe {
         asm!(
-        "pushfd",
-        "mov {}, [esp]",
-        "popfd",
-        out(reg) flags
+            "pushfd",
+            "mov {}, [esp]",
+            "popfd",
+            out(reg) flags
         );
     }
 
