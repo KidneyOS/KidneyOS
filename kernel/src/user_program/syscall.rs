@@ -1,7 +1,8 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::sync::intr::{intr_disable, intr_enable};
 use crate::threading::scheduling::{
-    scheduler_yield_and_block, scheduler_yield_and_continue, SCHEDULER,
+    scheduler_yield_and_block, scheduler_yield_and_continue, SCHEDULER
 };
 use crate::threading::{thread_functions, RUNNING_THREAD};
 use alloc::boxed::Box;
@@ -29,16 +30,18 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             let child_tcb = (**running_tcb).clone();
             let child_tid = child_tcb.tid as usize;
 
-            unsafe {
-                SCHEDULER
-                    .as_mut()
-                    .expect("Scheduler not set up!")
-                    .push(Box::new(child_tcb))
-            };
-
             if parent_tid == running_tcb.tid {
                 child_tid
             } else {
+                // Still gettng an error that the page table is being dropped while loaded here
+                println!("{}", child_tcb.page_manager.is_loaded());
+                intr_disable();
+                unsafe {
+                    SCHEDULER
+                        .as_mut()
+                        .expect("Scheduler not set up!").push(Box::new(child_tcb))
+                };
+                intr_enable();
                 0
             }
         }
@@ -56,7 +59,24 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             2048
         }
         SYS_WAITPID => {
-            todo!("waitpid syscall")
+            todo!("wait pid not implemented");
+            // println!("Starting wait syscall");
+
+            // if arg0 < 1 {
+            //     todo!("process groups not implemented");
+            // } else {
+            //     let running_tcb =
+            //         unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
+
+            //     unsafe {
+            //         SCHEDULER
+            //             .as_mut()
+            //             .expect("Scheduler not set up!")
+            //             .remove(running_tcb.tid)
+            //     };
+
+            //     let waited_tcb = unsafe {};
+            // }
         }
         SYS_EXECVE => {
             // todo!("exec syscall")
@@ -77,7 +97,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             let tcb = unsafe { RUNNING_THREAD.as_mut().expect("Why is nothing running?") };
             tcb.pid as usize
         }
-
         _ => 1,
     }
 }

@@ -27,7 +27,7 @@ static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 // Windows: https://techcommunity.microsoft.com/t5/windows-blog-archive/pushing-the-limits-of-windows-processes-and-threads/ba-p/723824
 pub const KERNEL_THREAD_STACK_FRAMES: usize = 2;
 const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
-pub const USER_THREAD_STACK_FRAMES: usize = 4 * 1024;
+pub const USER_THREAD_STACK_FRAMES: usize = 256;
 pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
