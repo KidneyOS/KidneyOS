@@ -522,4 +522,20 @@ mod test {
         let fat = open_img_gz("tests/fat/simple_fat32.img.gz");
         test_simple(fat);
     }
+    fn read_only_test_vs_host(name: &str, r#type: FatType) {
+        let type_string = match r#type {
+            FatType::Fat16 => "fat16",
+            FatType::Fat32 => "fat32",
+        };
+        let mut fat = open_img_gz(&format!("tests/fat/{name}_{type_string}.img.gz"));
+        crate::vfs::read_only_test::read_only_test(&mut fat, format!("tests/fat/{name}"));
+    }
+    #[test]
+    fn long_names_fat16() {
+        read_only_test_vs_host("long_names", FatType::Fat16);
+    }
+    #[test]
+    fn long_names_fat32() {
+        read_only_test_vs_host("long_names", FatType::Fat32);
+    }
 }
