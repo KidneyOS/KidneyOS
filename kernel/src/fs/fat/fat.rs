@@ -1,6 +1,7 @@
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
 use crate::fs::fat::{error, FatType};
 use crate::vfs::Result;
+use alloc::{vec, vec::Vec};
 use zerocopy::AsBytes;
 
 /// File Allocation Table

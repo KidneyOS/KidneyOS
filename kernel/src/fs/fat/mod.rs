@@ -6,7 +6,7 @@ use crate::vfs::{
     DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, RawDirEntry,
     Result,
 };
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, string::String, vec};
 use core::cmp::min;
 use core::ops::Range;
 use fat::{Fat, FatEntry};
@@ -63,7 +63,7 @@ impl FatFileHandle {
 // convenience macro for returning errors
 macro_rules! error {
     ($($args:expr),*) => {
-        Err(crate::vfs::Error::IO(format!($($args),*)))
+        Err(crate::vfs::Error::IO(alloc::format!($($args),*)))
     }
 }
 pub(super) use error;

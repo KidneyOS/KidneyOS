@@ -1,6 +1,7 @@
 use crate::block::block_core::BLOCK_SECTOR_SIZE;
 use crate::fs::fat::{error, fat::FatEntry, FatFS};
 use crate::vfs::{FileInfo, INodeNum, INodeType, Result};
+use alloc::{vec, vec::Vec};
 use core::ops::ControlFlow;
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
