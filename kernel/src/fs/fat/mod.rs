@@ -6,7 +6,7 @@ use crate::vfs::{
     DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, RawDirEntry,
     Result,
 };
-use alloc::{collections::BTreeMap, string::String, vec};
+use alloc::{collections::BTreeMap, vec};
 use core::cmp::min;
 use core::ops::Range;
 use fat::{Fat, FatEntry};
@@ -330,14 +330,7 @@ impl FileSystem for FatFS {
         todo!()
     }
     fn readdir(&mut self, dir: &mut FatFileHandle) -> Result<DirEntries> {
-        let dir = dirent::Directory::read(self, dir.inode)?;
-        let dirent::Directory {
-            names,
-            entries: fat_entries,
-            ..
-        } = dir;
-        let names = String::from_utf8(names)
-            .map_err(|_| Error::IO(String::from("bad Unicode in file name")))?;
+        let (fat_entries, names) = dirent::read_directory(self, dir.inode)?;
         let mut entries = vec![];
         for entry in &fat_entries {
             let inode = entry.info.inode;
