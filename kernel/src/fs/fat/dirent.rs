@@ -1,7 +1,7 @@
 use crate::block::block_core::BLOCK_SECTOR_SIZE;
 use crate::fs::fat::{error, fat::FatEntry, FatFS};
 use crate::vfs::{FileInfo, INodeNum, INodeType, Result};
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::ops::ControlFlow;
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
@@ -50,10 +50,10 @@ pub struct DirEntry {
     pub info: FileInfo,
 }
 
-pub struct Directory {
-    pub entries: Vec<DirEntry>,
-    pub names: Vec<u8>,
-    pub prev_name_end: usize,
+struct Directory {
+    entries: Vec<DirEntry>,
+    names: Vec<u8>,
+    long_name: Vec<u16>,
 }
 
 impl Directory {
@@ -68,37 +68,38 @@ impl Directory {
         } else if attr == ATTR_LONG_NAME {
             // a "long name" entry (stores part of a file name)
             let entry: &FatDirEntryLongName = FatDirEntryLongName::ref_from(bytes).unwrap();
-            let mut utf16 = [0u16; 13];
-            let mut it = utf16.iter_mut();
-            for c in entry.name1.chunks(2) {
-                *it.next().unwrap() = u16::from_le_bytes([c[0], c[1]]);
-            }
-            for c in entry.name2.chunks(2) {
-                *it.next().unwrap() = u16::from_le_bytes([c[0], c[1]]);
-            }
-            for c in entry.name3.chunks(2) {
-                *it.next().unwrap() = u16::from_le_bytes([c[0], c[1]]);
-            }
-            let mut utf8 = [0; 39];
-            let mut utf8_len = 0;
-            let length = utf16.iter().position(|&x| x == 0).unwrap_or(utf16.len());
-            for c in char::decode_utf16(utf16[..length].iter().copied()) {
-                let Ok(c) = c else {
-                    return error!("file name contains bad UTF-16.");
-                };
-                utf8_len += c.encode_utf8(&mut utf8[utf8_len..utf8_len + 4]).len();
-            }
             // Oddly, the "long name" entries are stored in reverse.
             // So we reverse each entry, then reverse the whole thing at the end.
-            self.names.extend(utf8[..utf8_len].iter().copied().rev());
+            for c in entry.name3.chunks(2).rev() {
+                self.long_name.push(u16::from_le_bytes([c[0], c[1]]));
+            }
+            for c in entry.name2.chunks(2).rev() {
+                self.long_name.push(u16::from_le_bytes([c[0], c[1]]));
+            }
+            for c in entry.name1.chunks(2).rev() {
+                self.long_name.push(u16::from_le_bytes([c[0], c[1]]));
+            }
         } else if (attr & ATTR_VOLUME_ID) != 0 {
             // Volume ID. Let's just ignore this for now.
         } else {
+            let name = self.names.len();
             // ordinary directory entry
-            let name = self.prev_name_end;
-            if name < self.names.len() {
+            if !self.long_name.is_empty() {
                 // account for fact that long name entries are stored in reverse
-                self.names[name..].reverse();
+                self.long_name.reverse();
+                // allocate space for UTF-8-encoded name
+                self.names.resize(name + self.long_name.len() * 3, 0);
+                let mut name_len = 0;
+                for c in char::decode_utf16(self.long_name.iter().copied()) {
+                    let Ok(c) = c else {
+                        return error!("file name contains bad UTF-16.");
+                    };
+                    name_len += c.encode_utf8(&mut self.names[name + name_len..]).len();
+                }
+                // remove extra allocated zeroes
+                self.names.truncate(name + name_len);
+                // reset long name (unlike clear() this doesn't shrink the allocation, which is nice)
+                self.long_name.truncate(0);
             } else {
                 // no long name — read short name
                 fn read_short_name_part(name: &mut Vec<u8>, mut part: &[u8]) -> Result<()> {
@@ -172,7 +173,6 @@ impl Directory {
                 nlink: 1,
             };
             self.names.push(0);
-            self.prev_name_end = self.names.len();
             self.entries.push(DirEntry { name, info })
         }
         Ok(ControlFlow::Continue(()))
@@ -188,12 +188,12 @@ impl Directory {
         }
         Ok(())
     }
-    pub fn read(fs: &mut FatFS, inode: INodeNum) -> Result<Self> {
+    fn read(fs: &mut FatFS, inode: INodeNum) -> Result<Self> {
         let mut cluster = inode;
         let mut dir = Directory {
             entries: vec![],
             names: vec![],
-            prev_name_end: 0,
+            long_name: vec![],
         };
         if inode == 0 {
             // root directory is special in FAT-16
@@ -219,4 +219,13 @@ impl Directory {
         }
         Ok(dir)
     }
+}
+
+pub fn read_directory(fs: &mut FatFS, inode: INodeNum) -> Result<(Vec<DirEntry>, String)> {
+    let dir = Directory::read(fs, inode)?;
+    let Directory { names, entries, .. } = dir;
+    let Ok(names) = String::from_utf8(names) else {
+        return error!("bad Unicode in file name");
+    };
+    Ok((entries, names))
 }
