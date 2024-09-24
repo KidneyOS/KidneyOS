@@ -1,4 +1,5 @@
 mod context_switch;
+pub mod process_table;
 pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;
@@ -10,7 +11,9 @@ use crate::{
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
-use thread_control_block::{ProcessControlBlock, ThreadControlBlock, Tid};
+use thread_control_block::{
+    initialize_process_table, ProcessControlBlock, ThreadControlBlock, Tid,
+};
 
 pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
@@ -19,6 +22,9 @@ pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 static mut THREAD_SYSTEM_INITIALIZED: bool = false;
 pub fn thread_system_initialization() {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
+
+    // Initalize the process table
+    initialize_process_table();
 
     // Initialize the scheduler.
     initialize_scheduler();

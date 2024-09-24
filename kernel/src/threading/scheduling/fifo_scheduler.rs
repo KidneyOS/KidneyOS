@@ -27,7 +27,8 @@ impl Scheduler for FIFOScheduler {
         self.ready_queue.pop_front()
     }
 
-    fn remove(&mut self, _tid: Tid) -> bool {
-        false
+    fn remove(&mut self, _tid: Tid) -> Option<Box<ThreadControlBlock>> {
+        let pos = self.ready_queue.iter().position(|tcb| tcb.tid == _tid);
+        self.ready_queue.remove(pos?)
     }
 }
