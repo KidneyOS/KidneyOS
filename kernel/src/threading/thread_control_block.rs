@@ -1,10 +1,8 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
-    user_program::{
-        elf_loader::parse_elf,
-        virtual_memory_area::{VmAreaStruct, VmFlags},
-    },
+    user_program::elf::Elf,
     KERNEL_ALLOCATOR,
 };
 use alloc::vec::Vec;
@@ -63,25 +61,23 @@ pub struct ProcessControlBlock {
 
 impl ProcessControlBlock {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(elf_data: &[u8]) -> ThreadControlBlock {
+    pub fn new(elf: Elf) -> ThreadControlBlock {
+        if elf.header.architecture != ElfArchitecture::X86
+            || elf.header.usage != ElfUsage::Executable
+        {
+            panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
+        }
+
         let pid: Pid = allocate_pid();
 
-        let (entrypoint, vm_areas) =
-            parse_elf(elf_data).expect("init process's ELF data was malformed");
-
         let mut page_manager = PageManager::default();
-        for VmAreaStruct {
-            vm_start,
-            vm_end,
-            offset,
-            // TODO: Consider all the flags. For those we can support, implement
-            // it. For those we can't, throw an error if they're set in such a
-            // way that the program might not work correctly.
-            flags: VmFlags { write, .. },
-        } in vm_areas
-        {
-            let len = vm_end - vm_start;
-            let frames = len.div_ceil(PAGE_FRAME_SIZE);
+
+        for program_header in elf.program_headers {
+            if program_header.program_type != ElfProgramType::Load {
+                continue;
+            }
+
+            let frames = program_header.data.len().div_ceil(PAGE_FRAME_SIZE);
 
             unsafe {
                 // TODO: Save this physical address somewhere so we can deallocate
@@ -101,18 +97,26 @@ impl ProcessControlBlock {
                 // virtual address assigned by the ELF header.
                 page_manager.map_range(
                     phys_addr as usize,
-                    vm_start,
+                    program_header.virtual_address as usize,
                     frames * PAGE_FRAME_SIZE,
-                    write,
+                    program_header.writable,
                     true,
                 );
 
                 // Load so we can write to the virtual addresses mapped above.
-                copy_nonoverlapping(&elf_data[offset] as *const u8, kernel_virt_addr, len);
+                copy_nonoverlapping(
+                    program_header.data.as_ptr(),
+                    kernel_virt_addr,
+                    program_header.data.len(),
+                );
 
                 // Zero the sliver of addresses between the end of the region, and
                 // the end of the region we had to map due to page
-                write_bytes(kernel_virt_addr.add(len), 0, frames * PAGE_FRAME_SIZE - len);
+                write_bytes(
+                    kernel_virt_addr.add(program_header.data.len()),
+                    0,
+                    frames * PAGE_FRAME_SIZE - program_header.data.len(),
+                );
             }
         }
 
@@ -123,7 +127,8 @@ impl ProcessControlBlock {
             exit_code: None,
         };
         let new_tcb = ThreadControlBlock::new_with_elf(
-            NonNull::new(entrypoint as *mut u8).expect("fail to create PCB entry point"),
+            NonNull::new(elf.header.program_entry as *mut u8)
+                .expect("fail to create PCB entry point"),
             pid,
             page_manager,
         );
