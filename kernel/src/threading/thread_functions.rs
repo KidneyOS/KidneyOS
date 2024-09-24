@@ -4,7 +4,7 @@ use super::{
     RUNNING_THREAD,
 };
 use crate::{
-    sync::intr::{intr_disable, intr_enable},
+    interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
 };
 use alloc::boxed::Box;
