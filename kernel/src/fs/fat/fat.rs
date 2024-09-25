@@ -15,9 +15,13 @@ pub struct Fat {
 
 #[derive(Clone, Copy)]
 pub enum FatEntry {
+    /// Indicates a cluster is free
     Free,
+    /// Indicates a cluster is the last one for a file.
     Eof,
+    /// Indicates a defective cluster
     Defective,
+    /// Indicates a cluster is not the last one for a file, and includes an index to the next cluster.
     HasNext(u32),
 }
 
@@ -40,6 +44,7 @@ impl Fat {
         r#type: FatType,
         sectors: core::ops::Range<u32>,
     ) -> Result<Self> {
+        // read the FAT from disk.
         let mut data =
             vec![0u32; ((sectors.end - sectors.start) * (BLOCK_SECTOR_SIZE as u32 / 4)) as usize];
         for (i, sector) in sectors.enumerate() {
@@ -55,8 +60,8 @@ impl Fat {
             *entry = entry.swap_bytes();
         }
 
-        let max_fat_count = data.len() as u32 * if r#type == FatType::Fat16 { 2 } else { 1 };
-        if max_fat_count < cluster_count {
+        let fat_entry_count = data.len() as u32 * if r#type == FatType::Fat16 { 2 } else { 1 };
+        if fat_entry_count < cluster_count {
             return error!("FAT size is too small");
         }
         let fat = Self { data, r#type };
@@ -93,7 +98,7 @@ impl Fat {
                 0xFFF_FFF7 => FatEntry::Defective,
                 // in theory, this should just need to test for 0xfffffff, but
                 // mkfs.vfat sets FAT[2] to 0xffffff8 for some reason.
-                // according to the spec:
+                // according to the spec, 0xffffff8-0xffffffe:
                 // "should not be used. May be interpreted as an allocated cluster and the final cluster in the file"
                 0xFFF_FFF8..=0xFFF_FFFF => FatEntry::Eof,
                 x => FatEntry::HasNext(x),
