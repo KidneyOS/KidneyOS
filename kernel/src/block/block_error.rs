@@ -7,6 +7,10 @@ pub enum BlockError {
     SectorOutOfBounds,
     /// The buffer has an invalid size (not `BLOCK_SECTOR_SIZE`)
     BufferInvalid,
+    /// Error reading from the disk
+    ReadError,
+    /// Error writing to the disk
+    WriteError,
 }
 
 impl Debug for BlockError {
@@ -14,6 +18,8 @@ impl Debug for BlockError {
         match self {
             BlockError::SectorOutOfBounds => write!(f, "SectorOutOfBounds"),
             BlockError::BufferInvalid => write!(f, "BufferInvalid"),
+            BlockError::ReadError => write!(f, "ReadError"),
+            BlockError::WriteError => write!(f, "WriteError"),
         }
     }
 }
@@ -29,6 +35,8 @@ impl Error for BlockError {
         match self {
             BlockError::SectorOutOfBounds => "Sector out of bounds (greater than the block size)",
             BlockError::BufferInvalid => "Invalid buffer size (not `BLOCK_SECTOR_SIZE`)",
+            BlockError::ReadError => "Error reading from the block device",
+            BlockError::WriteError => "Error writing to the block device",
         }
     }
 }

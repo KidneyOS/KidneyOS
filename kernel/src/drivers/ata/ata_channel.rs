@@ -2,10 +2,11 @@
 
 use crate::block::block_core::{BlockSector, BLOCK_SECTOR_SIZE};
 use crate::sync::semaphore::Semaphore;
-use crate::timer::sleep;
 use alloc::string::String;
-use core::time::Duration;
+use kidneyos_shared::println;
 use kidneyos_shared::serial::{inb, insw, outb, outsw};
+
+use crate::drivers::ata::ata_timer::{msleep, nsleep, usleep};
 
 // Error Register bits -----------------------------------------------------------------------------
 // Reference: https://wiki.osdev.org/ATA_PIO_Mode#Error_Register
@@ -238,13 +239,13 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn reset(&mut self) {
+    pub unsafe fn reset(&mut self, block: bool) {
         let mut present: [bool; 2] = [false; 2];
 
         // The ATA reset sequence depends on which devices are present,
         // so we start by detecting device presence
         for dev_num in 0..2 {
-            self.select_device(dev_num);
+            self.select_device(dev_num, block);
 
             // 0x55: 01010101
             // 0xaa: 10101010
@@ -265,30 +266,30 @@ impl AtaChannel {
         // Issue soft reset sequence, which selects device 0 as a side effect.
         // Also enable interrupts
         outb(self.reg_ctl(), 0);
-        sleep(Duration::from_micros(10));
+        usleep(10, block);
         outb(self.reg_ctl(), CTL_SRST);
-        sleep(Duration::from_micros(10));
+        usleep(10, block);
         outb(self.reg_ctl(), 0);
 
-        sleep(Duration::from_millis(150));
+        msleep(150, block);
 
         // Wait for device 0 to clear BSY
         if present[0] {
-            self.select_device(0);
-            self.wait_while_busy();
+            self.select_device(0, block);
+            self.wait_while_busy(block);
         }
         // Wait for device 1 to clear BSY
         if present[1] {
-            self.select_device(1);
+            self.select_device(1, block);
 
             // Wait for 30 seconds for the device to spin up
             for _ in 0..3000 {
                 if inb(self.reg_nsect()) == 1 && inb(self.reg_lbal()) == 1 {
                     break;
                 }
-                sleep(Duration::from_millis(10));
+                msleep(10, block);
             }
-            self.wait_while_busy();
+            self.wait_while_busy(block);
         }
     }
 
@@ -301,8 +302,8 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn check_device_type(&mut self, dev_num: u8) -> bool {
-        self.select_device(dev_num);
+    pub unsafe fn check_device_type(&mut self, dev_num: u8, block: bool) -> bool {
+        self.select_device(dev_num, block);
 
         let error: u8 = inb(self.reg_error());
         let lbam: u8 = inb(self.reg_lbam());
@@ -332,8 +333,8 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn select_sector(&self, dev_no: u8, sector: BlockSector) {
-        self.select_device_wait(dev_no);
+    pub unsafe fn select_sector(&self, dev_no: u8, sector: BlockSector, block: bool) {
+        self.select_device_wait(dev_no, block);
 
         // https://wiki.osdev.org/ATA_PIO_Mode#28_bit_PIO
 
@@ -400,15 +401,15 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn wait_until_ready(&self) {
+    pub unsafe fn wait_until_ready(&self, block: bool) {
         for _ in 0..1000 {
             if (inb(self.reg_status()) & (STA_BSY | STA_DRQ)) == 0 {
                 return;
             }
-            sleep(Duration::from_micros(10));
+            usleep(10, block);
         }
 
-        kidneyos_shared::println!("{} idle timeout", String::from_iter(&self.name));
+        println!("{} idle timeout", String::from_iter(&self.name));
     }
 
     /// Wait up to 30 seconds for the channel to clear BSY, and then return the status of the DRQ
@@ -419,10 +420,10 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn wait_while_busy(&self) -> bool {
+    pub unsafe fn wait_while_busy(&self, block: bool) -> bool {
         for i in 0..3000 {
             if i == 700 {
-                kidneyos_shared::println!("{} busy, waiting...", String::from_iter(&self.name));
+                println!("{} busy, waiting...", String::from_iter(&self.name));
             }
 
             if (inb(self.reg_alt_status()) & STA_BSY) == 0 {
@@ -431,10 +432,10 @@ impl AtaChannel {
                 }
                 return (inb(self.reg_alt_status()) & STA_DRQ) != 0;
             }
-            sleep(Duration::from_micros(10));
+            usleep(10, block);
         }
 
-        kidneyos_shared::println!("failed");
+        println!("{} wait_while_busy: failed", String::from_iter(&self.name));
         false
     }
 
@@ -443,13 +444,14 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn select_device(&self, dev_num: u8) {
+    pub unsafe fn select_device(&self, dev_num: u8, block: bool) {
         // Must be set + Device
         let dev: u8 = DEV_MBS | if dev_num == 1 { DEV_DRV } else { 0 };
 
         outb(self.reg_device(), dev);
         inb(self.reg_alt_status());
-        sleep(Duration::from_nanos(400));
+
+        nsleep(400, block);
     }
 
     /// Select disk `dev_num`, as [`AtaChannel::select_device`], but wait for the channel to become
@@ -458,10 +460,10 @@ impl AtaChannel {
     /// # Safety
     ///
     /// This function must be called with interrupts enabled.
-    pub unsafe fn select_device_wait(&self, dev_num: u8) {
-        self.wait_until_ready();
-        self.select_device(dev_num);
-        self.wait_until_ready();
+    pub unsafe fn select_device_wait(&self, dev_num: u8, block: bool) {
+        self.wait_until_ready(block);
+        self.select_device(dev_num, block);
+        self.wait_until_ready(block);
     }
 }
 
@@ -481,9 +483,11 @@ impl AtaChannel {
         };
         let irq = match channel_num {
             // Primary ATA Bus: IRQ 14
-            0 => 0x20 + 14,
+            // 0 => 0x20 + 14,
+            0 => 14,
             // Secondary ATA Bus: IRQ 15
-            1 => 0x20 + 15,
+            // 1 => 0x20 + 15,
+            1 => 15,
             // Invalid
             _ => panic!(),
         };
