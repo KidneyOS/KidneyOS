@@ -1,5 +1,5 @@
 use crate::block::block_core::BLOCK_SECTOR_SIZE;
-use crate::fs::fat::{error, fat::FatEntry, FatFS};
+use crate::fs::fat::{error, FatFS};
 use crate::vfs::{FileInfo, INodeNum, INodeType, Result};
 use alloc::{string::String, vec, vec::Vec};
 use core::ops::ControlFlow;
@@ -211,14 +211,11 @@ impl Directory {
                         break;
                     }
                 }
-                match fs.fat.entry(cluster) {
-                    FatEntry::Defective | FatEntry::Free => {
-                        return error!("cluster {cluster} is referenced but not allocated.");
-                    }
-                    FatEntry::HasNext(next) => {
+                match fs.fat.next_cluster(cluster)? {
+                    Some(next) => {
                         cluster = next;
                     }
-                    FatEntry::Eof => break,
+                    None => break,
                 }
             }
         }
