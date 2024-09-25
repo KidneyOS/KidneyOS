@@ -82,14 +82,15 @@ impl Directory {
         } else if (attr & ATTR_VOLUME_ID) != 0 {
             // Volume ID. Let's just ignore this for now.
         } else {
-            let name = self.names.len();
             // ordinary directory entry
+            let name = self.names.len();
             if !self.long_name.is_empty() {
                 // account for fact that long name entries are stored in reverse
                 self.long_name.reverse();
-                // allocate space for UTF-8-encoded name
+                // allocate space for UTF-8-encoded name (3 == max # of UTF-8 bytes per UTF-16 word)
                 self.names.resize(name + self.long_name.len() * 3, 0);
                 let mut name_len = 0;
+                // convert UTF-16 to UTF-8
                 for c in char::decode_utf16(self.long_name.iter().copied()) {
                     let Ok(c) = c else {
                         return error!("file name contains bad UTF-16.");
@@ -143,9 +144,7 @@ impl Directory {
                     }
                     Ok(())
                 }
-                // Linux stores directory entries for . and ..
-                // This seems to be against the spec, since 0x2e == '.' is not
-                // allowed in short file names.
+                // First and second entries are for . and ..  — we don't really care about these.
                 if &entry.name == b".          " || &entry.name == b"..         " {
                     return Ok(ControlFlow::Continue(()));
                 }
@@ -177,16 +176,17 @@ impl Directory {
         }
         Ok(ControlFlow::Continue(()))
     }
-    fn read_from_disk_sector(&mut self, fs: &mut FatFS, sector: u32) -> Result<()> {
+    /// read all the directory entries in a disk sector
+    fn read_from_disk_sector(&mut self, fs: &mut FatFS, sector: u32) -> Result<ControlFlow<()>> {
         let mut data = [0; BLOCK_SECTOR_SIZE];
         fs.block.read(sector, &mut data)?;
         for i in 0..BLOCK_SECTOR_SIZE / 32 {
             if self.read_one_entry(&data[32 * i..32 * (i + 1)])?.is_break() {
                 // end-of-directory reached.
-                break;
+                return Ok(ControlFlow::Break(()));
             }
         }
-        Ok(())
+        Ok(ControlFlow::Continue(()))
     }
     fn read(fs: &mut FatFS, inode: INodeNum) -> Result<Self> {
         let mut cluster = inode;
@@ -196,15 +196,20 @@ impl Directory {
             long_name: vec![],
         };
         if inode == 0 {
-            // root directory is special in FAT-16
+            // root directory is special in FAT-16 — it has its own pre-allocated region on disk
             // (note: root inode will not be 0 for FAT-32)
             for disk_sector in fs.fat16_root_disk_sectors() {
-                dir.read_from_disk_sector(fs, disk_sector)?;
+                if dir.read_from_disk_sector(fs, disk_sector)?.is_break() {
+                    break;
+                }
             }
         } else {
+            // iterate through clusters for directory, and read the entries in each one.
             loop {
                 for disk_sector in fs.disk_sectors_in_cluster(cluster) {
-                    dir.read_from_disk_sector(fs, disk_sector)?;
+                    if dir.read_from_disk_sector(fs, disk_sector)?.is_break() {
+                        break;
+                    }
                 }
                 match fs.fat.entry(cluster) {
                     FatEntry::Defective | FatEntry::Free => {

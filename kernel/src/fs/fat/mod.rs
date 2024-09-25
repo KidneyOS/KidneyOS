@@ -200,16 +200,36 @@ impl Fat32Header {
     fn fat_size(&self) -> u32 {
         self.fat_size.into()
     }
+    fn fat_mirroring_enabled(&self) -> bool {
+        (u16::from(self.ext_flags) & (1 << 7)) != 0
+    }
+    fn active_fat_index(&self) -> u32 {
+        if self.fat_mirroring_enabled() {
+            u32::from(self.ext_flags) & 0xf
+        } else {
+            0
+        }
+    }
+    fn verify_integrity(&self) -> Result<()> {
+        let bk_boot_sector: u16 = self.bk_boot_sector.into();
+        if bk_boot_sector != 0 && bk_boot_sector != 6 {
+            return error!("Invalid value of BkBootSec: {bk_boot_sector}");
+        }
+        Ok(())
+    }
 }
 
 impl FatFS {
     /// Create new FAT filesystem from block device
     pub fn new(mut block: Block) -> Result<Self> {
-        // TODO: check FAT signatures
         let mut first_sector = [0; 512];
         block.read(0, &mut first_sector)?;
         let fat16_header: &Fat16Header =
             Fat16Header::ref_from(&first_sector).expect("Fat16Header type should be 512 bytes");
+        // NOTE: signature is in sample place in FAT-16 and -32.
+        if fat16_header.signature_word != [0x55, 0xAA] {
+            return error!("missing FAT signature in first sector");
+        }
         let fat32_header: &Fat32Header =
             Fat32Header::ref_from(&first_sector).expect("Fat32Header type should be 512 bytes");
         let base_header: &FatBaseHeader = &fat16_header.base;
@@ -223,12 +243,14 @@ impl FatFS {
         // this will always be zero for FAT32
         let root_dir_sectors =
             (u32::from(base_header.fat16_root_ent_count) * 32).div_ceil(bytes_per_sector);
+        // size of a single FAT in bytes
         let mut fat_size: u32 = base_header.fat16_fat_size.into();
         if fat_size == 0 {
             fat_size = fat32_header.fat_size();
         }
         let num_fats = u32::from(base_header.num_fats);
         let total_sectors = base_header.total_sectors();
+        // number of FAT sectors reserved for file/directory data
         let data_sectors =
             total_sectors - reserved_sector_count - num_fats * fat_size - root_dir_sectors;
         let cluster_count = data_sectors / u32::from(base_header.sectors_per_cluster);
@@ -238,10 +260,18 @@ impl FatFS {
         } else if cluster_count < 65525 {
             fat_type = FatType::Fat16;
         } else {
+            fat32_header.verify_integrity()?;
             fat_type = FatType::Fat32;
         }
         let disk_sectors_per_fat_sector = bytes_per_sector / BLOCK_SECTOR_SIZE as u32;
-        let fat_first_disk_sector = reserved_sector_count * disk_sectors_per_fat_sector;
+        // First disk sector in the FAT.
+        let mut fat_first_disk_sector = reserved_sector_count * disk_sectors_per_fat_sector;
+        if fat_type == FatType::Fat32 && !fat32_header.fat_mirroring_enabled() {
+            // In this case, there are multiple FATs, but only one of them is “active”,
+            // for some reason.
+            fat_first_disk_sector += fat32_header.active_fat_index() * fat_size;
+        }
+        // number of disk sectors taken up by a single FAT
         let fat_disk_sector_count = fat_size * disk_sectors_per_fat_sector;
         let fat = Fat::new(
             &mut block,
@@ -249,12 +279,15 @@ impl FatFS {
             fat_type,
             fat_first_disk_sector..fat_first_disk_sector + fat_disk_sector_count,
         )?;
-        let fat16_first_root_disk_sector = fat_first_disk_sector + fat_disk_sector_count * num_fats;
+        let fat16_first_root_disk_sector =
+            reserved_sector_count * disk_sectors_per_fat_sector + fat_disk_sector_count * num_fats;
         let first_cluster_disk_sector =
             fat16_first_root_disk_sector + root_dir_sectors * disk_sectors_per_fat_sector;
         let root_inode: u32 = if fat_type == FatType::Fat32 {
+            // for FAT-32, root is just like any other directory
             fat32_header.root_cluster.into()
         } else {
+            // use an inode of 0 for the root directory (needs special handling)
             0
         };
         let disk_sectors_per_cluster =
@@ -290,6 +323,11 @@ impl FatFS {
         let first = self.first_disk_sector_in_cluster(cluster);
         first..first + self.disk_sectors_per_cluster
     }
+    /// Range of disk sectors reserved for the root directory.
+    ///
+    /// It's a bit strange that the root directory has its own space
+    /// dedicated for it; this was removed in FAT-32 (and the
+    /// root directory becomes just like any other directory).
     pub(super) fn fat16_root_disk_sectors(&self) -> Range<u32> {
         let first = self.fat16_first_root_disk_sector;
         first..first + self.fat16_root_disk_sector_count
