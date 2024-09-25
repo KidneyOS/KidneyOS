@@ -14,7 +14,7 @@ pub struct Fat {
 }
 
 #[derive(Clone, Copy)]
-pub enum FatEntry {
+enum FatEntry {
     /// Indicates a cluster is free
     Free,
     /// Indicates a cluster is the last one for a file.
@@ -77,7 +77,7 @@ impl Fat {
         }
         Ok(fat)
     }
-    pub fn entry(&self, i: u32) -> FatEntry {
+    fn entry(&self, i: u32) -> FatEntry {
         match self.r#type {
             FatType::Fat16 => {
                 let first_half = if cfg!(target_endian = "little") { 0 } else { 1 };
@@ -104,5 +104,24 @@ impl Fat {
                 x => FatEntry::HasNext(x),
             },
         }
+    }
+
+    /// Get cluster after `cluster` in file.
+    ///
+    /// Returns `Ok(None)` if `cluster` is the last one in the file.
+    pub fn next_cluster(&self, cluster: u32) -> Result<Option<u32>> {
+        match self.entry(cluster) {
+            FatEntry::Eof => Ok(None),
+            FatEntry::HasNext(n) => Ok(Some(n)),
+            FatEntry::Defective => {
+                error!("defective cluster referenced in file")
+            }
+            FatEntry::Free => {
+                error!("free cluster referenced in file")
+            }
+        }
+    }
+    pub fn is_cluster_allocated(&self, cluster: u32) -> bool {
+        self.entry(cluster).is_allocated()
     }
 }
