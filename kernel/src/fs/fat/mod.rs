@@ -9,7 +9,7 @@ use crate::vfs::{
 use alloc::{collections::BTreeMap, vec};
 use core::cmp::min;
 use core::ops::Range;
-use fat::{Fat, FatEntry};
+use fat::Fat;
 // These are little-endian unaligned integer types
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
@@ -39,24 +39,8 @@ impl FatFileHandle {
         if self.curr_cluster == u32::MAX {
             return Ok(false);
         }
-        match fs.fat.entry(self.curr_cluster) {
-            FatEntry::Eof => {
-                self.curr_cluster = u32::MAX;
-                Ok(false)
-            }
-            FatEntry::Defective => {
-                self.curr_cluster = u32::MAX;
-                error!("defective cluster referenced in file")
-            }
-            FatEntry::Free => {
-                self.curr_cluster = u32::MAX;
-                error!("free cluster referenced in file")
-            }
-            FatEntry::HasNext(n) => {
-                self.curr_cluster = n;
-                Ok(true)
-            }
-        }
+        self.curr_cluster = fs.fat.next_cluster(self.curr_cluster)?.unwrap_or(u32::MAX);
+        Ok(self.curr_cluster != u32::MAX)
     }
 }
 
@@ -340,8 +324,7 @@ impl FileSystem for FatFS {
         self.root_inode
     }
     fn open(&mut self, inode: INodeNum) -> Result<FatFileHandle> {
-        let fat_entry = self.fat.entry(inode);
-        if !fat_entry.is_allocated() {
+        if !self.fat.is_cluster_allocated(inode) {
             return Err(Error::NotFound);
         }
         let info = self
