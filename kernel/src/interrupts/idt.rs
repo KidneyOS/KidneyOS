@@ -7,7 +7,8 @@ use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
 
 use crate::interrupts::intr_handler::{
-    page_fault_handler, syscall_handler, timer_interrupt_handler, unhandled_handler,
+    ide_prim_interrupt_handler, ide_secd_interrupt_handler, page_fault_handler, syscall_handler,
+    timer_interrupt_handler, unhandled_handler,
 };
 
 #[repr(align(8))]
@@ -62,6 +63,8 @@ pub unsafe fn load() {
     }
     IDT[0xe] = IDT[0xe].with_offset(page_fault_handler as usize as u32);
     IDT[0x20] = IDT[0x20].with_offset(timer_interrupt_handler as usize as u32); // PIC1_OFFSET (IRQ0)
+    IDT[0x2E] = IDT[0x2E].with_offset(ide_prim_interrupt_handler as usize as u32); // IDE Primary (IRQ14)
+    IDT[0x2F] = IDT[0x2F].with_offset(ide_secd_interrupt_handler as usize as u32); // IDE Secondary (IRQ15)
     IDT[0x80] = IDT[0x80].with_offset(syscall_handler as usize as u32);
 
     asm!("lidt [{}]", sym IDT_DESCRIPTOR);
