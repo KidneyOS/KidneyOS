@@ -35,6 +35,8 @@ static TOTAL_NUM_FRAMES_DEALLOCATED: AtomicUsize = AtomicUsize::new(0);
 
 // The alignment of the layout cannot be greater than the size of the page
 const MAX_SUPPORTED_ALIGN: usize = 4096;
+// "Upper memory" (as opposed to "lower memory") starts at 1MB.
+const UPPER_MEMORY_START: usize = MB + OFFSET;
 
 unsafe trait FrameAllocator
 {
@@ -79,7 +81,7 @@ impl FrameAllocatorWrapper{
 
 enum KernelAllocatorState {
     Deinitialized,
-    Uninitialized {
+    SetupState {
         dummy_allocator: DummyAllocatorSolution,
     },
     Initialized {
@@ -109,8 +111,11 @@ macro_rules! halt {
 impl KernelAllocator {
     pub const fn new() -> KernelAllocator {
         Self {
-            state: UnsafeCell::new(KernelAllocatorState::Uninitialized{
-                dummy_allocator: DummyAllocatorSolution::new_in(0, 0)}),
+            state: UnsafeCell::new(
+                KernelAllocatorState::SetupState {
+                    dummy_allocator: DummyAllocatorSolution::new_in(0, 0)
+                }
+            )
         }
     }
 
@@ -122,41 +127,57 @@ impl KernelAllocator {
     ///
     /// This function can only be called when the allocator is uninitialized.
     pub unsafe fn init(&mut self, mem_upper: usize) {
-        let KernelAllocatorState::Uninitialized {
+        let KernelAllocatorState::SetupState {
             dummy_allocator
         } = &mut *self.state.get_mut() else {
             panic!("init called while kernel allocator was already initialized");
         };
 
-        // "Upper memory" (as opposed to "lower memory") starts at 1MB.
-        const UPPER_MEMORY_START: usize = MB + OFFSET;
-
         // The exclusive max address is given by multiplying the number of bytes
         // in a KB by mem_upper, and adding this to UPPER_MEMORY_START.
-        let frames_max = UPPER_MEMORY_START.saturating_add(mem_upper * KB);
+        let frames_ceil_address = UPPER_MEMORY_START.saturating_add(mem_upper * KB);
+        let frames_ceil_pointer = frames_ceil_address as *mut u8;
+
+        // We don't have bootstrap allocator anymore, so the frame base pointer should just be this
+        let frames_base_address = trampoline_heap_top();
+        let frames_base_pointer = frames_base_address as *mut u8;
+
+        /*
         let bootstrap_base = trampoline_heap_top() as *mut u8;
+        let frames_base_pointer = bootstrap_base.add(BOOTSTRAP_ALLOCATOR_SIZE).cast::<u8>();
+
+        // We shouldn't need to define this anymore with the new changes to subblock allocator
         let bootstrap_allocator = BuddyAllocator::new(NonNull::slice_from_raw_parts(
             NonNull::new_unchecked(bootstrap_base),
             BOOTSTRAP_ALLOCATOR_SIZE,
         ));
-        let frames_base_pointer = bootstrap_base.add(BOOTSTRAP_ALLOCATOR_SIZE).cast::<u8>();
+         */
 
-        // Now that we know the start and end bounds for our memory region, we can set it in the
-        // dummy; initial values should be 0 if set correctly
+        // Check to see if dummy_allocator initialized properly (both start and end should be zero)
         let start = dummy_allocator.get_start_address();
         let end = dummy_allocator.get_end_address();
         assert_eq!(start, 0);
         assert_eq!(end, 0);
 
-        dummy_allocator.set_start_address(frames_base_pointer as usize);
-        dummy_allocator.set_end_address(frames_max);
+        // Set the proper start and end addresses
+        dummy_allocator.set_start_address(frames_base_address);
+        dummy_allocator.set_end_address(frames_ceil_address);
 
-        let num_frames_in_system = (frames_max - frames_base_pointer as usize) /
+        let num_frames_in_system = (frames_ceil_address - frames_base_address) /
             (size_of::<CoreMapEntry>() + PAGE_FRAME_SIZE);
 
         // This should ALWAYS be the first global allocation to take place - should use dummy allocator
+        // This behaviour has not been tested yet, so these print messages should be helpful in debugging
+        println!("Creating Coremap Entries for Frame Allocator");
         let mut core_map: Box<[CoreMapEntry]> = vec![CoreMapEntry::DEFAULT; num_frames_in_system]
                                                 .into_boxed_slice();
+        println!("Finished creating Coremap Entries for Frame Allocator");
+
+        // Check that the dummy allocator actually updated its internal state
+        // I.e. the start address should have moved to accommodate Coremap Entries
+        // The coremap should take up 128 frames
+        assert_ne!(frames_base_address, dummy_allocator.get_start_address());
+        println!("Frame Base Address: {}, Dummy Allocator Start Address: {}", frames_base_address, dummy_allocator.get_start_address());
 
         // With the core_map not initialized, we can now initialize the actual Frame Allocator
         *self.state.get_mut() = KernelAllocatorState::Initialized {
@@ -192,11 +213,12 @@ impl KernelAllocator {
             frame_allocator, ..
         } = &mut *self.state.get()
         else {
-            halt!("dealloc called before initialization of kernel allocator");
+            halt!("Dealloc called on Deinitialized or SetupState kernel allocator");
         };
 
         frame_allocator.dealloc(ptr);
     }
+
 
     pub unsafe fn deinit(&mut self) {
         let KernelAllocatorState::Initialized {
@@ -237,13 +259,10 @@ impl KernelAllocator {
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) == 0 {
-            /*
-            1. Check that kernel is in Uninitialized state, panic if not
-            2. Calculate the number of frames that have been requested in the layout
-            3. Call the dummy allocator alloc
-            4. Increment global statistics
-             */
-            let KernelAllocatorState::Uninitialized {
+            // If we are here, it should be the dummy allocator doing the allocation
+            println!("Dummy Allocation for Coremap Entries happening...");
+
+            let KernelAllocatorState::SetupState {
                 dummy_allocator
             } = &mut *self.state.get() else {
                 halt!("Kernel initialized before Coremap entries were setup, abort")
@@ -277,7 +296,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 subblock_allocators: _subblock_allocators,
             } = &mut *self.state.get()
                 else {
-                    halt!("Second allocation should not be allocated by Dummy Allocator, abort");
+                    halt!("Second and later allocations should not be allocated by Dummy Allocator, abort");
                 };
 
             let size = layout.size();
