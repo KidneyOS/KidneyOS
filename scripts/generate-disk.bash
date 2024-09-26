@@ -4,7 +4,6 @@
 
 # Usage / help
 usage() {
-  # echo "Usage: $0 [-s size] [-p partition] [-f filesystem] [-h help]"
   echo "Usage: $0 [-s size] [-f filesystem] [-h help]"
   echo "  -s, --size        Set the size (e.g., 500M, 10G)"
   echo "  -f, --file-system Set the file system (fat16, fat32, exfat, ext2, ext4)"
@@ -145,6 +144,6 @@ if [[ $ret -ne 0 ]]; then
 fi
 
 echo
-echo "Disk image created: $dsk_name"
+echo "Disk image created: $disk_name"
 echo "--------------------------------------------------"
 sudo parted "$disk_name" print
