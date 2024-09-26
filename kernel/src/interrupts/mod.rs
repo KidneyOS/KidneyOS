@@ -3,7 +3,7 @@ pub mod mutex_irq;
 pub mod pic;
 
 mod intr_handler;
-mod timer;
+pub mod timer;
 
 use core::{
     arch::asm,

@@ -1,5 +1,6 @@
 use core::arch::asm;
 
+use crate::drivers::ata::ata_interrupt;
 use crate::interrupts::{pic, timer};
 use crate::threading::scheduling;
 use crate::user_program::syscall;
@@ -81,5 +82,45 @@ pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
         sym pic::send_eoi,
         sym scheduling::scheduler_yield_and_continue,
         options(noreturn),
+    );
+}
+
+#[naked]
+pub unsafe extern "C" fn ide_prim_interrupt_handler() -> ! {
+    asm!(
+    "
+    // Push IRQ14 value onto the stack.
+    push 0XE
+    call {} // Send irq signal to ATA
+    call {} // Send EOI signal to PICs
+    call {} // Yield process
+
+    add esp, 4 // Drop arguments from stack
+    iretd
+    ",
+    sym ata_interrupt::on_ide_interrupt,
+    sym pic::send_eoi,
+    sym scheduling::scheduler_yield_and_continue,
+    options(noreturn),
+    );
+}
+
+#[naked]
+pub unsafe extern "C" fn ide_secd_interrupt_handler() -> ! {
+    asm!(
+    "
+    // Push IRQ15 value onto the stack.
+    push 0XF
+    call {} // Send irq signal to ATA
+    call {} // Send EOI signal to PICs
+    call {} // Yield process
+
+    add esp, 4 // Drop arguments from stack
+    iretd
+    ",
+    sym ata_interrupt::on_ide_interrupt,
+    sym pic::send_eoi,
+    sym scheduling::scheduler_yield_and_continue,
+    options(noreturn),
     );
 }

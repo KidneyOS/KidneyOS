@@ -1,7 +1,6 @@
 #![allow(dead_code)] // Suppress unused warnings
 
 use crate::block::block_error::BlockError;
-use crate::drivers::dummy_device::DummyDevice;
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
 use core::fmt;
@@ -51,10 +50,20 @@ impl fmt::Display for BlockType {
 /// Lower-level interface to block device drivers
 pub trait BlockOp {
     /// Read a block sector
-    fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError>;
+    ///
+    /// # Safety
+    ///
+    /// This function must be called with interrupts enabled. Otherwise, the block device may not
+    /// wake up after the read operation is complete.
+    unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError>;
 
     /// Write a block sector
-    fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError>;
+    ///
+    /// # Safety
+    ///
+    /// This function must be called with interrupts enabled. Otherwise, the block device may not
+    /// wake up after the write operation is complete.
+    unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError>;
 }
 
 /// A block device
@@ -97,7 +106,12 @@ impl Block {
 
     /// Reads sector `sector` from the block device into `buf`, which must have room for
     /// `BLOCK_SECTOR_SIZE` bytes.
-    pub fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+    ///
+    /// # Safety
+    ///
+    /// This function must be called with interrupts enabled. Otherwise, the block device may not
+    /// wake up after the read operation is complete.
+    pub unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
         if !self.is_sector_valid(sector) {
             return Err(BlockError::SectorOutOfBounds);
         }
@@ -111,7 +125,12 @@ impl Block {
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
     /// after the block device has acknowledged receiving the data.
-    pub fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+    ///
+    /// # Safety
+    ///
+    /// This function must be called with interrupts enabled. Otherwise, the block device may not
+    /// wake up after the write operation is complete.
+    pub unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
         if !self.is_sector_valid(sector) {
             return Err(BlockError::SectorOutOfBounds);
         }
@@ -241,13 +260,5 @@ impl fmt::Display for BlockManager {
 
 /// Initialize the block layer
 pub fn block_init() -> BlockManager {
-    // BlockManager::new()
-
-    // TODO: remove this dummy block device when real block devices are implemented
-    let mut block_manager = BlockManager::new();
-
-    // Register a dummy block device
-    block_manager.register_block(BlockType::Raw, "Dummy", 4, Box::new(DummyDevice::new()));
-
-    block_manager
+    BlockManager::new()
 }

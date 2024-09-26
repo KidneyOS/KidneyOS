@@ -22,6 +22,7 @@ mod user_program;
 extern crate alloc;
 
 use crate::block::block_core::block_init;
+use crate::drivers::ata::ata_core::ide_init;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
@@ -68,12 +69,16 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         println!("Setting up block layer");
         let block_manager = block_init();
-        println!("{}", block_manager);
         println!("Block layer set up!");
 
         println!("Initializing Thread System...");
         thread_system_initialization();
         println!("Finished Thread System initialization. Ready to start threading.");
+
+        println!("Setting up IDE");
+        let _block_manager = ide_init(block_manager, true);
+        println!("IDE set up!");
+
         thread_system_start(page_manager, INIT);
     }
 }
