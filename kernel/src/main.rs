@@ -1,3 +1,6 @@
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+
 #![feature(allocator_api)]
 #![feature(asm_const)]
 #![feature(btreemap_alloc)]
@@ -6,8 +9,6 @@
 #![feature(non_null_convenience)]
 #![feature(offset_of)]
 #![feature(slice_ptr_get)]
-#![cfg_attr(target_os = "none", no_std)]
-#![cfg_attr(not(test), no_main)]
 #![feature(negative_impls)]
 
 mod block;
@@ -29,10 +30,10 @@ use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMO
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
 
-#[cfg_attr(target_os = "none", global_allocator)]
+#[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
-#[cfg(target_os = "none")]
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
     kidneyos_shared::eprintln!("{}", args);
