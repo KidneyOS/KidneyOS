@@ -35,7 +35,8 @@ pub unsafe fn inb(port: u16) -> u8 {
 ///
 /// # Safety
 ///
-/// This function is unsafe because it uses inline assembly.
+/// * The caller must ensure that the port is a valid port to read from.
+/// * They also need to ensure the buffer is valid and has enough space to store the data.
 pub unsafe fn insw(port: u16, buffer: *mut u8, count: usize) {
     asm!(
     // Save EDI to restore it after the insw instruction.
@@ -59,7 +60,8 @@ pub unsafe fn insw(port: u16, buffer: *mut u8, count: usize) {
 ///
 /// # Safety
 ///
-/// This function is unsafe because it uses inline assembly.
+/// The caller must ensure that the port is a valid port to write to.
+/// They also need to ensure the buffer is valid and has appropriate size to write to the port.
 pub unsafe fn outsw(port: u16, buffer: *const u8, count: usize) {
     asm!(
     // Save ESI to restore it after the outsw instruction.

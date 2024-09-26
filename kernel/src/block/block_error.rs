@@ -2,6 +2,7 @@ use core::error::Error;
 use core::fmt::{Debug, Display, Formatter};
 
 /// Error type for block operations
+#[derive(Debug)]
 pub enum BlockError {
     /// The sector is out of bounds (greater than the block size)
     SectorOutOfBounds,
@@ -11,17 +12,6 @@ pub enum BlockError {
     ReadError,
     /// Error writing to the disk
     WriteError,
-}
-
-impl Debug for BlockError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self {
-            BlockError::SectorOutOfBounds => write!(f, "SectorOutOfBounds"),
-            BlockError::BufferInvalid => write!(f, "BufferInvalid"),
-            BlockError::ReadError => write!(f, "ReadError"),
-            BlockError::WriteError => write!(f, "WriteError"),
-        }
-    }
 }
 
 impl Display for BlockError {

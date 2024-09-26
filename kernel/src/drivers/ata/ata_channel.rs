@@ -511,11 +511,9 @@ impl AtaChannel {
 
     /// Sets the name, d0_name, and d1_name to the appropriate values based on the channel number.
     pub fn set_names(&mut self) {
-        // ascii '0' is 0x30
-        let name_char = char::from(0x30 + self.channel_num);
-        // ascii 'a' is 0x61
-        let d0_char = char::from(0x61 + self.channel_num * 2);
-        let d1_char = char::from(0x61 + 1 + self.channel_num * 2);
+        let name_char = char::from(b'0' + self.channel_num);
+        let d0_char = char::from(b'a' + self.channel_num * 2);
+        let d1_char = char::from(b'a' + 1 + self.channel_num * 2);
 
         self.name = ['i', 'd', 'e', name_char, '\0', '\0', '\0', '\0'];
         self.d0_name = ['h', 'd', d0_char, '\0', '\0', '\0', '\0', '\0'];
