@@ -87,7 +87,8 @@ $(ISO): build/isofiles/boot/kernel.bin build/isofiles/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/isofiles
 
 # Disk Image
-$(ATADISK):
+.PHONY: disk
+disk:
 	@echo "Generating disk image: $(ATADISK)"
 	./scripts/generate-disk.bash -s 50MiB -f fat16
 
@@ -103,7 +104,7 @@ QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_err
 			  -boot d
 
 .PHONY: run-qemu
-run-qemu: $(ISO) $(ATADISK)
+run-qemu: $(ISO)
 	qemu-system-i386 $(QEMU_FLAGS)
 
 .PHONY: run-qemu-gdb
