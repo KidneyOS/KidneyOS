@@ -108,6 +108,11 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
         }
     }
 
+    /*
+    Allocate the total number of requested frames
+        Success: Return a NonNull<[u8]> pointer to the start of memory address
+        Failure: Return AllocError
+     */
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>{
         if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested > self.total_number_of_frames {
             return Err(AllocError);
@@ -128,6 +133,11 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
         ))
     }
 
+    /*
+    Deallocate a given pointer to a frame(s) and mark the frame as free
+        Success: Return the number of frames freed
+        Failure: TBD
+     */
     fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize{
         let start = (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
         let mut num_frames_to_free = 0;
