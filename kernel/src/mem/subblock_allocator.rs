@@ -10,11 +10,58 @@ use bitvec::{bits};
 use bitvec::order::Lsb0;
 use bitvec::slice::BitSlice;
 use bitvec::view::BitViewSized;
- */
-#![allow(unused_imports)]
+
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 use crate::mem::frame_allocator::{FrameAllocatorSolution, CoreMapEntry};
 use crate::mem::{FrameAllocator};
+*/
+
+/*
+
+a = Box()
+
+Subblock Allocator
+
+
+16 bytes
+
+Frame 1 --> Frame 2 --> Frame 3 -- Frame 4
+
+32 bytes
+
+9000
+4096
+
+
+
+Frame 1 --> 0 - 4096
+Frame 2 --> 0 - 4096
+
+Frame 10 ->
+
+1000 bits
+
+# 45
+1000 frames
+
+8000 -> Frame 1
+4096 -> ListNode metadata
+
+8000 % 4096
+
+(0 - 4096) / subblock_size
+
+
+1 - 8 bytes
+2 - 16 bytes
+3 - 32 bytes
+4 - 64 bytes
+5 -
+
+
+1 2 3 4 5 6 .... 100
+
+ */
 
 
 pub struct DumbSubblockAllocator {
@@ -122,6 +169,18 @@ impl ListNode {
 
 // Potential subblock sizes. Each size must be a power of 2, and the smallest
 // allowable size is 8 bytes
+// This is expressed as a slice of usizes; the reason behind this is for efficient passing
+// (We don't have to copy the values each time we want to allocate a subblock)
+
+
+/*
+
+4096 / 8
+
+1025
+2048
+
+ */
 const SUBBLOCK_SIZES: &[usize] = &[8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
 pub struct SubblockAllocator {
@@ -181,12 +240,41 @@ impl SubblockAllocator {
     }
 
     unsafe fn initialize_subblock(&mut self, subblock_region: NonNull<[u8]>, bytes_to_allocate: usize) {
+        // Precondition:
+        // bytes_to_allocate MUST be a power of 2
         let subblock_size_index = get_subblock_size_index(bytes_to_allocate);
+
+        // Need to look into this line more????
         let bitmap_size = (PAGE_FRAME_SIZE / bytes_to_allocate).div_ceil(8);
+
+        // This should refer to a page (this function should only be called with an initial subblock_region being one frame
+        // Logic here looks a little off (Maybe??)
         let region_ptr = subblock_region.as_mut_ptr();
         let frame_num = ((region_ptr as usize) - (self.mem_start.as_ptr() as usize)) / PAGE_FRAME_SIZE;
 
         let mut use_head = false;
+
+        if let Some(mut head_node) = self.list_heads[subblock_size_index].take(){
+            // Maybe iterate over from the head_node to find the last ListNode in that list, and then do write?
+            ptr::write(region_ptr.cast::<ListNode>(), ListNode { next: head_node.next.take(), free_subblocks: None, this_frame: None, frames: None });
+            head_node.next = Some(&mut *region_ptr.cast::<ListNode>());
+
+            // ?
+            if let Some(next_node) = head_node.next {
+                next_node.this_frame = Some(frame_num);
+            }
+        } else {
+            ptr::write(region_ptr.cast::<ListNode>(), ListNode { next: None, free_subblocks: None, this_frame: None, frames: None });
+            self.list_heads[subblock_size_index] = Some(&mut *region_ptr.cast::<ListNode>());
+
+            // ?
+            if let Some(head_node) = self.list_heads[subblock_size_index] {
+                head_node.this_frame = Some(frame_num);
+            }
+            use_head = true;
+        }
+
+        /*
         if let Some(ref mut head_node) = self.list_heads[subblock_size_index].as_mut() {
             ptr::write(region_ptr.cast::<ListNode>(), ListNode { next: head_node.next.take(), free_subblocks: None, this_frame: None, frames: None });
             head_node.next = Some(&mut *region_ptr.cast::<ListNode>());
@@ -201,6 +289,7 @@ impl SubblockAllocator {
             }
             use_head = true;
         }
+        */
 
         ptr::write_bytes(region_ptr.cast::<u8>().add(size_of::<ListNode>()), 0, bitmap_size);
         let bitmap_slice = slice::from_raw_parts_mut(region_ptr.cast::<u8>().add(size_of::<ListNode>()), bitmap_size);
@@ -499,4 +588,5 @@ mod tests {
         assert!(!node.check_frame_used(2));
     }
 }
+
 */
