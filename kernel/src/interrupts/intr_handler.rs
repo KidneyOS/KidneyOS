@@ -105,6 +105,7 @@ pub unsafe extern "C" fn ide_prim_interrupt_handler() -> ! {
     );
 }
 
+#[naked]
 pub unsafe extern "C" fn ide_secd_interrupt_handler() -> ! {
     asm!(
     "
