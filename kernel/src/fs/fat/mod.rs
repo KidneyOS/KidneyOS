@@ -1,13 +1,14 @@
 mod dirent;
 #[allow(clippy::module_inception)]
-mod fat;
+pub mod fat;
+mod free_set;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
 use crate::vfs::{
     DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, RawDirEntry,
     Result,
 };
 use alloc::{collections::BTreeMap, vec};
-use core::cmp::min;
+use core::cmp::{max, min};
 use core::ops::Range;
 use fat::Fat;
 // These are little-endian unaligned integer types
@@ -19,6 +20,7 @@ pub struct FatFileHandle {
     inode: INodeNum,
     file_offset: u32,
     curr_cluster: u32,
+    at_eof: bool,
     version_number: u64,
 }
 
@@ -36,11 +38,52 @@ impl FileHandle for FatFileHandle {
 
 impl FatFileHandle {
     fn advance_cluster(&mut self, fs: &FatFS) -> Result<bool> {
-        if self.curr_cluster == u32::MAX {
+        if self.at_eof {
             return Ok(false);
         }
-        self.curr_cluster = fs.fat.next_cluster(self.curr_cluster)?.unwrap_or(u32::MAX);
-        Ok(self.curr_cluster != u32::MAX)
+        let next_cluster = fs.fat.next_cluster(self.curr_cluster)?;
+        match next_cluster {
+            Some(c) => {
+                self.curr_cluster = c;
+                Ok(true)
+            }
+            None => {
+                self.at_eof = true;
+                Ok(false)
+            }
+        }
+    }
+    fn seek_to_eof(&mut self, fs: &FatFS) -> Result<()> {
+        while self.advance_cluster(fs)? {
+            // (do nothing)
+        }
+        Ok(())
+    }
+    fn seek_to_cluster(&mut self, fs: &mut FatFS, cluster_index: u32) -> Result<()> {
+        let curr_cluster_index = self.file_offset.div_ceil(fs.cluster_size());
+        if fs.file_info[&self.inode].version_number != self.version_number
+            || cluster_index < curr_cluster_index
+        {
+            // need to recompute cluster from the start for backwards access,
+            // or if the file has been concurrently modified
+            self.curr_cluster = self.inode;
+            self.at_eof = false;
+            for _ in 0..cluster_index {
+                if !self.advance_cluster(fs)? {
+                    // end-of-file reached
+                    break;
+                }
+            }
+        } else if cluster_index > curr_cluster_index && !self.at_eof {
+            // advance to new cluster
+            for _ in 0..cluster_index - curr_cluster_index {
+                if !self.advance_cluster(fs)? {
+                    // end-of-file reached
+                    break;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -50,7 +93,7 @@ macro_rules! error {
         Err(crate::vfs::Error::IO(alloc::format!($($args),*)))
     }
 }
-pub(super) use error;
+use error;
 
 /// A FAT-16 or FAT-32 filesystem
 pub struct FatFS {
@@ -73,7 +116,7 @@ pub struct FatFS {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FatType {
+pub enum FatType {
     Fat16,
     Fat32,
 }
@@ -257,11 +300,14 @@ impl FatFS {
         }
         // number of disk sectors taken up by a single FAT
         let fat_disk_sector_count = fat_size * disk_sectors_per_fat_sector;
+        let fat_mirroring_enabled =
+            fat_type != FatType::Fat32 || fat32_header.fat_mirroring_enabled();
         let fat = Fat::new(
             &mut block,
             cluster_count,
             fat_type,
             fat_first_disk_sector..fat_first_disk_sector + fat_disk_sector_count,
+            if fat_mirroring_enabled { num_fats } else { 1 },
         )?;
         let fat16_first_root_disk_sector =
             reserved_sector_count * disk_sectors_per_fat_sector + fat_disk_sector_count * num_fats;
@@ -303,7 +349,7 @@ impl FatFS {
         assert!(cluster >= 2);
         self.first_cluster_disk_sector + (cluster - 2) * self.disk_sectors_per_cluster
     }
-    pub(super) fn disk_sectors_in_cluster(&self, cluster: u32) -> Range<u32> {
+    pub(self) fn disk_sectors_in_cluster(&self, cluster: u32) -> Range<u32> {
         let first = self.first_disk_sector_in_cluster(cluster);
         first..first + self.disk_sectors_per_cluster
     }
@@ -312,9 +358,61 @@ impl FatFS {
     /// It's a bit strange that the root directory has its own space
     /// dedicated for it; this was removed in FAT-32 (and the
     /// root directory becomes just like any other directory).
-    pub(super) fn fat16_root_disk_sectors(&self) -> Range<u32> {
+    pub(self) fn fat16_root_disk_sectors(&self) -> Range<u32> {
         let first = self.fat16_first_root_disk_sector;
         first..first + self.fat16_root_disk_sector_count
+    }
+    fn cluster_size(&self) -> u32 {
+        self.disk_sectors_per_cluster * BLOCK_SECTOR_SIZE as u32
+    }
+    fn read_file_sector(
+        &mut self,
+        file: &mut FatFileHandle,
+        index: u32,
+        data: &mut [u8],
+    ) -> Result<u32> {
+        let file_size = self.file_info[&file.inode].vfs.size as u32;
+        if index > u32::MAX / BLOCK_SECTOR_SIZE as u32 {
+            // must be end-of-file since FAT-32 files are 4GB max
+            return Ok(0);
+        }
+        let file_offset = index * BLOCK_SECTOR_SIZE as u32;
+        let cluster_index = index / self.disk_sectors_per_cluster;
+        let sector_index_within_cluster = index % self.disk_sectors_per_cluster;
+        file.seek_to_cluster(self, cluster_index)?;
+        if file.at_eof {
+            // EOF reached
+            return Ok(0);
+        }
+        let first_sector_in_cluster = self.first_disk_sector_in_cluster(file.curr_cluster);
+        let sector = first_sector_in_cluster + sector_index_within_cluster;
+        self.block.read(sector, data)?;
+        let read_count = min(BLOCK_SECTOR_SIZE as u32, file_size - file_offset);
+        data[read_count as usize..].fill(0); // make sure uninitialized data isn't leaked
+        Ok(read_count)
+    }
+    fn write_file_sector(
+        &mut self,
+        file: &mut FatFileHandle,
+        index: u32,
+        data: &[u8],
+    ) -> Result<()> {
+        let cluster_index = index / self.disk_sectors_per_cluster;
+        let sector_index_within_cluster = index % self.disk_sectors_per_cluster;
+        file.seek_to_cluster(self, cluster_index)?;
+        assert!(!file.at_eof, "append_disk_sector should be called instead of write_disk_sector for writing past end of file");
+        let first_sector_in_cluster = self.first_disk_sector_in_cluster(file.curr_cluster);
+        let sector = first_sector_in_cluster + sector_index_within_cluster;
+        self.block.write(sector, data)?;
+        Ok(())
+    }
+    fn append_file_cluster(&mut self, file: &mut FatFileHandle) -> Result<()> {
+        file.seek_to_eof(self)?;
+        self.fat.link_new_cluster(file.curr_cluster)?;
+        file.at_eof = false;
+        let _advanced = file.advance_cluster(self)?;
+        debug_assert!(_advanced, "this should succeed since we added a new sector");
+        Ok(())
     }
 }
 
@@ -336,6 +434,7 @@ impl FileSystem for FatFS {
             curr_cluster: inode,
             file_offset: 0,
             version_number: info.version_number,
+            at_eof: false,
         })
     }
     fn create(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<FatFileHandle> {
@@ -374,76 +473,149 @@ impl FileSystem for FatFS {
         })
     }
     fn release(&mut self, _inode: INodeNum) {}
-    fn read(&mut self, file: &mut FatFileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
-        let Ok(offset) = u32::try_from(offset) else {
+    fn read(&mut self, file: &mut FatFileHandle, offset: u64, mut buf: &mut [u8]) -> Result<usize> {
+        let Ok(mut offset) = u32::try_from(offset) else {
             // FAT files can't exceed 4GB, so if offset > u32::MAX, it's definitely past EOF
             return Ok(0);
         };
-        let cluster_size = self.disk_sectors_per_cluster * BLOCK_SECTOR_SIZE as u32;
-        let curr_cluster_index = file.file_offset / cluster_size;
-        let new_cluster_index = offset / cluster_size;
-        let info = self
-            .file_info
-            .get(&file.inode())
-            .expect("FAT consistency error: file not in file_info");
-        let file_size: u32 = info.vfs.size.try_into().expect("FAT files should be <4GB");
-        if file.version_number != info.version_number || new_cluster_index < curr_cluster_index {
-            // need to recompute cluster from the start for backwards access,
-            // or if the file has been concurrently modified
-            file.curr_cluster = file.inode();
-            for _ in 0..new_cluster_index {
-                if !file.advance_cluster(self)? {
-                    // end-of-file reached
-                    return Ok(0);
-                }
-            }
-        } else if new_cluster_index > curr_cluster_index {
-            // advance to new cluster
-            for _ in 0..new_cluster_index - curr_cluster_index {
-                if !file.advance_cluster(self)? {
-                    // end-of-file reached
-                    return Ok(0);
-                }
-            }
-        } else if file.curr_cluster == u32::MAX {
-            // already reached end-of-file
+        if buf.is_empty() {
             return Ok(0);
         }
-        // file.curr_cluster should now be correct
-        let mut offset = offset;
-        let mut buf = buf;
+        if buf.len() as u64 > (u32::MAX - offset) as u64 {
+            // ensure offset + buf.len() doesn't exceed u32::MAX
+            buf = &mut buf[..(u32::MAX - offset) as usize];
+        }
+
         let mut read_count = 0;
-        let mut sector_data = [0; BLOCK_SECTOR_SIZE];
-        while !buf.is_empty() {
-            let cluster_offset = offset % cluster_size;
-            let sector_offset = offset % BLOCK_SECTOR_SIZE as u32;
-            let disk_sector = self.first_disk_sector_in_cluster(file.curr_cluster)
-                + cluster_offset / BLOCK_SECTOR_SIZE as u32;
-            self.block.read(disk_sector, &mut sector_data)?;
-            let mut n = min(buf.len() as u32, BLOCK_SECTOR_SIZE as u32 - sector_offset);
-            n = min(n, file_size - offset);
-            buf[..n as usize].copy_from_slice(
-                &sector_data[sector_offset as usize..(sector_offset + n) as usize],
+        if offset % BLOCK_SECTOR_SIZE as u32 != 0 {
+            // align to disk sector
+            let mut sector = [0; BLOCK_SECTOR_SIZE];
+            let offset_in_sector = offset % BLOCK_SECTOR_SIZE as u32;
+            let bytes_read_from_sector =
+                self.read_file_sector(file, offset / BLOCK_SECTOR_SIZE as u32, &mut sector)?;
+            let mut n = min(
+                buf.len() as u32,
+                BLOCK_SECTOR_SIZE as u32 - offset_in_sector,
             );
-            offset += n;
-            read_count += n;
+            n = min(n, bytes_read_from_sector.saturating_sub(offset_in_sector));
+            read_count += n as u32;
+            offset += n as u32;
+            buf[..n as usize].copy_from_slice(
+                &sector[offset_in_sector as usize..(offset_in_sector + n) as usize],
+            );
             buf = &mut buf[n as usize..];
-            if offset >= file_size {
-                break;
+            if bytes_read_from_sector < BLOCK_SECTOR_SIZE as u32 {
+                return Ok(read_count as usize);
             }
-            if offset % cluster_size == 0 {
-                // new cluster
-                if !file.advance_cluster(self)? {
-                    return error!(
-                        "corrupt FAT filesystem: file size exceeds number of allocated clusters"
-                    );
+        }
+        debug_assert_eq!(offset % BLOCK_SECTOR_SIZE as u32, 0);
+        while buf.len() >= BLOCK_SECTOR_SIZE {
+            // read whole disk sectors
+            let n = self.read_file_sector(
+                file,
+                offset / BLOCK_SECTOR_SIZE as u32,
+                &mut buf[..BLOCK_SECTOR_SIZE],
+            )?;
+            read_count += n;
+            offset += n;
+            buf = &mut buf[n as usize..];
+            if n < BLOCK_SECTOR_SIZE as u32 {
+                // EOF reached
+                return Ok(read_count as usize);
+            }
+        }
+        if buf.is_empty() {
+            return Ok(read_count as usize);
+        }
+        debug_assert_eq!(offset % BLOCK_SECTOR_SIZE as u32, 0);
+        // read final few bytes
+        let mut sector = [0; BLOCK_SECTOR_SIZE];
+        let n = self.read_file_sector(file, offset / BLOCK_SECTOR_SIZE as u32, &mut sector)?;
+        buf.copy_from_slice(&sector[..buf.len()]);
+        read_count += n;
+        Ok(read_count as usize)
+    }
+    fn write(&mut self, file: &mut FatFileHandle, offset: u64, buf: &[u8]) -> Result<usize> {
+        // an offset > 2^32 is effectively the same as offset = 2^32
+        //  (we just extend the file to 2^32 - 1 bytes in either case)
+        let offset = min(offset, 0x1_0000_0000);
+        let prev_file_size = self.file_info[&file.inode].vfs.size as u32;
+        let new_file_size = max(
+            prev_file_size,
+            min(offset + buf.len() as u64, 0xffff_ffff) as u32,
+        );
+        if new_file_size > prev_file_size {
+            let prev_cluster_count = prev_file_size.div_ceil(self.cluster_size());
+            let new_cluster_count = new_file_size.div_ceil(self.cluster_size());
+            // copy file handle, so that file's offset/cluster remains intact
+            let mut handle = *file;
+            handle.seek_to_eof(self)?;
+            for _ in 0..new_cluster_count - prev_cluster_count {
+                // append a cluster to the file
+                self.append_file_cluster(&mut handle)?;
+            }
+            self.file_info.get_mut(&file.inode).unwrap().vfs.size = new_file_size.into();
+            if offset > u64::from(prev_file_size) {
+                // zero data from prev_file_size..offset
+                // this isn't the most efficient way of doing things,
+                // but writing beyond the end-of-file is rare anyways.
+                let buf = [0; 4096];
+                let mut zero_offset = u64::from(prev_file_size);
+                while zero_offset < offset {
+                    let n = min(buf.len() as u64, offset - zero_offset) as usize;
+                    let n_written = self.write(file, zero_offset, &buf[..n])?;
+                    assert!(n == n_written);
+                    zero_offset += n as u64;
                 }
             }
         }
-        Ok(read_count as usize)
-    }
-    fn write(&mut self, _file: &mut FatFileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
-        todo!()
+        // we no longer have to worry about the silly case where offset = u32::MAX + 1
+        // — no data will actually be written in that case.
+        let Ok(mut offset) = u32::try_from(offset) else {
+            return Ok(0);
+        };
+        let mut buf = &buf[..=min(buf.len() - 1, (u32::MAX - offset) as usize)];
+        let mut write_count = 0;
+        if offset % BLOCK_SECTOR_SIZE as u32 != 0 {
+            // align to disk sector
+            let offset_in_sector = offset as usize % BLOCK_SECTOR_SIZE;
+            let mut sector = [0; BLOCK_SECTOR_SIZE];
+            self.read_file_sector(file, offset / BLOCK_SECTOR_SIZE as u32, &mut sector)?;
+            let n = min(BLOCK_SECTOR_SIZE - offset_in_sector, buf.len());
+            sector[offset_in_sector..offset_in_sector + n].copy_from_slice(buf);
+            self.write_file_sector(file, offset / BLOCK_SECTOR_SIZE as u32, &sector)?;
+            write_count += n as u32;
+            offset += n as u32;
+            buf = &buf[n..];
+            // this could overflow, but if it does we will have buf.len() == 0
+            offset = offset.wrapping_add(write_count);
+        }
+        if buf.is_empty() {
+            return Ok(write_count as usize);
+        }
+        assert_eq!(offset % BLOCK_SECTOR_SIZE as u32, 0);
+        while buf.len() > BLOCK_SECTOR_SIZE {
+            // write whole sectors
+            self.write_file_sector(
+                file,
+                offset / BLOCK_SECTOR_SIZE as u32,
+                &buf[..BLOCK_SECTOR_SIZE],
+            )?;
+            write_count += BLOCK_SECTOR_SIZE as u32;
+            offset += BLOCK_SECTOR_SIZE as u32;
+            buf = &buf[BLOCK_SECTOR_SIZE..];
+        }
+        if buf.is_empty() {
+            return Ok(write_count as usize);
+        }
+        assert_eq!(offset % BLOCK_SECTOR_SIZE as u32, 0);
+        // write final sector
+        let mut sector = [0; BLOCK_SECTOR_SIZE];
+        self.read_file_sector(file, offset / BLOCK_SECTOR_SIZE as u32, &mut sector)?;
+        sector[..buf.len()].copy_from_slice(buf);
+        self.write_file_sector(file, offset / BLOCK_SECTOR_SIZE as u32, &sector)?;
+        write_count += buf.len() as u32;
+        Ok(write_count as usize)
     }
     fn stat(&mut self, file: &FatFileHandle) -> Result<FileInfo> {
         Ok(self
@@ -475,6 +647,8 @@ impl FileSystem for FatFS {
         todo!()
     }
     fn sync(&mut self) -> Result<()> {
+        self.fat.sync(&mut self.block)?;
+        // TODO: sync file_info
         Ok(())
     }
 }
