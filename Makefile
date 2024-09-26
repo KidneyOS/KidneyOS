@@ -22,6 +22,7 @@ RAW_TRAMPOLINE := $(ARTIFACT_DIR)/libkidneyos_trampoline.a
 TRAMPOLINE_DIR := build/trampoline
 TRAMPOLINE := $(TRAMPOLINE_DIR)/libkidneyos_trampoline.a
 ISO := build/kidneyos.iso
+ATADISK := gpt_fat16_50MiB.img
 
 .PHONY: default
 default: $(ISO)
@@ -85,6 +86,12 @@ build/isofiles/boot/grub/grub.cfg: build-support/grub.cfg
 $(ISO): build/isofiles/boot/kernel.bin build/isofiles/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/isofiles
 
+# Disk Image
+.PHONY: disk
+disk:
+	@echo "Generating disk image: $(ATADISK)"
+	./scripts/generate-disk.bash -s 50MiB -f fat16
+
 # Running
 
 .PHONY: run-bochs
@@ -93,7 +100,7 @@ run-bochs: $(ISO)
 
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
 QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) \
-			  -drive format=raw,file=gpt_fat16_50mb.img,if=ide \
+			  -drive format=raw,file=${ATADISK},if=ide \
 			  -boot d
 
 .PHONY: run-qemu
