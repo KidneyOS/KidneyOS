@@ -12,6 +12,7 @@ use core::{
     sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use kidneyos_shared::println;
 
 pub type Pid = u16;
 pub type Tid = u16;
@@ -59,85 +60,6 @@ pub struct ProcessControlBlock {
     pub exit_code: Option<i32>,
 }
 
-impl ProcessControlBlock {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(elf: Elf) -> ThreadControlBlock {
-        if elf.header.architecture != ElfArchitecture::X86
-            || elf.header.usage != ElfUsage::Executable
-        {
-            panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
-        }
-
-        let pid: Pid = allocate_pid();
-
-        let mut page_manager = PageManager::default();
-
-        for program_header in elf.program_headers {
-            if program_header.program_type != ElfProgramType::Load {
-                continue;
-            }
-
-            let frames = program_header.data.len().div_ceil(PAGE_FRAME_SIZE);
-
-            unsafe {
-                // TODO: Save this physical address somewhere so we can deallocate
-                // it when dropping the thread.
-                let kernel_virt_addr = KERNEL_ALLOCATOR
-                    .frame_alloc(frames)
-                    .expect("no more frames...")
-                    .cast::<u8>()
-                    .as_ptr();
-                let phys_addr = kernel_virt_addr.sub(OFFSET);
-
-                // TODO: Throw an error if this range overlaps any previously mapped
-                // ranges, since `map_range` requires that the input range has not
-                // already been mapped.
-
-                // Map the physical address obtained by the allocation above to the
-                // virtual address assigned by the ELF header.
-                page_manager.map_range(
-                    phys_addr as usize,
-                    program_header.virtual_address as usize,
-                    frames * PAGE_FRAME_SIZE,
-                    program_header.writable,
-                    true,
-                );
-
-                // Load so we can write to the virtual addresses mapped above.
-                copy_nonoverlapping(
-                    program_header.data.as_ptr(),
-                    kernel_virt_addr,
-                    program_header.data.len(),
-                );
-
-                // Zero the sliver of addresses between the end of the region, and
-                // the end of the region we had to map due to page
-                write_bytes(
-                    kernel_virt_addr.add(program_header.data.len()),
-                    0,
-                    frames * PAGE_FRAME_SIZE - program_header.data.len(),
-                );
-            }
-        }
-
-        let mut new_pcb = Self {
-            pid,
-            child_tids: Vec::new(),
-            wait_list: Vec::new(),
-            exit_code: None,
-        };
-        let new_tcb = ThreadControlBlock::new_with_elf(
-            NonNull::new(elf.header.program_entry as *mut u8)
-                .expect("fail to create PCB entry point"),
-            pid,
-            page_manager,
-        );
-        new_pcb.child_tids.push(new_tcb.tid);
-
-        new_tcb
-    }
-}
-
 // TODO: Use enums so that we never have garbage data (i.e. stacks that don't
 // need be freed for the kernel thread, information that doesn't make sense when
 // the thread is in certain states, etc.)
@@ -163,6 +85,88 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
+    pub fn new_from_elf(elf: Elf) -> ThreadControlBlock {
+        if elf.header.architecture != ElfArchitecture::X86
+            // || elf.header.usage != ElfUsage::Executable
+        {
+            panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
+        }
+
+        let pid: Pid = allocate_pid();
+
+        let mut page_manager = PageManager::default();
+
+        for program_header in elf.program_headers {
+            if program_header.program_type != ElfProgramType::Load {
+                continue;
+            }
+
+            // Some ELF files have off-alignment segments (off 4KB).
+            // We need to pad this space with zeroes.
+            let segment_virtual_frame_start = program_header.virtual_address as usize / PAGE_FRAME_SIZE;
+            let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
+            let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
+            let segment_padded_size = segment_padding + program_header.data.len();
+
+            let frames = segment_padded_size.div_ceil(PAGE_FRAME_SIZE);
+
+            unsafe {
+                // TODO: Save this physical address somewhere so we can deallocate
+                // it when dropping the thread.
+                let kernel_virt_addr = KERNEL_ALLOCATOR
+                    .frame_alloc(frames)
+                    .expect("no more frames...")
+                    .cast::<u8>()
+                    .as_ptr();
+                let phys_addr = kernel_virt_addr.sub(OFFSET);
+
+                // TODO: Throw an error if this range overlaps any previously mapped
+                // ranges, since `map_range` requires that the input range has not
+                // already been mapped.
+
+                println!("Mounting: {segment_virtual_start:#X} address: {:#X}", program_header.virtual_address);
+
+                // Map the physical address obtained by the allocation above to the
+                // virtual address assigned by the ELF header.
+                page_manager.map_range(
+                    phys_addr as usize,
+                    segment_virtual_start,
+                    frames * PAGE_FRAME_SIZE,
+                    program_header.writable,
+                    true,
+                );
+
+                write_bytes(
+                    kernel_virt_addr,
+                    0,
+                    segment_padded_size
+                );
+
+                // Load so we can write to the virtual addresses mapped above.
+                copy_nonoverlapping(
+                    program_header.data.as_ptr(),
+                    kernel_virt_addr.add(segment_padding),
+                    program_header.data.len(),
+                );
+
+                // Zero the sliver of addresses between the end of the region, and
+                // the end of the region we had to map due to page
+                write_bytes(
+                    kernel_virt_addr.add(segment_padded_size),
+                    0,
+                    frames * PAGE_FRAME_SIZE - segment_padded_size,
+                );
+            }
+        }
+
+        ThreadControlBlock::new_with_page_manager(
+            NonNull::new(elf.header.program_entry as *mut u8)
+                .expect("fail to create PCB entry point"),
+            pid,
+            page_manager,
+        )
+    }
+    
     #[allow(unused)]
     pub fn new_with_setup(eip: NonNull<u8>, pid: Pid) -> Self {
         let mut new_thread = Self::new(eip, pid, PageManager::default());
@@ -195,7 +199,7 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    pub fn new_with_elf(
+    pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
         pid: Pid,
         page_manager: PageManager,

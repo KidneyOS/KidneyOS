@@ -1,0 +1,5 @@
+[build]
+target = "i686-unknown-linux-gnu"
+
+[target.i686-unknown-linux-gnu]
+linker = "lld"
