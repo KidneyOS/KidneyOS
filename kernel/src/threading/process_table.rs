@@ -23,13 +23,13 @@ impl ProcessTable {
         self.table.insert(pcb.pid, pcb);
     }
 
+    #[allow(dead_code)]
     pub fn remove(&mut self, pid: Pid) -> Option<Box<ProcessControlBlock>> {
-        #[allow(dead_code)]
         self.table.remove(&pid)
     }
 
+    #[allow(dead_code)]
     pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
-        #[allow(dead_code)]
         self.table.get(&pid).map(|pcb| &**pcb)
     }
 }
