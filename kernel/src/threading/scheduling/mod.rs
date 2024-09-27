@@ -32,10 +32,16 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
 
         while let Some(switch_to) = scheduler.pop() {
             // Check if the thread is not blocked.
-            if switch_to.as_ref().status != ThreadStatus::Blocked {
-                // Do not switch to ourselves.
-                switch_threads(status_for_current_thread, switch_to);
-                break;
+            match switch_to.as_ref().status {
+                ThreadStatus::Blocked => {
+                    // If the thread is blocked, push it back onto the scheduler.
+                    scheduler.push(switch_to);
+                }
+                _ => {
+                    // Do not switch to ourselves.
+                    switch_threads(status_for_current_thread, switch_to);
+                    break;
+                }
             }
         }
     }

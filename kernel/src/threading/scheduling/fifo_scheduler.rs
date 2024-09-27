@@ -1,7 +1,6 @@
 use alloc::{boxed::Box, collections::VecDeque};
-
-use super::super::{ThreadControlBlock, Tid};
-
+use crate::threading::thread_control_block::Tid;
+use super::super::ThreadControlBlock;
 use super::scheduler::Scheduler;
 
 pub struct FIFOScheduler {
@@ -30,5 +29,10 @@ impl Scheduler for FIFOScheduler {
     fn remove(&mut self, _tid: Tid) -> Option<Box<ThreadControlBlock>> {
         let pos = self.ready_queue.iter().position(|tcb| tcb.tid == _tid);
         self.ready_queue.remove(pos?)
+    }
+
+    fn get(&mut self, _tid: Tid) -> Option<&mut ThreadControlBlock> {
+        let pos = self.ready_queue.iter().position(|tcb| tcb.tid == _tid);
+        pos.and_then(|index| self.ready_queue.get_mut(index).map(|tcb| &mut **tcb))
     }
 }
