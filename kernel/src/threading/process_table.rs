@@ -7,6 +7,7 @@ pub struct ProcessTable {
 }
 
 impl ProcessTable {
+    #![allow(dead_code)]
     pub fn new() -> ProcessTable {
         ProcessTable {
             table: BTreeMap::new(),
@@ -23,10 +24,12 @@ impl ProcessTable {
     }
 
     pub fn remove(&mut self, pid: Pid) -> Option<Box<ProcessControlBlock>> {
+        #[allow(dead_code)]
         self.table.remove(&pid)
     }
 
     pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
+        #[allow(dead_code)]
         self.table.get(&pid).map(|pcb| &**pcb)
     }
 }
