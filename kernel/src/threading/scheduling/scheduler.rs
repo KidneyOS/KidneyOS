@@ -9,5 +9,5 @@ pub trait Scheduler {
 
     fn push(&mut self, thread: Box<ThreadControlBlock>);
     fn pop(&mut self) -> Option<Box<ThreadControlBlock>>;
-    fn remove(&mut self, tid: Tid) -> bool;
+    fn remove(&mut self, tid: Tid) -> Option<Box<ThreadControlBlock>>;
 }

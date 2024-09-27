@@ -1,10 +1,12 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::threading::process_table::ProcessTable;
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     KERNEL_ALLOCATOR,
 };
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
@@ -37,6 +39,14 @@ pub enum ThreadStatus {
     Ready,
     Blocked,
     Dying,
+}
+
+pub static mut PROCESS_TABLE: Option<Box<ProcessTable>> = None;
+
+pub fn initialize_process_table() {
+    unsafe {
+        PROCESS_TABLE = Some(Box::new(ProcessTable::new()));
+    }
 }
 
 pub fn allocate_pid() -> Pid {
@@ -133,6 +143,13 @@ impl ProcessControlBlock {
             page_manager,
         );
         new_pcb.child_tids.push(new_tcb.tid);
+
+        unsafe {
+            PROCESS_TABLE
+                .as_mut()
+                .expect("No process table set up")
+                .add(Box::new(new_pcb))
+        };
 
         new_tcb
     }
