@@ -14,19 +14,39 @@ pub struct SleepMutex {
     wait_queue: VecDeque<Tid>,
 }
 
+pub struct SleepMutexGuard<'a> {
+    mutex: Option<&'a mut SleepMutex>,
+}
+
+impl<'a> SleepMutexGuard<'a> {
+    pub fn unlock(mut self) {
+        if let Some(mutex) = self.mutex.take() {
+            mutex.unlock();
+        }
+    }
+}
+
+// Ensure mutex is released if dropped (such as in the event of a panic)
+impl<'a> Drop for SleepMutexGuard<'a> {
+    fn drop(&mut self) {
+        if let Some(mutex) = self.mutex.take() {
+            mutex.unlock();
+        }
+    }
+}
+
 impl SleepMutex {
     pub const fn new() -> Self {
         Self {
             aquired: false,
             holding_thread: None,
-            wait_queue: VecDeque::<Tid>::new(),
+            wait_queue: VecDeque::new(),
         }
     }
 
-    pub fn lock(&mut self) {
+    pub fn lock(&mut self) -> SleepMutexGuard {
         intr_disable();
 
-        // Add check if thread is already waiting on lock
         let current_tid = unsafe {
             RUNNING_THREAD
                 .as_ref()
@@ -36,12 +56,14 @@ impl SleepMutex {
 
         if self.aquired {
             self.wait_queue.push_back(current_tid);
-            thread_sleep();
+            thread_sleep(); // Block the thread
         }
 
         self.aquired = true;
         self.holding_thread = Some(current_tid);
         intr_enable();
+
+        SleepMutexGuard { mutex: Some(self) }
     }
 
     pub fn unlock(&mut self) {
@@ -55,6 +77,7 @@ impl SleepMutex {
         };
 
         if self.holding_thread != Some(running_tid) {
+            intr_enable();
             return;
         }
 
@@ -69,28 +92,23 @@ impl SleepMutex {
             self.aquired = false;
             self.holding_thread = None;
         }
-        intr_enable();
+
+        intr_enable(); // Ensure interrupts are re-enabled after unlock
     }
 
     pub unsafe fn force_unlock(&mut self) {
         intr_disable();
 
-        let running_tid = unsafe {
-            RUNNING_THREAD
-                .as_ref()
-                .expect("why is nothing running?")
-                .tid
-        };
-        thread_wakeup(running_tid);
-
-        if let Some(pos) = self.wait_queue.iter().position(|tid| *tid == running_tid) {
-            self.wait_queue.remove(pos);
+        if let Some(next_thread) = self.wait_queue.pop_front() {
+            thread_wakeup(next_thread);
         }
 
+        self.aquired = false;
+        self.holding_thread = None;
         intr_enable();
     }
 
-    pub unsafe fn is_locked(&self) -> bool {
+    pub fn is_locked(&self) -> bool {
         self.aquired
     }
 
@@ -98,21 +116,34 @@ impl SleepMutex {
         intr_disable();
 
         if self.is_locked() {
+            intr_enable();
             return false;
         }
 
-        self.lock();
+        // If lock is free, acquire it without blocking
+        let current_tid = RUNNING_THREAD
+            .as_ref()
+            .expect("why is nothing running?")
+            .tid;
+
+        self.aquired = true;
+        self.holding_thread = Some(current_tid);
         intr_enable();
         true
     }
 }
 
+// Release all threads when mutex is dropped
 impl Drop for SleepMutex {
     fn drop(&mut self) {
-        // Unsure whether we should panic at this, or just release all waiting threads
-        assert!(
-            self.wait_queue.is_empty(),
-            "Mutex was dropped with thread still waiting"
-        );
+        intr_disable();
+
+        while let Some(tid) = self.wait_queue.pop_front() {
+            thread_wakeup(tid);
+        }
+
+        self.aquired = false;
+        self.holding_thread = None;
+        intr_enable();
     }
 }
