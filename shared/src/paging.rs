@@ -412,7 +412,10 @@ impl<A: Allocator + Copy> Clone for PageManager<A> {
         };
 
         let mut root = root_addr.cast::<PageDirectory>();
-        unsafe { *root.as_mut() = (*self.root.as_ptr()).clone() };
+
+        // Create a new blank page directory for the forked process to be re-mapped to new physical addresses
+        // This will have to be changed when CoW is implemented
+        unsafe { *root.as_mut() = PageDirectory::default() };
 
         Self { root, ..*self }
     }

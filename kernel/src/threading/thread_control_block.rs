@@ -6,8 +6,7 @@ use crate::{
     user_program::elf::Elf,
     KERNEL_ALLOCATOR,
 };
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
