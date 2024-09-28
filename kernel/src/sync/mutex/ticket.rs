@@ -1,10 +1,10 @@
 //! A ticket-based mutex based on [spin](https://docs.rs/spin/latest/spin/).
 
-use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{
     cell::UnsafeCell,
     fmt,
     ops::{Deref, DerefMut},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// A [spinning mutex](https://en.m.wikipedia.org/wiki/Spinlock) with [ticketing](https://en.wikipedia.org/wiki/Ticket_lock).
@@ -85,6 +85,11 @@ impl<T: ?Sized> TicketMutex<T> {
     }
 
     #[inline(always)]
+    pub unsafe fn force_unlock(&self) {
+        self.next_serving.fetch_add(1, Ordering::Release);
+    }
+
+    #[inline(always)]
     pub fn try_lock(&self) -> Option<TicketMutexGuard<T>> {
         let ticket = self
             .next_ticket
@@ -109,6 +114,17 @@ impl<T: ?Sized> TicketMutex<T> {
     }
 }
 
+impl<T: ?Sized + fmt::Debug> fmt::Debug for TicketMutex<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.try_lock() {
+            Some(guard) => write!(f, "Mutex {{ data: ")
+                .and_then(|()| (*guard).fmt(f))
+                .and_then(|()| write!(f, "}}")),
+            None => write!(f, "Mutex {{ <locked> }}"),
+        }
+    }
+}
+
 impl<T: ?Sized + Default> Default for TicketMutex<T> {
     fn default() -> Self {
         Self::new(Default::default())
@@ -118,6 +134,16 @@ impl<T: ?Sized + Default> Default for TicketMutex<T> {
 impl<T> From<T> for TicketMutex<T> {
     fn from(data: T) -> Self {
         Self::new(data)
+    }
+}
+
+impl<'a, T: ?Sized> TicketMutexGuard<'a, T> {
+    /// Leak the lock guard, yielding a mutable reference to the underlying data.
+    #[inline(always)]
+    pub fn leak(this: Self) -> &'a mut T {
+        let data = this.data as *mut _; // Keep it in pointer form temporarily to avoid double-aliasing
+        core::mem::forget(this);
+        unsafe { &mut *data }
     }
 }
 

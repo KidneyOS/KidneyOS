@@ -1,16 +1,19 @@
 mod context_switch;
+pub mod process_table;
 pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;
-pub mod process_table;
 
+use crate::user_program::elf::Elf;
 use crate::{
+    interrupts::{intr_enable, intr_get_level, IntrLevel},
     paging::PageManager,
-    sync::intr::{intr_enable, intr_get_level, IntrLevel},
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
-use thread_control_block::{initialize_process_table, ProcessControlBlock, ThreadControlBlock, Tid};
+use thread_control_block::{
+    initialize_process_table, ProcessControlBlock, ThreadControlBlock, Tid,
+};
 
 pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
@@ -48,8 +51,10 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
     let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager);
 
+    let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
+
     // Create the initial user program thread.
-    let user_tcb = ProcessControlBlock::new(init_elf);
+    let user_tcb = ProcessControlBlock::new(elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {

@@ -101,24 +101,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     }
 }
 
-#[allow(unused)]
-pub unsafe extern "C" fn timer() {
-    println!("(interrupt) caught timer!");
-    let mut count: usize = 100;
-    asm!(
-        "
-        in {count}, 0x40
-        mov ebx, {count}
-        test eax, ebx
-        jz $2f
-        dec eax
-        mov {count}, eax
-2:
-        ",
-        count = out(reg) count
-    );
-}
-
 pub const SYS_EXIT: usize = 0x1;
 pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;

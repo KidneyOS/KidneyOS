@@ -11,7 +11,6 @@ use alloc::boxed::Box;
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    serial::outb,
     task_state_segment::TASK_STATE_SEGMENT,
 };
 
