@@ -58,7 +58,7 @@ impl SleepMutex {
             return;
         }
 
-        if self.wait_queue.len() > 0 {
+        if !self.wait_queue.is_empty() {
             let next_thread = self
                 .wait_queue
                 .pop_front()
@@ -88,6 +88,22 @@ impl SleepMutex {
         }
 
         intr_enable();
+    }
+
+    pub unsafe fn is_locked(&self) -> bool {
+        self.aquired
+    }
+
+    pub unsafe fn try_lock(&mut self) -> bool {
+        intr_disable();
+
+        if self.is_locked() {
+            return false;
+        }
+
+        self.lock();
+        intr_enable();
+        true
     }
 }
 
