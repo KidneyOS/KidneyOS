@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use crate::block::block_core::{BlockManager, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
+use crate::block::partitions::partition_core::partition_scan;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
 use crate::sync::mutex::Mutex;
@@ -59,7 +60,7 @@ pub unsafe fn ide_init(mut all_blocks: BlockManager, block: bool) -> BlockManage
             present[i][0] = true;
             present[i][1] = channel.check_device_type(1, block);
         } else {
-            println!("IDE: Channel {} device {} not ata", i, 0);
+            // println!("IDE: Channel {} device {} not ata", i, 0);
         }
     }
 
@@ -68,7 +69,7 @@ pub unsafe fn ide_init(mut all_blocks: BlockManager, block: bool) -> BlockManage
             if present[i][j] {
                 all_blocks = identify_ata_device(c, j as u8, all_blocks, block);
             } else {
-                println!("IDE: Channel {} device {} not present", i, j);
+                // println!("IDE: Channel {} device {} not present", i, j);
             }
         }
     }
@@ -121,14 +122,15 @@ unsafe fn identify_ata_device(
         capacity >> 11
     );
 
-    // TODO: Register block device
-    all_blocks.register_block(
+    let idx = all_blocks.register_block(
         BlockType::Raw,
         &name,
         capacity as BlockSector,
         Box::new(AtaDevice(dev_no)),
     );
 
-    // TODO: scan partitions and recognize block types
+    channel.force_unlock();
+    partition_scan(all_blocks.by_id(idx).unwrap());
+
     all_blocks
 }
