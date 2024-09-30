@@ -206,18 +206,9 @@ pub trait FileSystem: Sized {
     fn root(&self) -> INodeNum;
     /// Open an existing file/directory/symlink.
     ///
-<<<<<<< HEAD
     /// If the inode doesn't exist (e.g. it was deleted between the call to [`FileSystem::readdir`]
     /// which discovered it and now), returns [`Error::NotFound`].
     fn open(&mut self, inode: INodeNum) -> Result<Self::FileHandle>;
-=======
-    /// If the inode doesn't exist, returns [`Error::NotFound`].
-<<<<<<< HEAD
-    fn open(&mut self, inode: INodeNum) -> Result<FileHandle>;
->>>>>>> 2e812b7 (Start FAT directory iterator)
-=======
-    fn open(&mut self, inode: INodeNum) -> Result<Self::FileHandle>;
->>>>>>> 5b04507 (Start dirent parsing)
     /// Create a new file in parent, or open it if it already exists (without truncating).
     ///
     /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`

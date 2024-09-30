@@ -1,7 +1,7 @@
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
 use crate::fs::fat::{error, FatType};
 use crate::vfs::Result;
-use alloc::{vec, vec::Vec};
+use alloc::{collections::BTreeSet, vec, vec::Vec};
 use zerocopy::AsBytes;
 
 /// File Allocation Table
@@ -76,6 +76,23 @@ impl Fat {
             }
         }
         Ok(fat)
+    }
+    pub fn clusters_for_file(&self, first_cluster: u32) -> Result<Vec<u32>> {
+        let mut v = vec![first_cluster];
+        let mut set = BTreeSet::new();
+        let mut cluster = first_cluster;
+        set.insert(cluster);
+        loop {
+            let Some(c) = self.next_cluster(cluster)? else {
+                break;
+            };
+            cluster = c;
+            v.push(cluster);
+            if !set.insert(cluster) {
+                return error!("cluster loop in FAT");
+            }
+        }
+        Ok(v)
     }
     fn entry(&self, i: u32) -> FatEntry {
         match self.r#type {
