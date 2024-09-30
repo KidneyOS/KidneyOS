@@ -35,6 +35,8 @@ pub enum Error {
     Exists,
     /// Unsupported operation (e.g. file system does not support symlinks)
     Unsupported,
+    /// Write operation to a read-only file system
+    ReadOnlyFS,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -56,6 +58,7 @@ impl core::fmt::Display for Error {
             Self::NotEmpty => write!(f, "directory not empty"),
             Self::Exists => write!(f, "destination already exists"),
             Self::Unsupported => write!(f, "unsupported operation"),
+            Self::ReadOnlyFS => write!(f, "read-only file system"),
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
