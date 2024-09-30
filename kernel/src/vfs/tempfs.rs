@@ -5,9 +5,9 @@ use std::println;
 
 use crate::vfs::{
     DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, OwnedPath, Path,
-    RawDirEntry, Result,
+    Result,
 };
-use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::cmp::min;
 
 #[derive(Clone, Copy, Debug)]
@@ -260,23 +260,15 @@ impl FileSystem for TempFs {
         let TempINodeData::Directory(dir) = &inode.data else {
             panic!("Kernel should call stat to make sure this is a directory before calling readdir on it.");
         };
-        let mut filenames = String::new();
-        let mut entries = vec![];
-        for (path, inode_num) in dir.entries.iter() {
-            let name = filenames.len();
-            filenames.push_str(path);
-            filenames.push('\0');
+        let mut entries = DirEntries::new();
+        for (name, inode_num) in dir.entries.iter() {
             let inode = self
                 .inodes
                 .get(inode_num)
                 .expect("tempfs consistency error — referencing free inode");
-            entries.push(RawDirEntry {
-                inode: *inode_num,
-                name,
-                r#type: inode.type_of(),
-            });
+            entries.add(*inode_num, inode.type_of(), name);
         }
-        Ok(DirEntries { entries, filenames })
+        Ok(entries)
     }
     fn release(&mut self, inode_num: INodeNum) {
         if DEBUG_TEMPFS {

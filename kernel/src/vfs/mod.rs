@@ -146,7 +146,7 @@ impl<'a> Iterator for DirIterator<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DirEntries {
     /// Raw directory entries, with names pointing to [`Self::filenames`]
     pub entries: Vec<RawDirEntry>,
@@ -155,9 +155,24 @@ pub struct DirEntries {
 }
 
 impl DirEntries {
+    /// Create a new empty list of directory entries.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Get filename associated with name ID, from [`RawDirEntry::name`].
     pub fn get_filename(&self, name: usize) -> &str {
         let s = &self.filenames[name..];
         &s[..s.find('\0').unwrap_or(s.len())]
+    }
+    pub fn add(&mut self, inode: INodeNum, r#type: INodeType, name: &str) {
+        let name_id = self.filenames.len();
+        self.filenames.push_str(name);
+        self.filenames.push('\0');
+        self.entries.push(RawDirEntry {
+            inode,
+            r#type,
+            name: name_id,
+        });
     }
     #[cfg(test)]
     /// Collect directory entries into a Vec, sorted by name.
