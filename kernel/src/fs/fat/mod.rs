@@ -3,10 +3,9 @@ mod dirent;
 mod fat;
 use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
 use crate::vfs::{
-    DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, RawDirEntry,
-    Result,
+    DirEntries, Error, FileInfo, INodeNum, INodeType, Path, RawDirEntry, Result, SimpleFileSystem,
 };
-use alloc::{collections::BTreeMap, vec, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec, vec::Vec};
 use core::cmp::min;
 use core::ops::Range;
 use fat::Fat;
@@ -14,21 +13,10 @@ use fat::Fat;
 use zerocopy::little_endian::{U16, U32};
 use zerocopy::{FromBytes, FromZeroes, Unaligned};
 
-#[derive(Debug, Clone, Copy)]
-pub struct FatFileHandle {
-    inode: INodeNum,
-}
-
 #[derive(Debug)]
 struct FatFileInfo {
     vfs: FileInfo,
     clusters: Vec<u32>,
-}
-
-impl FileHandle for FatFileHandle {
-    fn inode(&self) -> INodeNum {
-        self.inode
-    }
 }
 
 // convenience macro for returning errors
@@ -308,32 +296,31 @@ impl FatFS {
     }
 }
 
-impl FileSystem for FatFS {
-    type FileHandle = FatFileHandle;
+impl SimpleFileSystem for FatFS {
     fn root(&self) -> INodeNum {
         self.root_inode
     }
-    fn open(&mut self, inode: INodeNum) -> Result<FatFileHandle> {
+    fn open(&mut self, inode: INodeNum) -> Result<()> {
         if !self.fat.is_cluster_allocated(inode) {
             return Err(Error::NotFound);
         }
         debug_assert!(self.file_info.contains_key(&inode), "inode opened without its directory entry being read (or there is a bug in the FAT filesystem)");
-        Ok(FatFileHandle { inode })
+        Ok(())
     }
-    fn create(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<FatFileHandle> {
+    fn create(&mut self, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
-    fn mkdir(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
+    fn mkdir(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
-    fn unlink(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
+    fn unlink(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
-    fn rmdir(&mut self, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
+    fn rmdir(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
-    fn readdir(&mut self, dir: &mut FatFileHandle) -> Result<DirEntries> {
-        let (fat_entries, names) = dirent::read_directory(self, dir.inode)?;
+    fn readdir(&mut self, dir: INodeNum) -> Result<DirEntries> {
+        let (fat_entries, names) = dirent::read_directory(self, dir)?;
         let mut entries = vec![];
         for entry in &fat_entries {
             let inode = entry.info.inode;
@@ -356,12 +343,12 @@ impl FileSystem for FatFS {
         })
     }
     fn release(&mut self, _inode: INodeNum) {}
-    fn read(&mut self, file: &mut FatFileHandle, offset: u64, mut buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, file: INodeNum, offset: u64, mut buf: &mut [u8]) -> Result<usize> {
         let Ok(mut offset) = u32::try_from(offset) else {
             // FAT files can't exceed 4GB, so if offset > u32::MAX, it's definitely past EOF
             return Ok(0);
         };
-        let info = &self.file_info[&file.inode];
+        let info = &self.file_info[&file];
         let file_size = info.vfs.size as u32;
         let mut read_count = 0;
         while !buf.is_empty() && offset < file_size {
@@ -395,36 +382,27 @@ impl FileSystem for FatFS {
         }
         Ok(read_count as usize)
     }
-    fn write(&mut self, _file: &mut FatFileHandle, _offset: u64, _buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, _file: INodeNum, _offset: u64, _buf: &[u8]) -> Result<usize> {
         Err(Error::ReadOnlyFS)
     }
-    fn stat(&mut self, file: &FatFileHandle) -> Result<FileInfo> {
+    fn stat(&mut self, file: INodeNum) -> Result<FileInfo> {
         Ok(self
             .file_info
-            .get(&file.inode)
+            .get(&file)
             .expect("FAT inconsistency error")
             .vfs
             .clone())
     }
-    fn link(
-        &mut self,
-        _source: &mut FatFileHandle,
-        _parent: &mut FatFileHandle,
-        _name: &Path,
-    ) -> Result<()> {
+    fn link(&mut self, _source: INodeNum, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
-    fn symlink(&mut self, _link: &Path, _parent: &mut FatFileHandle, _name: &Path) -> Result<()> {
+    fn symlink(&mut self, _link: &Path, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
-    fn readlink<'a>(
-        &mut self,
-        _link: &mut FatFileHandle,
-        _buf: &'a mut [u8],
-    ) -> Result<Option<&'a str>> {
+    fn readlink(&mut self, _link: INodeNum) -> Result<String> {
         panic!("this should never be called by the kernel, since we never tell it something is a symlink")
     }
-    fn truncate(&mut self, _file: &mut FatFileHandle, _size: u64) -> Result<()> {
+    fn truncate(&mut self, _file: INodeNum, _size: u64) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
     fn sync(&mut self) -> Result<()> {
@@ -449,8 +427,9 @@ mod test {
         FatFS::new(block_from_file(Cursor::new(buf))).unwrap()
     }
     fn test_simple(mut fat: FatFS) {
-        let mut root = fat.open(fat.root()).unwrap();
-        let entries: Vec<OwnedDirEntry> = fat.readdir(&mut root).unwrap().to_sorted_vec();
+        let root = fat.root();
+        fat.open(root).unwrap();
+        let entries: Vec<OwnedDirEntry> = fat.readdir(root).unwrap().to_sorted_vec();
         fn check_entry(entry: &OwnedDirEntry, name: &str, r#type: INodeType) {
             assert_eq!(&entry.name, name);
             assert_eq!(entry.r#type, r#type);
@@ -460,22 +439,24 @@ mod test {
         check_entry(&entries[1], "b", INodeType::File);
         check_entry(&entries[2], "c", INodeType::File);
         check_entry(&entries[3], "d", INodeType::Directory);
-        let mut dir_d = fat.open(entries[3].inode).unwrap();
-        let mut file_a = fat.open(entries[0].inode).unwrap();
+        let dir_d = entries[3].inode;
+        fat.open(dir_d).unwrap();
+        let file_a = entries[0].inode;
+        fat.open(file_a).unwrap();
         let mut buf = [0; 512];
-        let n = fat.read(&mut file_a, 0, &mut buf[..]).unwrap();
+        let n = fat.read(file_a, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"file a\n");
-        fat.release(file_a.inode);
-        let dir_d_entries = fat.readdir(&mut dir_d).unwrap().to_sorted_vec();
+        fat.release(file_a);
+        let dir_d_entries = fat.readdir(dir_d).unwrap().to_sorted_vec();
         assert_eq!(dir_d_entries.len(), 1);
         check_entry(&dir_d_entries[0], "f", INodeType::File);
-        let file_f_inode = dir_d_entries[0].inode;
-        let mut file_f = fat.open(file_f_inode).unwrap();
-        let n = fat.read(&mut file_f, 0, &mut buf[..]).unwrap();
+        let file_f = dir_d_entries[0].inode;
+        fat.open(file_f).unwrap();
+        let n = fat.read(file_f, 0, &mut buf[..]).unwrap();
         assert_eq!(&buf[..n], b"inner file\n");
-        fat.release(file_f.inode);
-        fat.release(dir_d.inode);
-        fat.release(root.inode);
+        fat.release(file_f);
+        fat.release(dir_d);
+        fat.release(root);
     }
     #[test]
     fn simple_fat16() {
