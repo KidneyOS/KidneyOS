@@ -14,7 +14,7 @@ pub type OwnedPath = String;
 /// when it closes its last open file to an inode. Otherwise,
 /// the filesystem will have to keep around the file's data indefinitely!
 pub trait FileHandle: core::fmt::Debug {
-    fn inode(self) -> INodeNum;
+    fn inode(&self) -> INodeNum;
 }
 
 #[derive(Debug, Clone)]
@@ -197,13 +197,14 @@ impl<'a> IntoIterator for &'a DirEntries {
     }
 }
 
-pub trait FileSystem {
+pub trait FileSystem: Sized {
     type FileHandle: FileHandle;
     /// Get root inode number
     fn root(&self) -> INodeNum;
     /// Open an existing file/directory/symlink.
     ///
-    /// If the inode doesn't exist, returns [`Error::NotFound`].
+    /// If the inode doesn't exist (e.g. it was deleted between the call to [`FileSystem::readdir`]
+    /// which discovered it and now), returns [`Error::NotFound`].
     fn open(&mut self, inode: INodeNum) -> Result<Self::FileHandle>;
     /// Create a new file in parent, or open it if it already exists (without truncating).
     ///
@@ -272,8 +273,8 @@ pub trait FileSystem {
     fn readlink<'a>(
         &mut self,
         link: &mut Self::FileHandle,
-        buf: &'a mut Path,
-    ) -> Result<Option<&'a str>>;
+        buf: &'a mut [u8],
+    ) -> Result<Option<&'a Path>>;
     /// Set a new file size.
     ///
     /// If this is less than the previous size, the extra data is lost.
@@ -288,4 +289,181 @@ pub trait FileSystem {
     /// All other functions can just perform operations on cached copies of data
     /// in memory; this is the only way of ensuring that the data is actually saved.
     fn sync(&mut self) -> Result<()>;
+}
+
+/// File system that doesn't have any extra state to keep track of for open files.
+///
+/// This trait also has default stub implementations for all the filesystem functions except for [`FileSystem::root`],
+/// so you can implement and test them one at a time
+#[allow(unused_variables)] // default implementations don't always use their parameters
+pub trait SimpleFileSystem: Sized {
+    /// Get root inode number.
+    fn root(&self) -> INodeNum;
+    /// The kernel will always call this function before reading/writing data to a file.
+    ///
+    /// This should return [`Error::NotFound`] if `inode` doesn't exist.
+    /// You should keep track of which open files haven't been released yet (via [`SimpleFileSystem::release`])
+    /// so that you can keep them around even when they are unlinked.
+    fn open(&mut self, inode: INodeNum) -> Result<()> {
+        Ok(())
+    }
+    /// Create an empty file in `parent` called `name`, returning the inode number of the file.
+    fn create(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum> {
+        Err(Error::Unsupported)
+    }
+    /// Create an empty directory in `parent` called `name`.
+    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+    /// Unlink the file called `name` in the directory `parent`.
+    fn unlink(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+    /// Remove the directory in `parent` called `name`.
+    fn rmdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+    /// Read the entire contents of a directory.
+    ///
+    /// A [`DirEntries`] object can be constructed with the [`DirEntries::new`] and [`DirEntries::add`] functions.
+    fn readdir(&mut self, dir: INodeNum) -> Result<DirEntries> {
+        Err(Error::Unsupported)
+    }
+    /// Release an inode, indicating that there are no open handles to it.
+    ///
+    /// If (and only if!) there are no links left to the file, the file system should delete it.
+    fn release(&mut self, inode: INodeNum) {}
+    /// Read from a file at offset `offset`, into `buf`.
+    ///
+    /// Returns the number of bytes successfully read.
+    fn read(&mut self, file: INodeNum, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        Err(Error::Unsupported)
+    }
+    /// Write to a file at offset `offset`, from `buf`.
+    ///
+    /// Returns the number of bytes successfully written.
+    fn write(&mut self, file: INodeNum, offset: u64, buf: &[u8]) -> Result<usize> {
+        Err(Error::Unsupported)
+    }
+    /// Get information about `file`.
+    fn stat(&mut self, file: INodeNum) -> Result<FileInfo> {
+        Err(Error::Unsupported)
+    }
+    /// Create hard link to `source` in `parent` called `name`.
+    fn link(&mut self, source: INodeNum, parent: INodeNum, name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+    /// Create symbolic link to `link` in `parent` called `name`.
+    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+    /// Read the contents of a symbolic link
+    fn readlink(&mut self, link: INodeNum) -> Result<String> {
+        Err(Error::Unsupported)
+    }
+    /// Version of [`SimpleFileSystem::readlink`] that doesn't allocate.
+    ///
+    /// If you implement [`SimpleFileSystem::readlink`], this will be provided automatically.
+    fn readlink_no_alloc<'a>(
+        &mut self,
+        link: INodeNum,
+        buf: &'a mut [u8],
+    ) -> Result<Option<&'a str>> {
+        let contents = self.readlink(link)?;
+        if buf.len() < contents.len() {
+            return Ok(None);
+        }
+        let buf = &mut buf[..contents.len()];
+        buf.copy_from_slice(contents.as_bytes());
+        Ok(Some(core::str::from_utf8(buf).expect(
+            "should be UTF-8 since it was copied from a string",
+        )))
+    }
+    /// Set size of `file` to `size`.
+    ///
+    /// If this increases the size of the file, the extra space should be filled with zeroes.
+    fn truncate(&mut self, file: INodeNum, size: u64) -> Result<()> {
+        Err(Error::Unsupported)
+    }
+    /// Sync changes to disk.
+    fn sync(&mut self) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// File handle for [`SimpleFileSystem`] file systems.
+#[derive(Clone, Copy)]
+pub struct SimpleFileHandle(INodeNum);
+impl core::fmt::Debug for SimpleFileHandle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "FileHandle({})", self.0)
+    }
+}
+
+impl FileHandle for SimpleFileHandle {
+    fn inode(&self) -> INodeNum {
+        self.0
+    }
+}
+
+impl<F: SimpleFileSystem> FileSystem for F {
+    type FileHandle = SimpleFileHandle;
+    fn root(&self) -> INodeNum {
+        SimpleFileSystem::root(self)
+    }
+    fn open(&mut self, inode: INodeNum) -> Result<Self::FileHandle> {
+        SimpleFileSystem::open(self, inode)?;
+        Ok(SimpleFileHandle(inode))
+    }
+    fn create(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<Self::FileHandle> {
+        SimpleFileSystem::create(self, parent.0, name).map(SimpleFileHandle)
+    }
+    fn mkdir(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
+        SimpleFileSystem::mkdir(self, parent.0, name)
+    }
+    fn unlink(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
+        SimpleFileSystem::unlink(self, parent.0, name)
+    }
+    fn rmdir(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
+        SimpleFileSystem::rmdir(self, parent.0, name)
+    }
+    fn readdir(&mut self, dir: &mut Self::FileHandle) -> Result<DirEntries> {
+        SimpleFileSystem::readdir(self, dir.0)
+    }
+    fn release(&mut self, inode: INodeNum) {
+        SimpleFileSystem::release(self, inode)
+    }
+    fn read(&mut self, file: &mut Self::FileHandle, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        SimpleFileSystem::read(self, file.0, offset, buf)
+    }
+    fn write(&mut self, file: &mut Self::FileHandle, offset: u64, buf: &[u8]) -> Result<usize> {
+        SimpleFileSystem::write(self, file.0, offset, buf)
+    }
+    fn stat(&mut self, file: &Self::FileHandle) -> Result<FileInfo> {
+        SimpleFileSystem::stat(self, file.0)
+    }
+    fn link(
+        &mut self,
+        source: &mut Self::FileHandle,
+        parent: &mut Self::FileHandle,
+        name: &Path,
+    ) -> Result<()> {
+        SimpleFileSystem::link(self, source.0, parent.0, name)
+    }
+    fn symlink(&mut self, link: &Path, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
+        SimpleFileSystem::symlink(self, link, parent.0, name)
+    }
+    fn readlink<'a>(
+        &mut self,
+        link: &mut Self::FileHandle,
+        buf: &'a mut [u8],
+    ) -> Result<Option<&'a Path>> {
+        SimpleFileSystem::readlink_no_alloc(self, link.0, buf)
+    }
+    fn truncate(&mut self, file: &mut Self::FileHandle, size: u64) -> Result<()> {
+        SimpleFileSystem::truncate(self, file.0, size)
+    }
+    fn sync(&mut self) -> Result<()> {
+        SimpleFileSystem::sync(self)
+    }
 }

@@ -16,7 +16,7 @@ pub struct TempFileHandle {
 }
 
 impl FileHandle for TempFileHandle {
-    fn inode(self) -> INodeNum {
+    fn inode(&self) -> INodeNum {
         self.inode
     }
 }
@@ -428,7 +428,7 @@ impl FileSystem for TempFs {
     fn readlink<'a>(
         &mut self,
         link: &mut TempFileHandle,
-        buf: &'a mut str,
+        buf: &'a mut [u8],
     ) -> Result<Option<&'a str>> {
         if DEBUG_TEMPFS {
             println!("tempfs: readlink {link:?} (buf len = {})", buf.len());
@@ -442,21 +442,10 @@ impl FileSystem for TempFs {
         if buf.len() < link.path.len() {
             return Ok(None);
         }
-        // unfortunately, unsafe code is currently the only way to write to a &mut str
-        // SAFETY: we ensure that bytes is valid UTF-8 after readlink returns,
-        //         since link.path must be valid UTF-8.
-        let bytes = unsafe { buf.as_bytes_mut() };
-        bytes[..link.path.len()].copy_from_slice(link.path.as_bytes());
-        for byte in &mut bytes[link.path.len()..] {
-            if (*byte >> 6) == 0b10 {
-                // replace continuation bytes following link.path with zeroes,
-                // to ensure bytes remains valid UTF-8.
-                *byte = 0;
-            } else {
-                break;
-            }
-        }
-        Ok(Some(&buf[..link.path.len()]))
+        buf[..link.path.len()].copy_from_slice(link.path.as_bytes());
+        Ok(Some(core::str::from_utf8(&buf[..link.path.len()]).expect(
+            "should be valid UTF-8 since it was copied from a str",
+        )))
     }
     fn truncate(&mut self, file: &mut TempFileHandle, size: u64) -> Result<()> {
         if DEBUG_TEMPFS {
@@ -642,12 +631,12 @@ mod tests {
     // read link from an absolute path
     fn readlink_path<F: FileSystem>(fs: &mut F, source: &Path) -> Result<OwnedPath> {
         let mut file = do_path(fs, source, Action::Open)?.unwrap();
-        let mut buf = OwnedPath::new();
+        let mut buf: Vec<u8> = Vec::new();
         loop {
             if let Some(s) = fs.readlink(&mut file, &mut buf)? {
                 return Ok(s.into());
             }
-            buf.push('\0');
+            buf.push(0);
         }
     }
     // get inode of absolute path
