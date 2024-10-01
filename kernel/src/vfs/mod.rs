@@ -37,6 +37,8 @@ pub enum Error {
     Unsupported,
     /// Write operation to a read-only file system
     ReadOnlyFS,
+    /// Process has too many open file descriptors
+    TooManyOpenFiles,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -59,6 +61,7 @@ impl core::fmt::Display for Error {
             Self::Exists => write!(f, "destination already exists"),
             Self::Unsupported => write!(f, "unsupported operation"),
             Self::ReadOnlyFS => write!(f, "read-only file system"),
+            Self::TooManyOpenFiles => write!(f, "too many open files"),
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
