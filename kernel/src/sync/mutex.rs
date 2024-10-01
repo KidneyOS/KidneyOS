@@ -1,3 +1,4 @@
+pub mod sleep;
 pub mod ticket;
 pub use self::ticket::{TicketMutex, TicketMutexGuard};
 use core::{
