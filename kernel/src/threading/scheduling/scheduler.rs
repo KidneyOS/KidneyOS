@@ -10,5 +10,5 @@ pub trait Scheduler {
     fn push(&mut self, thread: Box<ThreadControlBlock>);
     fn pop(&mut self) -> Option<Box<ThreadControlBlock>>;
     fn remove(&mut self, tid: Tid) -> Option<Box<ThreadControlBlock>>;
-    fn get(&mut self, tid: Tid) -> Option<&mut ThreadControlBlock>;
+    fn get_mut(&mut self, tid: Tid) -> Option<&mut ThreadControlBlock>;
 }

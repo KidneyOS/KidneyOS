@@ -9,7 +9,6 @@ use crate::{
 use alloc::collections::VecDeque;
 
 pub struct SleepMutex {
-    aquired: bool,
     holding_thread: Option<Tid>,
     wait_queue: VecDeque<Tid>,
 }
@@ -44,7 +43,6 @@ impl<'a> Drop for SleepMutexGuard<'a> {
 impl SleepMutex {
     pub const fn new() -> Self {
         Self {
-            aquired: false,
             holding_thread: None,
             wait_queue: VecDeque::new(),
         }
@@ -60,14 +58,13 @@ impl SleepMutex {
                 .tid
         };
 
-        while self.aquired {
+        while self.is_locked() {
             if !self.wait_queue.contains(&current_tid) {
                 self.wait_queue.push_back(current_tid);
             }
             thread_sleep();
         }
 
-        self.aquired = true;
         self.holding_thread = Some(current_tid);
         intr_enable();
 
@@ -83,7 +80,6 @@ impl SleepMutex {
         };
 
         if self.holding_thread != Some(running_tid) {
-            intr_enable();
             return;
         }
 
@@ -95,7 +91,6 @@ impl SleepMutex {
             self.holding_thread = Some(next_thread);
             thread_wakeup(next_thread);
         } else {
-            self.aquired = false;
             self.holding_thread = None;
         }
     }
@@ -107,19 +102,18 @@ impl SleepMutex {
             thread_wakeup(next_thread);
         }
 
-        self.aquired = false;
         self.holding_thread = None;
         intr_enable();
     }
 
-    pub fn is_locked(&mut self) -> bool {
-        self.aquired
+    pub fn is_locked(&self) -> bool {
+        self.holding_thread.is_some()
     }
 
     pub fn try_lock(&mut self) -> bool {
         intr_disable();
 
-        if self.aquired {
+        if self.is_locked() {
             intr_enable();
             return false;
         }
@@ -131,7 +125,6 @@ impl SleepMutex {
                 .tid
         };
 
-        self.aquired = true;
         self.holding_thread = Some(current_tid);
         intr_enable();
         true
@@ -147,7 +140,6 @@ impl Drop for SleepMutex {
             thread_wakeup(tid);
         }
 
-        self.aquired = false;
         self.holding_thread = None;
         intr_enable();
     }

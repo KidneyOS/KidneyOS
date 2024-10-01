@@ -31,7 +31,7 @@ impl Scheduler for FIFOScheduler {
         self.ready_queue.remove(pos?)
     }
 
-    fn get(&mut self, _tid: Tid) -> Option<&mut ThreadControlBlock> {
+    fn get_mut(&mut self, _tid: Tid) -> Option<&mut ThreadControlBlock> {
         let pos = self.ready_queue.iter().position(|tcb| tcb.tid == _tid);
         pos.and_then(|index| self.ready_queue.get_mut(index).map(|tcb| &mut **tcb))
     }

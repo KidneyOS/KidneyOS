@@ -9,7 +9,7 @@ pub fn thread_sleep() {
 
 pub fn thread_wakeup(tid: Tid) {
     let scheduler = unsafe { SCHEDULER.as_mut().expect("Scheduler not set up!") };
-    if let Some(tcb) = scheduler.get(tid) {
+    if let Some(tcb) = scheduler.get_mut(tid) {
         tcb.status = ThreadStatus::Ready;
     }
 }
