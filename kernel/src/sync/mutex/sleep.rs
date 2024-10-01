@@ -19,10 +19,16 @@ pub struct SleepMutexGuard<'a> {
 }
 
 impl<'a> SleepMutexGuard<'a> {
-    pub fn unlock(mut self) {
+    pub fn unlock(&mut self) {
+        intr_disable();
         if let Some(mutex) = self.mutex.take() {
             mutex.unlock();
         }
+        intr_enable();
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.mutex.is_some()
     }
 }
 
@@ -54,9 +60,11 @@ impl SleepMutex {
                 .tid
         };
 
-        if self.aquired {
-            self.wait_queue.push_back(current_tid);
-            thread_sleep(); // Block the thread
+        while self.aquired {
+            if !self.wait_queue.contains(&current_tid) {
+                self.wait_queue.push_back(current_tid);
+            }
+            thread_sleep();
         }
 
         self.aquired = true;
@@ -67,8 +75,6 @@ impl SleepMutex {
     }
 
     pub fn unlock(&mut self) {
-        intr_disable();
-
         let running_tid = unsafe {
             RUNNING_THREAD
                 .as_ref()
@@ -92,8 +98,6 @@ impl SleepMutex {
             self.aquired = false;
             self.holding_thread = None;
         }
-
-        intr_enable(); // Ensure interrupts are re-enabled after unlock
     }
 
     pub unsafe fn force_unlock(&mut self) {
@@ -108,23 +112,22 @@ impl SleepMutex {
         intr_enable();
     }
 
-    pub fn is_locked(&self) -> bool {
+    pub fn is_locked(&mut self) -> bool {
         self.aquired
     }
 
-    pub unsafe fn try_lock(&mut self) -> bool {
+    pub fn try_lock(&mut self) -> bool {
         intr_disable();
 
-        if self.is_locked() {
+        if self.aquired {
             intr_enable();
             return false;
         }
 
-        // If lock is free, acquire it without blocking
-        let current_tid = RUNNING_THREAD
+        let current_tid = unsafe {RUNNING_THREAD
             .as_ref()
             .expect("why is nothing running?")
-            .tid;
+            .tid };
 
         self.aquired = true;
         self.holding_thread = Some(current_tid);
