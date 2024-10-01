@@ -124,10 +124,12 @@ impl SleepMutex {
             return false;
         }
 
-        let current_tid = unsafe {RUNNING_THREAD
-            .as_ref()
-            .expect("why is nothing running?")
-            .tid };
+        let current_tid = unsafe {
+            RUNNING_THREAD
+                .as_ref()
+                .expect("why is nothing running?")
+                .tid
+        };
 
         self.aquired = true;
         self.holding_thread = Some(current_tid);
