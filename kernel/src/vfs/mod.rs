@@ -39,6 +39,10 @@ pub enum Error {
     ReadOnlyFS,
     /// Process has too many open file descriptors
     TooManyOpenFiles,
+    /// Bad file descriptor
+    BadFd,
+    /// Trying to unmount file system with open files
+    FileSystemInUse,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -62,6 +66,8 @@ impl core::fmt::Display for Error {
             Self::Unsupported => write!(f, "unsupported operation"),
             Self::ReadOnlyFS => write!(f, "read-only file system"),
             Self::TooManyOpenFiles => write!(f, "too many open files"),
+            Self::BadFd => write!(f, "bad file descriptor"),
+            Self::FileSystemInUse => write!(f, "file system in use"),
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }

@@ -15,6 +15,7 @@ mod block;
 mod drivers;
 mod interrupts;
 pub mod mem;
+pub mod fs;
 mod paging;
 mod sync;
 mod threading;
