@@ -486,4 +486,40 @@ mod test {
     fn long_names_fat32() {
         read_only_test_vs_host("long_names", FatType::Fat32);
     }
+
+    fn large_file(r#type: FatType) {
+        let type_string = match r#type {
+            FatType::Fat16 => "fat16",
+            FatType::Fat32 => "fat32",
+        };
+        let mut fat = open_img_gz(&format!("tests/fat/large_file_{type_string}.img.gz"));
+
+        let root = fat.root();
+        fat.open(root).unwrap();
+
+        // Open the large file (assume it spans multiple clusters)
+        let entries: Vec<OwnedDirEntry> = fat.readdir(root).unwrap().to_sorted_vec();
+        let file_large = entries.iter().find(|e| e.name == "large_file.txt").unwrap();
+
+        fat.open(file_large.inode).unwrap();
+
+        // Buffer for reading file content
+        let mut buf = vec![0; 128 * 1024];  // 128KB buffer
+        let n = fat.read(file_large.inode, 0, &mut buf).unwrap();
+
+         // Ensure that the file read more than 64KB
+        assert!(n > 64 * 1024, "Expected to read more than 64KB, but read {} bytes", n);
+
+        fat.release(file_large.inode);
+        fat.release(root);
+    }
+    #[test]
+    fn large_file_fat16() {
+        large_file(FatType::Fat16);
+    }
+    #[test]
+    fn large_file_fat32() {
+        large_file(FatType::Fat32);
+    }
+    
 }
