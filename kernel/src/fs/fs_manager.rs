@@ -1,8 +1,10 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::threading::thread_control_block::Pid;
-use crate::vfs::{Error, FileHandle, FileSystem, INodeNum, OwnedPath, Path, Result};
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use crate::vfs::{Error, FileHandle, FileSystem, INodeNum, OwnedPath, Path, Result, DirEntries, INodeType};
+use alloc::{boxed::Box,
+collections::{BTreeMap, btree_map::{Entry as BTreeMapEntry}},
+vec};
+use core::num::NonZeroUsize;
 
 /// Maximum number of simultaneously open files for a process.
 ///
@@ -14,8 +16,9 @@ pub const MAX_MOUNT_POINTS: u16 = 256;
 /// Manages a single file system
 struct FileSystemManager<F: FileSystem> {
     fs: F,
-    open_file_count: BTreeMap<INodeNum, u32>,
+    open_file_count: BTreeMap<INodeNum, NonZeroUsize>,
     open_files: BTreeMap<ProcessFileDescriptor, F::FileHandle>,
+    directories: BTreeMap<INodeNum, DirEntries>,
 }
 
 impl<F: FileSystem> FileSystemManager<F> {
@@ -24,7 +27,72 @@ impl<F: FileSystem> FileSystemManager<F> {
             fs,
             open_file_count: BTreeMap::new(),
             open_files: BTreeMap::new(),
+            directories: BTreeMap::new(),
         }
+    }
+    fn directory_entries(&mut self, inode: INodeNum) -> Result<&mut DirEntries> {
+        if !self.directories.contains_key(&inode) {
+            // TODO: consider converting this to a BTreeMap.
+            let mut dir_fh = self.fs.open(inode)?;
+            let entries = self.fs.readdir(&mut dir_fh);
+            if !self.open_file_count.contains_key(&inode) {
+                self.fs.release(inode);
+            }
+            let entries = entries?;
+            self.directories.insert(inode, entries);
+        }
+        Ok(self.directories.get_mut(&inode).unwrap())
+    }
+    /// get inode number corresponding to path
+    fn inode_for_path(&mut self, path: &Path) -> Result<INodeNum> {
+        let root_inode = self.fs.root();
+        if path == "/" {
+            return Ok(root_inode);
+        }
+        assert!(path.len() > 1, "path is not absolute");
+        let mut inode = root_inode;
+        let mut i = 1;
+        let mut parent_inodes = vec![];
+        loop {
+            let (component, is_last) = match path[i..].find('/') {
+                Some(l) => (&path[i..i + l], false),
+                None => (&path[i..], true),
+            };
+            if component == ".." {
+                inode = parent_inodes.pop().unwrap_or(root_inode);
+            }
+            if component == "." {
+                continue;
+            }
+            let dir_entries = self.directory_entries(inode)?;
+            let mut found = false;
+            for entry in &*dir_entries {
+                if entry.name == component {
+                    match entry.r#type {
+                        INodeType::Link => todo!("symlink handling"),
+                        INodeType::File => {
+                            if !is_last {
+                                return Err(Error::NotDirectory)
+                            }
+                        }
+                        INodeType::Directory => {
+                            parent_inodes.push(inode);
+                        }
+                    }
+                    inode = entry.inode;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Err(Error::NotFound);
+            }
+            if is_last {
+                break;
+            }
+            i += component.len() + 1;
+        }
+        Ok(inode)
     }
 }
 
@@ -33,23 +101,73 @@ impl<F: FileSystem> FileSystemManager<F> {
 /// which can use different file systems.
 trait FileSystemManagerTrait {
     fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
+    fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
     fn sync(&mut self) -> Result<()>;
     fn can_be_safely_unmounted(&self) -> bool;
 }
 
+struct TempOpen<'a, F: FileSystem> {
+    fs: &'a mut F,
+    already_open: bool,
+    handle: F::FileHandle,
+}
+
+impl<F: FileSystem> Drop for TempOpen<'_, F> {
+    fn drop(&mut self) {
+        if !self.already_open {
+            self.fs.release(self.handle.inode());
+        }
+    }
+}
+
+fn temp_open<F: FileSystem>(fs: &mut F, inode: INodeNum, already_open: bool) -> Result<TempOpen<'_, F>> {
+    let handle = fs.open(inode)?;
+    Ok(TempOpen {
+        fs,
+        already_open,
+        handle,
+    })
+}
+
 impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        let _ = path;
-        let _ = fd;
-        todo!("lookup directory containing path, and open the right file in it.")
+        let inode = self.inode_for_path(path)?;
+        let handle = self.fs.open(inode)?;
+        match self.open_file_count.entry(inode) {
+            BTreeMapEntry::Occupied(mut o) => {
+                let count = o.get_mut();
+                *count = count.checked_add(1).expect("shouldn't overflow usize");
+            }
+            BTreeMapEntry::Vacant(v) => {
+                v.insert(NonZeroUsize::new(1).unwrap());
+            }
+        }
+        let _prev = self.open_files.insert(fd, handle);
+        debug_assert!(_prev.is_none(), "duplicate fd");
+        Ok(())
+    }
+    fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
+        let Some(final_slash) = path.rfind('/') else {
+            panic!("not an absolute path");
+        };
+        let dir = &path[..final_slash];
+        let name = &path[final_slash + 1..];
+        if name.is_empty() {
+            // e.g. create("foo/")
+            return Err(Error::IsDirectory);
+        }
+        let dir_inode = self.inode_for_path(dir)?;
+        let mut dir = temp_open(&mut self.fs, dir_inode, self.open_file_count.contains_key(&dir_inode));
+        self.fs.create(&mut dir.handle, name)?;
+        Ok(())
     }
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
         let handle = self.open_files.remove(&fd).ok_or(Error::BadFd)?;
         let inode = handle.inode();
         let ref_count = self.open_file_count.get_mut(&inode).unwrap();
-        if *ref_count > 1 {
-            *ref_count -= 1;
+        if let Some(n) = NonZeroUsize::new(ref_count.get() - 1) {
+            *ref_count = n;
             return Ok(());
         }
         self.open_file_count.remove(&inode);
@@ -77,19 +195,13 @@ pub struct RootFileSystem {
     open_files: BTreeMap<ProcessFileDescriptor, OpenFile>,
 }
 
-impl Default for RootFileSystem {
-    fn default() -> Self {
+impl RootFileSystem {
+    pub const fn new() -> Self {
         Self {
-            file_systems: [(); MAX_MOUNT_POINTS as usize].map(|()| None),
+            file_systems: [const { None }; MAX_MOUNT_POINTS as usize],
             mount_points: BTreeMap::new(),
             open_files: BTreeMap::new(),
         }
-    }
-}
-
-impl RootFileSystem {
-    pub fn new() -> Self {
-        Self::default()
     }
     fn resolve_path<'a>(&self, path: &'a Path) -> Result<(FileSystemID, &'a Path)> {
         let mut result = None;
@@ -153,12 +265,18 @@ impl RootFileSystem {
         let (fs, path) = self.resolve_path(path)?;
         let fd = self.new_fd(fs, pid)?;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
-        fs.open(path, fd)?;
+        let result = fs.open(path, fd);
+        if let Err(e) = result {
+            self.open_files.remove(&fd);
+            return Err(e)
+        }
         Ok(fd)
     }
     pub fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
-        let fs = self.open_files[&fd].fs;
+        let fs = self.open_files.get(&fd).ok_or(Error::BadFd)?.fs;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
-        fs.close(fd)
+        fs.close(fd)?;
+        self.open_files.remove(&fd);
+        Ok(())
     }
 }

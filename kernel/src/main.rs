@@ -10,6 +10,7 @@
 #![feature(slice_ptr_get)]
 #![feature(negative_impls)]
 #![feature(pointer_is_aligned)]
+#![feature(inline_const)]
 
 mod block;
 mod drivers;
