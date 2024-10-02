@@ -14,7 +14,6 @@ use core::{
     sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-use kidneyos_shared::println;
 
 pub type Pid = u16;
 pub type Tid = u16;
@@ -134,8 +133,6 @@ impl ThreadControlBlock {
                 // TODO: Throw an error if this range overlaps any previously mapped
                 // ranges, since `map_range` requires that the input range has not
                 // already been mapped.
-
-                println!("Mounting: {segment_virtual_start:#X} address: {:#X}", program_header.virtual_address);
 
                 // Map the physical address obtained by the allocation above to the
                 // virtual address assigned by the ELF header.
