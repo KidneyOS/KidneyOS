@@ -11,7 +11,7 @@ pub struct Timespec {
 }
 
 #[no_mangle]
-pub extern fn exit(code: usize) {
+pub extern "C" fn exit(code: usize) {
     unsafe {
         asm!("
             mov eax, 0x1
@@ -21,17 +21,19 @@ pub extern fn exit(code: usize) {
 }
 
 #[no_mangle]
-pub extern fn fork() {
+pub extern "C" fn fork() {
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x2
             int 0x80
-        ");
+        "
+        );
     }
 }
 
 #[no_mangle]
-pub extern fn read(fd: u32, buffer: *mut u8, count: usize) {
+pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) {
     unsafe {
         asm!("
             mov eax, 0x3
@@ -41,7 +43,7 @@ pub extern fn read(fd: u32, buffer: *mut u8, count: usize) {
 }
 
 #[no_mangle]
-pub extern fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
+pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
     unsafe {
         asm!("
             mov eax, 0x7
@@ -51,7 +53,7 @@ pub extern fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
 }
 
 #[no_mangle]
-pub extern fn execve(filename: *const i8, argv: *const *const i8, envp: *const *const i8) {
+pub extern "C" fn execve(filename: *const i8, argv: *const *const i8, envp: *const *const i8) {
     unsafe {
         asm!("
             mov eax, 0x7
@@ -63,7 +65,7 @@ pub extern fn execve(filename: *const i8, argv: *const *const i8, envp: *const *
 // Seems to reference __kernel_timespec as the inputs for this syscall.
 // Not sure if we have this implemented.
 #[no_mangle]
-pub extern fn nanosleep(duration: *const Timespec, remainder: *mut Timespec) {
+pub extern "C" fn nanosleep(duration: *const Timespec, remainder: *mut Timespec) {
     unsafe {
         asm!("
             mov eax, 0xA2
@@ -73,11 +75,13 @@ pub extern fn nanosleep(duration: *const Timespec, remainder: *mut Timespec) {
 }
 
 #[no_mangle]
-pub extern fn scheduler_yield() {
+pub extern "C" fn scheduler_yield() {
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x9E
             int 0x80
-        ");
+        "
+        );
     }
 }

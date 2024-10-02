@@ -97,7 +97,7 @@ impl ThreadControlBlock {
     pub fn new_from_elf(elf: Elf) -> ThreadControlBlock {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
-        
+
         if elf.header.architecture != ElfArchitecture::X86 && executable {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
@@ -113,7 +113,8 @@ impl ThreadControlBlock {
 
             // Some ELF files have off-alignment segments (off 4KB).
             // We need to pad this space with zeroes.
-            let segment_virtual_frame_start = program_header.virtual_address as usize / PAGE_FRAME_SIZE;
+            let segment_virtual_frame_start =
+                program_header.virtual_address as usize / PAGE_FRAME_SIZE;
             let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
             let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
             let segment_padded_size = segment_padding + program_header.data.len();
@@ -144,11 +145,7 @@ impl ThreadControlBlock {
                     true,
                 );
 
-                write_bytes(
-                    kernel_virt_addr,
-                    0,
-                    segment_padded_size
-                );
+                write_bytes(kernel_virt_addr, 0, segment_padded_size);
 
                 // Load so we can write to the virtual addresses mapped above.
                 copy_nonoverlapping(
@@ -174,7 +171,7 @@ impl ThreadControlBlock {
             page_manager,
         )
     }
-    
+
     #[allow(unused)]
     pub fn new_with_setup(eip: NonNull<u8>, pid: Pid) -> Self {
         let mut new_thread = Self::new(eip, pid, PageManager::default());

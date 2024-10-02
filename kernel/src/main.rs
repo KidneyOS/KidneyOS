@@ -1,6 +1,5 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
-
 #![feature(allocator_api)]
 #![feature(asm_const)]
 #![feature(btreemap_alloc)]
