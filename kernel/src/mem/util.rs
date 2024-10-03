@@ -68,10 +68,10 @@ pub unsafe fn get_cstr_from_user_space(ptr: *const u8) -> Result<&'static str, C
 ///
 /// # Safety
 ///
-/// The returned reference is invalidated if the page(s) containing the string are mapped out of memory.
+/// The returned reference is invalidated if the page(s) containing the slice are mapped out of memory.
 /// You must not hold any other mutable references to any parts of the slice
 /// while it is in scope (as is required by Rust).
-/// Additionally, `ptr[..len]` must only contain valid values for `T` (e.g. it can't contain the byte `2` if `T` is `bool`).
+/// Additionally, `ptr[..count]` must only contain valid values for `T` (e.g. it can't contain the byte `2` if `T` is `bool`).
 ///
 /// TODO: this doesn't actually check that ptr is mapped yet.
 pub unsafe fn get_mut_slice_from_user_space<T>(
@@ -95,9 +95,10 @@ pub unsafe fn get_mut_slice_from_user_space<T>(
 ///
 /// # Safety
 ///
-/// The returned reference is invalidated if the page(s) containing the string are mapped out of memory.
+/// The returned reference is invalidated if the page(s) containing the slice are mapped out of memory.
 /// You must not hold any mutable references to any parts of the slice
 /// while it is in scope (as is required by Rust).
+/// Additionally, `ptr[..count]` must only contain valid values for `T` (e.g. it can't contain the byte `2` if `T` is `bool`).
 ///
 /// TODO: this doesn't actually check that ptr is mapped yet.
 pub unsafe fn get_slice_from_user_space<T>(ptr: *const u8, count: usize) -> Option<&'static [T]> {
