@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel", "trampoline"]
+members = ["kernel", "syscalls", "trampoline"]
 resolver = "2"
 
 [workspace.lints.clippy]
@@ -16,3 +16,12 @@ transmute_ptr_to_ptr = "warn"
 transmute_undefined_repr = "warn"
 unwrap_used = "warn"
 wildcard_imports = "warn"
+
+# Avoid eh_personality issues with binaries in this workspace.
+# Profiles are ignored when specified outside the root Cargo.toml.
+# https://os.phil-opp.com/freestanding-rust-binary/
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

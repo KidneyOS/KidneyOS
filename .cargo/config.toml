@@ -1,0 +1,6 @@
+[build]
+target = "i686-unknown-linux-gnu"
+
+[target.i686-unknown-linux-gnu]
+linker = "i686-unknown-linux-gnu-cc"
+rustflags = ["-C", "link-arg=-e _start -nostartfiles"]
