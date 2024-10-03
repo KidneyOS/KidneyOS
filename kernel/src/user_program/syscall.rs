@@ -1,6 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::fs::syscalls::open;
+use crate::fs::syscalls::{close, open, read, write};
 use crate::threading::scheduling::scheduler_yield_and_continue;
 use crate::threading::thread_functions;
 use kidneyos_shared::println;
@@ -8,7 +8,9 @@ use kidneyos_shared::println;
 pub const SYS_EXIT: usize = 0x1;
 pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;
+pub const SYS_WRITE: usize = 0x4;
 pub const SYS_OPEN: usize = 0x5;
+pub const SYS_CLOSE: usize = 0x6;
 pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0x0b;
 pub const SYS_NANOSLEEP: usize = 0xa2;
@@ -47,9 +49,9 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             todo!("fork syscall")
         }
         SYS_OPEN => unsafe { open(arg0 as _, arg1) as usize },
-        SYS_READ => {
-            todo!("read syscall")
-        }
+        SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) as usize },
+        SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) as usize },
+        SYS_CLOSE => close(arg0) as usize,
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }

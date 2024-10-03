@@ -37,4 +37,5 @@ pub fn is_userspace_writeable<T>(ptr: *const T) -> bool {
         return false;
     }
     // TODO: check page table
+    true
 }
