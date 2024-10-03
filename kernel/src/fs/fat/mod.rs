@@ -521,5 +521,35 @@ mod test {
     fn large_file_fat32() {
         large_file(FatType::Fat32);
     }
+
+    fn large_dir(r#type: FatType) {
+        let type_string = match r#type {
+            FatType::Fat16 => "fat16",
+            FatType::Fat32 => "fat32",
+        };
+        let mut fat = open_img_gz(&format!("tests/fat/large_dir_{type_string}.img.gz"));
+
+        let root = fat.root();
+        fat.open(root).unwrap();
+
+        // Open the large directory (assume it spans multiple clusters)
+        let entries: Vec<OwnedDirEntry> = fat.readdir(root).unwrap().to_sorted_vec();
+
+        // Check if we have a large number of entries
+        assert!(entries.len() > 299, "Expected more than 299 entries, found {}", entries.len());
+        
+        // Read the directory entries
+        fat.release(root);
+    }
+
+    #[test]
+    fn large_dir_fat16() {
+        large_dir(FatType::Fat16);
+    }
+
+    #[test]
+    fn large_dir_fat32() {
+        large_dir(FatType::Fat32);
+    }
     
 }

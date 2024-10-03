@@ -75,5 +75,5 @@ copy_filesystem32 "${DIR}_fat32.img"
 echo 'Creating FAT-16 image'
 rm -f "${DIR}_fat16.img"
 dd if=/dev/zero of="${DIR}_fat16.img" bs=1024 count=16384 || exit 1
-mkfs.vfat -F 16 -s 1 -S 512 "${DIR}_fat16.img" || exit 1
+mkfs.vfat -F 16 "${DIR}_fat16.img" || exit 1
 copy_filesystem16 "${DIR}_fat16.img"
