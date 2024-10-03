@@ -1,10 +1,26 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::threading::thread_control_block::Pid;
-use crate::vfs::{Error, FileHandle, FileSystem, INodeNum, OwnedPath, Path, Result, DirEntries, INodeType};
-use alloc::{boxed::Box,
-collections::{BTreeMap, btree_map::{Entry as BTreeMapEntry}},
-vec};
+use crate::vfs::{
+    DirEntries, Error, FileHandle, FileSystem, INodeNum, INodeType, OwnedPath, Path, Result,
+};
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::Entry as BTreeMapEntry, BTreeMap},
+    vec,
+};
 use core::num::NonZeroUsize;
+
+/// Mode for opening a file
+#[derive(Debug, Copy, Clone)]
+pub enum Mode {
+    /// Open existing file for read/write access
+    ReadWrite,
+    /// Open or create file for read/write access
+    CreateReadWrite,
+    // could add ReadOnly, WriteOnly, etc. here
+    // - depends whether we want support for file permissions
+    // (if not, we could just do that at the libc level)
+}
 
 /// Maximum number of simultaneously open files for a process.
 ///
@@ -21,6 +37,16 @@ struct FileSystemManager<F: FileSystem> {
     directories: BTreeMap<INodeNum, DirEntries>,
 }
 
+struct TempOpen<F: FileSystem> {
+    handle: F::FileHandle,
+}
+
+impl<F: FileSystem> Drop for TempOpen<F> {
+    fn drop(&mut self) {
+        panic!("temporarily-open file dropped — make sure you call FileSystemManager::temp_close instead!")
+    }
+}
+
 impl<F: FileSystem> FileSystemManager<F> {
     fn new(fs: F) -> Self {
         Self {
@@ -30,14 +56,30 @@ impl<F: FileSystem> FileSystemManager<F> {
             directories: BTreeMap::new(),
         }
     }
+
+    fn temp_open(&mut self, inode: INodeNum) -> Result<TempOpen<F>> {
+        let handle = self.fs.open(inode)?;
+        Ok(TempOpen { handle })
+    }
+    fn temp_open_path(&mut self, path: &Path) -> Result<TempOpen<F>> {
+        let inode = self.inode_for_path(path)?;
+        self.temp_open(inode)
+    }
+    fn temp_close(&mut self, file: TempOpen<F>) {
+        let inode = file.handle.inode();
+        if self.open_file_count.contains_key(&inode) {
+            self.fs.release(inode);
+        }
+        core::mem::forget(file);
+    }
+
     fn directory_entries(&mut self, inode: INodeNum) -> Result<&mut DirEntries> {
+        #[allow(clippy::map_entry)] // can't use entry() here because we're borrowing self mutably
         if !self.directories.contains_key(&inode) {
-            // TODO: consider converting this to a BTreeMap.
-            let mut dir_fh = self.fs.open(inode)?;
-            let entries = self.fs.readdir(&mut dir_fh);
-            if !self.open_file_count.contains_key(&inode) {
-                self.fs.release(inode);
-            }
+            let mut dir = self.temp_open(inode)?;
+            // TODO: consider converting entries to a BTreeMap.
+            let entries = self.fs.readdir(&mut dir.handle);
+            self.temp_close(dir);
             let entries = entries?;
             self.directories.insert(inode, entries);
         }
@@ -72,7 +114,7 @@ impl<F: FileSystem> FileSystemManager<F> {
                         INodeType::Link => todo!("symlink handling"),
                         INodeType::File => {
                             if !is_last {
-                                return Err(Error::NotDirectory)
+                                return Err(Error::NotDirectory);
                             }
                         }
                         INodeType::Directory => {
@@ -94,47 +136,8 @@ impl<F: FileSystem> FileSystemManager<F> {
         }
         Ok(inode)
     }
-}
-
-/// Unfortunately `FileSystemManager<dyn FileSystem>` doesn't work (we'd have to specify the
-/// FileHandle type). So we need a new trait to be able to create dynamic objects
-/// which can use different file systems.
-trait FileSystemManagerTrait {
-    fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
-    fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
-    fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
-    fn sync(&mut self) -> Result<()>;
-    fn can_be_safely_unmounted(&self) -> bool;
-}
-
-struct TempOpen<'a, F: FileSystem> {
-    fs: &'a mut F,
-    already_open: bool,
-    handle: F::FileHandle,
-}
-
-impl<F: FileSystem> Drop for TempOpen<'_, F> {
-    fn drop(&mut self) {
-        if !self.already_open {
-            self.fs.release(self.handle.inode());
-        }
-    }
-}
-
-fn temp_open<F: FileSystem>(fs: &mut F, inode: INodeNum, already_open: bool) -> Result<TempOpen<'_, F>> {
-    let handle = fs.open(inode)?;
-    Ok(TempOpen {
-        fs,
-        already_open,
-        handle,
-    })
-}
-
-impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
-    fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        let inode = self.inode_for_path(path)?;
-        let handle = self.fs.open(inode)?;
-        match self.open_file_count.entry(inode) {
+    fn open_file_handle(&mut self, fd: ProcessFileDescriptor, handle: F::FileHandle) -> Result<()> {
+        match self.open_file_count.entry(handle.inode()) {
             BTreeMapEntry::Occupied(mut o) => {
                 let count = o.get_mut();
                 *count = count.checked_add(1).expect("shouldn't overflow usize");
@@ -147,20 +150,57 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         debug_assert!(_prev.is_none(), "duplicate fd");
         Ok(())
     }
+}
+
+/// Unfortunately `FileSystemManager<dyn FileSystem>` doesn't work (we'd have to specify the
+/// FileHandle type). So we need a new trait to be able to create dynamic objects
+/// which can use different file systems.
+trait FileSystemManagerTrait {
+    fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
+    fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
+    fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
+    fn sync(&mut self) -> Result<()>;
+    fn exists(&mut self, path: &Path) -> Result<bool>;
+    fn mkdir(&mut self, path: &Path) -> Result<()>;
+    fn can_be_safely_unmounted(&self) -> bool;
+}
+
+/// get parent directory and name of absolute path
+/// e.g. /foo/bar => "/foo", "bar"
+fn dirname_and_filename(path: &Path) -> (&Path, &Path) {
+    let Some(final_slash) = path.rfind('/') else {
+        panic!("not an absolute path");
+    };
+    let dir = if final_slash == 0 {
+        "/"
+    } else {
+        &path[..final_slash]
+    };
+    let name = &path[final_slash + 1..];
+    (dir, name)
+}
+
+impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
+    fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
+        let inode = self.inode_for_path(path)?;
+        let handle = self.fs.open(inode)?;
+        self.open_file_handle(fd, handle)
+    }
     fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        let Some(final_slash) = path.rfind('/') else {
-            panic!("not an absolute path");
-        };
-        let dir = &path[..final_slash];
-        let name = &path[final_slash + 1..];
+        let (dir, name) = dirname_and_filename(path);
         if name.is_empty() {
             // e.g. create("foo/")
             return Err(Error::IsDirectory);
         }
         let dir_inode = self.inode_for_path(dir)?;
-        let mut dir = temp_open(&mut self.fs, dir_inode, self.open_file_count.contains_key(&dir_inode));
-        self.fs.create(&mut dir.handle, name)?;
-        Ok(())
+        let mut dir = self.temp_open(dir_inode)?;
+        let file = self.fs.create(&mut dir.handle, name);
+        self.temp_close(dir);
+        let file = file?;
+        // add file to directory entry cache
+        self.directory_entries(dir_inode)?
+            .add(file.inode(), INodeType::File, name);
+        self.open_file_handle(fd, file)
     }
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
         let handle = self.open_files.remove(&fd).ok_or(Error::BadFd)?;
@@ -179,6 +219,24 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     }
     fn sync(&mut self) -> Result<()> {
         self.fs.sync()
+    }
+    fn mkdir(&mut self, path: &Path) -> Result<()> {
+        let (parent_dir, name) = dirname_and_filename(path);
+        if name.is_empty() {
+            // e.g. turn mkdir("/foo/") into mkdir("/foo")
+            return self.mkdir(parent_dir);
+        }
+        let mut parent_dir = self.temp_open_path(parent_dir)?;
+        let result = self.fs.mkdir(&mut parent_dir.handle, name);
+        self.temp_close(parent_dir);
+        result
+    }
+    fn exists(&mut self, path: &Path) -> Result<bool> {
+        match self.inode_for_path(path) {
+            Err(Error::NotFound) => Ok(false),
+            Err(e) => Err(e),
+            Ok(_) => Ok(true),
+        }
     }
 }
 
@@ -203,11 +261,15 @@ impl RootFileSystem {
             open_files: BTreeMap::new(),
         }
     }
+    /// Determine which filesystem a path belongs to, and return the path relative to the filesystem.
+    ///
+    /// This can only fail if / isn't mounted.
     fn resolve_path<'a>(&self, path: &'a Path) -> Result<(FileSystemID, &'a Path)> {
         let mut result = None;
         for i in 0..path.len() {
             if path.as_bytes()[i] == b'/' {
-                if let Some(id) = self.mount_points.get(&path[..i]) {
+                let dir = if i == 0 { "/" } else { &path[..i] };
+                if let Some(id) = self.mount_points.get(dir) {
                     result = Some((*id, &path[i..]));
                 }
             }
@@ -225,13 +287,22 @@ impl RootFileSystem {
         Err(Error::TooManyOpenFiles)
     }
     pub fn mount<F: FileSystem + 'static>(&mut self, path: &Path, fs: F) -> Result<()> {
-        // verify that path is an empty directory
+        // verify that path doesn't already exist
         if path == "/" {
             if !self.mount_points.is_empty() {
-                return Err(Error::NotEmpty);
+                return Err(Error::Exists);
             }
         } else {
-            todo!("check that path is an empty directory")
+            let (fs, name) = self.resolve_path(path)?;
+            let fs = self.file_systems[fs as usize].as_mut().unwrap();
+            let (parent, _) = dirname_and_filename(name);
+            if !fs.exists(parent)? {
+                // e.g. mount /foo/bar when /foo doesn't exist
+                return Err(Error::NotFound);
+            }
+            if fs.exists(name)? {
+                return Err(Error::Exists);
+            }
         }
         // add FS
         let mut fs_id = None;
@@ -261,14 +332,17 @@ impl RootFileSystem {
         self.mount_points.remove(path);
         Ok(())
     }
-    pub fn open(&mut self, path: &Path, pid: Pid) -> Result<ProcessFileDescriptor> {
+    pub fn open(&mut self, path: &Path, pid: Pid, mode: Mode) -> Result<ProcessFileDescriptor> {
         let (fs, path) = self.resolve_path(path)?;
         let fd = self.new_fd(fs, pid)?;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
-        let result = fs.open(path, fd);
+        let result = match mode {
+            Mode::ReadWrite => fs.open(path, fd),
+            Mode::CreateReadWrite => fs.create(path, fd),
+        };
         if let Err(e) = result {
             self.open_files.remove(&fd);
-            return Err(e)
+            return Err(e);
         }
         Ok(fd)
     }
@@ -278,5 +352,57 @@ impl RootFileSystem {
         fs.close(fd)?;
         self.open_files.remove(&fd);
         Ok(())
+    }
+    pub fn mkdir(&mut self, path: &Path) -> Result<()> {
+        let (fs, path) = self.resolve_path(path)?;
+        let fs = self.file_systems[fs as usize].as_mut().unwrap();
+        fs.mkdir(path)
+    }
+    /// Close all open files belonging to process
+    ///
+    /// This should be called when the process exits/is killed.
+    pub fn close_all(&mut self, _pid: Pid) -> Result<()> {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::vfs::tempfs::TempFS;
+    #[test]
+    fn test_one_filesystem_simple() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount("/", fs).unwrap();
+        let file = root.open("/foo", 1, Mode::CreateReadWrite).unwrap();
+        root.close(file).unwrap();
+        let file = root.open("/foo", 1, Mode::ReadWrite).unwrap();
+        root.close(file).unwrap();
+        root.unmount("/").unwrap();
+    }
+    #[test]
+    fn test_multiple_filesystems_simple() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount("/", fs).unwrap();
+        let fs2 = TempFS::new();
+        root.mount("/2", fs2).unwrap();
+        let fs3 = TempFS::new();
+        root.mount("/2/3", fs3).unwrap();
+        for path in ["/foo", "/2/foo", "/2/3/foo"] {
+            let file = root.open(path, 1, Mode::CreateReadWrite).unwrap();
+            // we shouldn't be allowed to unmount the FS file is contained in while it's open
+            assert!(matches!(
+                root.unmount(dirname_and_filename(path).0),
+                Err(Error::FileSystemInUse)
+            ));
+            root.close(file).unwrap();
+            let file = root.open(path, 1, Mode::ReadWrite).unwrap();
+            root.close(file).unwrap();
+        }
+        root.unmount("/2/3").unwrap();
+        root.unmount("/2").unwrap();
+        root.unmount("/").unwrap();
     }
 }
