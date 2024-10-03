@@ -2,7 +2,7 @@ use crate::fs::{
     fs_manager::{Mode, ROOT},
     FileDescriptor, ProcessFileDescriptor,
 };
-use crate::paging::{
+use crate::mem::util::{
     get_cstr_from_user_space, get_mut_slice_from_user_space, get_slice_from_user_space, CStrError,
 };
 use crate::user_program::syscall::{EBADF, EFAULT, EINVAL, ENOENT};

@@ -10,6 +10,8 @@ pub struct Timespec {
     // TODO: Fill for nanosleep.
 }
 
+pub const O_CREATE: u32 = 0x40;
+
 #[no_mangle]
 pub extern "C" fn exit(code: usize) {
     unsafe {
@@ -33,13 +35,51 @@ pub extern "C" fn fork() {
 }
 
 #[no_mangle]
-pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) {
+pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> i32 {
+    let result;
     unsafe {
         asm!("
             mov eax, 0x3
             int 0x80
-        ", in("ebx") fd, in("ecx") buffer, in("edx") count);
+        ", in("ebx") fd, in("ecx") buffer, in("edx") count, out("eax") result);
     }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn write(fd: u32, buffer: *const u8, count: usize) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0x4
+            int 0x80
+        ", in("ebx") fd, in("ecx") buffer, in("edx") count, out("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn open(name: *const u8, flags: usize) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0x5
+            int 0x80
+        ", in("ebx") name, in("ecx") flags, out("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn close(fd: u32) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0x6
+            int 0x80
+        ", in("ebx") fd, out("eax") result);
+    }
+    result
 }
 
 #[no_mangle]

@@ -10,6 +10,8 @@
 
 #include <stdint.h>
 
+#define O_CREATE 64
+
 typedef uint16_t Pid;
 
 typedef struct Timespec {
@@ -20,7 +22,13 @@ void exit(uintptr_t code);
 
 void fork(void);
 
-void read(uint32_t fd, uint8_t *buffer, uintptr_t count);
+int32_t read(uint32_t fd, uint8_t *buffer, uintptr_t count);
+
+int32_t write(uint32_t fd, const uint8_t *buffer, uintptr_t count);
+
+int32_t open(const uint8_t *name, uintptr_t flags);
+
+int32_t close(uint32_t fd);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 
