@@ -43,6 +43,8 @@ pub struct FatFS {
     first_cluster_disk_sector: u32,
     /// File allocation table
     fat: Fat,
+    /// Number of data clusters in filesystem
+    cluster_count: u32,
     /// In-memory file information
     file_info: BTreeMap<INodeNum, FatFileInfo>,
 }
@@ -249,8 +251,18 @@ impl FatFS {
             // use an inode of 0 for the root directory (needs special handling)
             0
         };
+        let fat16_root_disk_sector_count =
+            base_header.fat16_root_ent_count() * 32 / BLOCK_SECTOR_SIZE as u32;
         let disk_sectors_per_cluster =
             disk_sectors_per_fat_sector * u32::from(base_header.sectors_per_cluster);
+        let root_clusters: Vec<u32> = if fat_type == FatType::Fat32 {
+            fat.clusters_for_file(root_inode)?
+        } else {
+            // root directory is special in FAT-12/16
+            (fat16_first_root_disk_sector
+                ..fat16_first_root_disk_sector + fat16_root_disk_sector_count)
+                .collect()
+        };
         let root_info = FatFileInfo {
             vfs: FileInfo {
                 inode: root_inode,
@@ -258,7 +270,7 @@ impl FatFS {
                 r#type: INodeType::Directory,
                 nlink: 1,
             },
-            clusters: fat.clusters_for_file(root_inode)?,
+            clusters: root_clusters,
         };
         let mut file_info = BTreeMap::new();
         file_info.insert(root_inode, root_info);
@@ -270,8 +282,8 @@ impl FatFS {
             disk_sectors_per_cluster,
             first_cluster_disk_sector,
             fat16_first_root_disk_sector,
-            fat16_root_disk_sector_count: base_header.fat16_root_ent_count() * 32
-                / BLOCK_SECTOR_SIZE as u32,
+            cluster_count,
+            fat16_root_disk_sector_count,
         })
     }
     fn first_disk_sector_in_cluster(&self, cluster: u32) -> u32 {
@@ -324,6 +336,9 @@ impl SimpleFileSystem for FatFS {
         let mut entries = vec![];
         for entry in &fat_entries {
             let inode = entry.info.inode;
+            if inode >= self.cluster_count {
+                return error!("file starts at invalid cluster");
+            }
             self.file_info.insert(
                 inode,
                 FatFileInfo {
@@ -504,11 +519,15 @@ mod test {
         fat.open(file_large.inode).unwrap();
 
         // Buffer for reading file content
-        let mut buf = vec![0; 128 * 1024];  // 128KB buffer
+        let mut buf = vec![0; 128 * 1024]; // 128KB buffer
         let n = fat.read(file_large.inode, 0, &mut buf).unwrap();
 
-         // Ensure that the file read more than 64KB
-        assert!(n > 64 * 1024, "Expected to read more than 64KB, but read {} bytes", n);
+        // Ensure that the file read more than 64KB
+        assert!(
+            n > 64 * 1024,
+            "Expected to read more than 64KB, but read {} bytes",
+            n
+        );
 
         fat.release(file_large.inode);
         fat.release(root);
@@ -536,8 +555,12 @@ mod test {
         let entries: Vec<OwnedDirEntry> = fat.readdir(root).unwrap().to_sorted_vec();
 
         // Check if we have a large number of entries
-        assert!(entries.len() > 299, "Expected more than 299 entries, found {}", entries.len());
-        
+        assert!(
+            entries.len() > 299,
+            "Expected more than 299 entries, found {}",
+            entries.len()
+        );
+
         // Read the directory entries
         fat.release(root);
     }
@@ -551,5 +574,4 @@ mod test {
     fn large_dir_fat32() {
         large_dir(FatType::Fat32);
     }
-    
 }
