@@ -27,10 +27,12 @@ extern crate alloc;
 
 use crate::block::block_core::block_init;
 use crate::drivers::ata::ata_core::ide_init;
+use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
+use vfs::tempfs::TempFS;
 
 #[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -82,6 +84,13 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up IDE");
         let _block_manager = ide_init(block_manager, true);
         println!("IDE set up!");
+
+        println!("Mounting root filesystem...");
+        // for now, we just use TempFS for the root filesystem
+        ROOT.lock()
+            .mount("/", TempFS::new())
+            .expect("Couldn't mount root FS");
+        println!("Root mounted!");
 
         thread_system_start(page_manager, INIT);
     }

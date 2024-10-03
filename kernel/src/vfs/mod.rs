@@ -13,7 +13,7 @@ pub type OwnedPath = String;
 /// **IMPORTANT**: the kernel must call [`FileSystem::release`]
 /// when it closes its last open file to an inode. Otherwise,
 /// the filesystem will have to keep around the file's data indefinitely!
-pub trait FileHandle: core::fmt::Debug {
+pub trait FileHandle: core::fmt::Debug + Send + Sync {
     fn inode(&self) -> INodeNum;
 }
 
@@ -74,6 +74,27 @@ impl core::fmt::Display for Error {
 }
 
 impl core::error::Error for Error {}
+
+impl Error {
+    pub fn to_isize(&self) -> isize {
+        use crate::user_program::syscall;
+        match self {
+            Error::NotFound => syscall::ENOENT,
+            Error::NotDirectory => syscall::ENOTDIR,
+            Error::IsDirectory => syscall::EISDIR,
+            Error::NoSpace => syscall::ENOSPC,
+            Error::TooManyLinks => syscall::EMLINK,
+            Error::NotEmpty => syscall::ENOTEMPTY,
+            Error::Exists => syscall::EEXIST,
+            Error::Unsupported => syscall::EIO,
+            Error::ReadOnlyFS => syscall::EROFS,
+            Error::TooManyOpenFiles => syscall::EMFILE,
+            Error::BadFd => syscall::EBADF,
+            Error::FileSystemInUse => syscall::EBUSY,
+            Error::IO(_) => syscall::EIO,
+        }
+    }
+}
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -206,7 +227,7 @@ impl<'a> IntoIterator for &'a DirEntries {
     }
 }
 
-pub trait FileSystem: Sized {
+pub trait FileSystem: Sized + Sync + Send {
     type FileHandle: FileHandle;
     /// Get root inode number
     fn root(&self) -> INodeNum;
@@ -305,7 +326,7 @@ pub trait FileSystem: Sized {
 /// This trait also has default stub implementations for all the filesystem functions except for [`FileSystem::root`],
 /// so you can implement and test them one at a time
 #[allow(unused_variables)] // default implementations don't always use their parameters
-pub trait SimpleFileSystem: Sized {
+pub trait SimpleFileSystem: Sized + Send + Sync {
     /// Get root inode number.
     fn root(&self) -> INodeNum;
     /// The kernel will always call this function before reading/writing data to a file.

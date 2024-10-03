@@ -1,4 +1,5 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
+use crate::sync::mutex::Mutex;
 use crate::threading::thread_control_block::Pid;
 use crate::vfs::{
     DirEntries, Error, FileHandle, FileSystem, INodeNum, INodeType, OwnedPath, Path, Result,
@@ -155,7 +156,7 @@ impl<F: FileSystem> FileSystemManager<F> {
 /// Unfortunately `FileSystemManager<dyn FileSystem>` doesn't work (we'd have to specify the
 /// FileHandle type). So we need a new trait to be able to create dynamic objects
 /// which can use different file systems.
-trait FileSystemManagerTrait {
+trait FileSystemManagerTrait: Send + Sync {
     fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
     fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
@@ -349,7 +350,7 @@ impl RootFileSystem {
         self.mount_points.remove(path);
         Ok(())
     }
-    pub fn open(&mut self, path: &Path, pid: Pid, mode: Mode) -> Result<ProcessFileDescriptor> {
+    pub fn open(&mut self, path: &Path, pid: Pid, mode: Mode) -> Result<FileDescriptor> {
         let (fs, path) = self.resolve_path(path)?;
         let fd = self.new_fd(fs, pid)?;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
@@ -361,7 +362,7 @@ impl RootFileSystem {
             self.open_files.remove(&fd);
             return Err(e);
         }
-        Ok(fd)
+        Ok(fd.fd)
     }
     /// Close an open file
     ///
@@ -408,6 +409,8 @@ impl RootFileSystem {
         });
     }
 }
+
+pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
 
 #[cfg(test)]
 mod test {

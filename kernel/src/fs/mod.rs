@@ -1,4 +1,5 @@
 pub mod fs_manager;
+pub mod syscalls;
 use crate::threading::thread_control_block::Pid;
 
 pub type FileDescriptor = i16;
