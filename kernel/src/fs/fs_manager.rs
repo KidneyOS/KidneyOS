@@ -159,6 +159,8 @@ trait FileSystemManagerTrait {
     fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
     fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
+    fn read(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &mut [u8]) -> Result<usize>;
+    fn write(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &[u8]) -> Result<usize>;
     fn sync(&mut self) -> Result<()>;
     fn exists(&mut self, path: &Path) -> Result<bool>;
     fn mkdir(&mut self, path: &Path) -> Result<()>;
@@ -238,6 +240,14 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
             Ok(_) => Ok(true),
         }
     }
+    fn read(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        self.fs.read(handle, offset, buf)
+    }
+    fn write(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &[u8]) -> Result<usize> {
+        let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        self.fs.write(handle, offset, buf)
+    }
 }
 
 type FileSystemID = u16;
@@ -245,6 +255,7 @@ type FileSystemID = u16;
 #[derive(Debug)]
 struct OpenFile {
     fs: FileSystemID,
+    offset: u64,
 }
 
 pub struct RootFileSystem {
@@ -280,7 +291,7 @@ impl RootFileSystem {
         for fd in 0..MAX_OPEN_FILES as FileDescriptor {
             let fd = ProcessFileDescriptor { pid, fd };
             if let alloc::collections::btree_map::Entry::Vacant(entry) = self.open_files.entry(fd) {
-                entry.insert(OpenFile { fs });
+                entry.insert(OpenFile { fs, offset: 0 });
                 return Ok(fd);
             }
         }
@@ -322,6 +333,12 @@ impl RootFileSystem {
         Ok(())
     }
     pub fn unmount(&mut self, path: &Path) -> Result<()> {
+        for mount_point in self.mount_points.keys() {
+            if path != mount_point && mount_point.starts_with(path) {
+                // e.g. can't unmount /foo while /foo/bar is mounted
+                return Err(Error::FileSystemInUse);
+            }
+        }
         let fs_id = *self.mount_points.get(path).ok_or(Error::NotFound)?;
         let fs = self.file_systems[fs_id as usize].as_mut().unwrap();
         if !fs.can_be_safely_unmounted() {
@@ -346,23 +363,49 @@ impl RootFileSystem {
         }
         Ok(fd)
     }
+    /// Close an open file
+    ///
+    /// If this returns an error other than [`Error::BadFd`], the file is still closed,
+    /// and you should not try to close it again (as on Linux).
     pub fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
         let fs = self.open_files.get(&fd).ok_or(Error::BadFd)?.fs;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
-        fs.close(fd)?;
+        let result = fs.close(fd);
         self.open_files.remove(&fd);
-        Ok(())
+        result
     }
     pub fn mkdir(&mut self, path: &Path) -> Result<()> {
         let (fs, path) = self.resolve_path(path)?;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
         fs.mkdir(path)
     }
+    pub fn read(&mut self, fd: ProcessFileDescriptor, buf: &mut [u8]) -> Result<usize> {
+        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        let fs = self.file_systems[file_info.fs as usize].as_mut().unwrap();
+        let read_count = fs.read(fd, file_info.offset, buf)?;
+        file_info.offset += read_count as u64;
+        Ok(read_count)
+    }
+    pub fn write(&mut self, fd: ProcessFileDescriptor, buf: &[u8]) -> Result<usize> {
+        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        let fs = self.file_systems[file_info.fs as usize].as_mut().unwrap();
+        let write_count = fs.write(fd, file_info.offset, buf)?;
+        file_info.offset += write_count as u64;
+        Ok(write_count)
+    }
     /// Close all open files belonging to process
     ///
     /// This should be called when the process exits/is killed.
-    pub fn close_all(&mut self, _pid: Pid) -> Result<()> {
-        todo!()
+    /// All errors that occur while closing files are ignored.
+    pub fn close_all(&mut self, pid: Pid) {
+        self.open_files.retain(|&fd, info| {
+            if fd.pid != pid {
+                return true;
+            }
+            let fs = self.file_systems[info.fs as usize].as_mut().unwrap();
+            let _ = fs.close(fd);
+            false
+        });
     }
 }
 
@@ -376,8 +419,12 @@ mod test {
         let fs = TempFS::new();
         root.mount("/", fs).unwrap();
         let file = root.open("/foo", 1, Mode::CreateReadWrite).unwrap();
+        assert_eq!(root.write(file, b"test data").unwrap(), 9);
         root.close(file).unwrap();
         let file = root.open("/foo", 1, Mode::ReadWrite).unwrap();
+        let mut buf = [0; 10];
+        assert_eq!(root.read(file, &mut buf).unwrap(), 9);
+        assert_eq!(&buf, b"test data\0");
         root.close(file).unwrap();
         root.unmount("/").unwrap();
     }
@@ -397,10 +444,15 @@ mod test {
                 root.unmount(dirname_and_filename(path).0),
                 Err(Error::FileSystemInUse)
             ));
+            assert_eq!(root.write(file, b"test data").unwrap(), 9);
             root.close(file).unwrap();
             let file = root.open(path, 1, Mode::ReadWrite).unwrap();
+            let mut buf = [0; 10];
+            assert_eq!(root.read(file, &mut buf).unwrap(), 9);
+            assert_eq!(&buf, b"test data\0");
             root.close(file).unwrap();
         }
+        assert!(matches!(root.unmount("/2"), Err(Error::FileSystemInUse)));
         root.unmount("/2/3").unwrap();
         root.unmount("/2").unwrap();
         root.unmount("/").unwrap();
