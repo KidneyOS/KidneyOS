@@ -75,15 +75,14 @@ pub unsafe fn get_cstr_from_user_space(ptr: *const u8) -> Result<&'static str, C
 ///
 /// TODO: this doesn't actually check that ptr is mapped yet.
 pub unsafe fn get_mut_slice_from_user_space<T>(
-    ptr: *mut u8,
+    ptr: *mut T,
     count: usize,
 ) -> Option<&'static mut [T]> {
-    let bytes = count.checked_mul(core::mem::size_of::<T>())?;
-    if !can_access_address_range(ptr, bytes, true) {
+    if !ptr.is_aligned() {
         return None;
     }
-    let ptr: *mut T = ptr.cast();
-    if !ptr.is_aligned() {
+    let bytes = count.checked_mul(core::mem::size_of::<T>())?;
+    if !can_access_address_range(ptr as _, bytes, true) {
         return None;
     }
     Some(core::slice::from_raw_parts_mut(ptr.cast(), count))
@@ -101,15 +100,15 @@ pub unsafe fn get_mut_slice_from_user_space<T>(
 /// Additionally, `ptr[..count]` must only contain valid values for `T` (e.g. it can't contain the byte `2` if `T` is `bool`).
 ///
 /// TODO: this doesn't actually check that ptr is mapped yet.
-pub unsafe fn get_slice_from_user_space<T>(ptr: *const u8, count: usize) -> Option<&'static [T]> {
-    let bytes = count.checked_mul(core::mem::size_of::<T>())?;
-    if !can_access_address_range(ptr, bytes, false) {
-        return None;
-    }
-    let ptr: *const T = ptr.cast();
+pub unsafe fn get_slice_from_user_space<T>(ptr: *const T, count: usize) -> Option<&'static [T]> {
     if !ptr.is_aligned() {
         return None;
     }
+    let bytes = count.checked_mul(core::mem::size_of::<T>())?;
+    if !can_access_address_range(ptr as _, bytes, false) {
+        return None;
+    }
+    let ptr: *const T = ptr.cast();
     Some(core::slice::from_raw_parts(ptr, count))
 }
 
@@ -120,7 +119,7 @@ pub unsafe fn get_slice_from_user_space<T>(ptr: *const u8, count: usize) -> Opti
 /// # Safety
 ///
 /// See [`get_mut_slice_from_user_space`].
-pub unsafe fn get_mut_from_user_space<T>(ptr: *mut u8) -> Option<&'static mut T> {
+pub unsafe fn get_mut_from_user_space<T>(ptr: *mut T) -> Option<&'static mut T> {
     Some(&mut get_mut_slice_from_user_space(ptr, 1)?[0])
 }
 
@@ -131,6 +130,6 @@ pub unsafe fn get_mut_from_user_space<T>(ptr: *mut u8) -> Option<&'static mut T>
 /// # Safety
 ///
 /// See [`get_slice_from_user_space`].
-pub unsafe fn get_ref_from_user_space<T>(ptr: *const u8) -> Option<&'static T> {
+pub unsafe fn get_ref_from_user_space<T>(ptr: *const T) -> Option<&'static T> {
     Some(&get_slice_from_user_space(ptr, 1)?[0])
 }
