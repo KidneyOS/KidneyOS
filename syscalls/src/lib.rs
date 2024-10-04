@@ -11,6 +11,9 @@ pub struct Timespec {
 }
 
 pub const O_CREATE: u32 = 0x40;
+pub const SEEK_SET: i32 = 0;
+pub const SEEK_CUR: i32 = 1;
+pub const SEEK_END: i32 = 2;
 
 #[no_mangle]
 pub extern "C" fn exit(code: usize) {
@@ -80,6 +83,23 @@ pub extern "C" fn close(fd: u32) -> i32 {
         ", in("ebx") fd, out("eax") result);
     }
     result
+}
+
+#[no_mangle]
+pub extern "C" fn lseek(fd: u32, offset: i64, whence: i32) -> i64 {
+    let mut offset = offset;
+    let result: i32;
+    unsafe {
+        asm!("
+            mov eax, 0x13
+            int 0x80
+        ", in("ebx") fd, in("ecx") (core::ptr::addr_of_mut!(offset)), in("edx") whence, out("eax") result);
+    }
+    if result < 0 {
+        result.into()
+    } else {
+        offset
+    }
 }
 
 #[no_mangle]

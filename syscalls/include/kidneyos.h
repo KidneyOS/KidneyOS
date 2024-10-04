@@ -12,6 +12,12 @@
 
 #define O_CREATE 64
 
+#define SEEK_SET 0
+
+#define SEEK_CUR 1
+
+#define SEEK_END 2
+
 typedef uint16_t Pid;
 
 typedef struct Timespec {
@@ -29,6 +35,8 @@ int32_t write(uint32_t fd, const uint8_t *buffer, uintptr_t count);
 int32_t open(const uint8_t *name, uintptr_t flags);
 
 int32_t close(uint32_t fd);
+
+int64_t lseek(uint32_t fd, int64_t offset, int32_t whence);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 

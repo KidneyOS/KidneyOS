@@ -2,7 +2,8 @@ use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::sync::mutex::Mutex;
 use crate::threading::thread_control_block::Pid;
 use crate::vfs::{
-    DirEntries, Error, FileHandle, FileSystem, INodeNum, INodeType, OwnedPath, Path, Result,
+    DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, OwnedPath, Path,
+    Result,
 };
 use alloc::{
     boxed::Box,
@@ -10,6 +11,13 @@ use alloc::{
     vec,
 };
 use core::num::NonZeroUsize;
+
+/// Possible places to seek from
+pub enum SeekFrom {
+    Start,
+    Current,
+    End,
+}
 
 /// Mode for opening a file
 #[derive(Debug, Copy, Clone)]
@@ -166,6 +174,8 @@ trait FileSystemManagerTrait: Send + Sync {
     fn exists(&mut self, path: &Path) -> Result<bool>;
     fn mkdir(&mut self, path: &Path) -> Result<()>;
     fn can_be_safely_unmounted(&self) -> bool;
+    fn stat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo>;
+    fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64>;
 }
 
 /// get parent directory and name of absolute path
@@ -248,6 +258,13 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     fn write(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &[u8]) -> Result<usize> {
         let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         self.fs.write(handle, offset, buf)
+    }
+    fn stat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo> {
+        let handle = self.open_files.get(&fd).ok_or(Error::BadFd)?;
+        self.fs.stat(handle)
+    }
+    fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64> {
+        Ok(self.stat(fd)?.size)
     }
 }
 
@@ -394,6 +411,27 @@ impl RootFileSystem {
         file_info.offset += write_count as u64;
         Ok(write_count)
     }
+    pub fn lseek(
+        &mut self,
+        fd: ProcessFileDescriptor,
+        whence: SeekFrom,
+        offset: i64,
+    ) -> Result<i64> {
+        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        let offset = offset
+            .checked_add(match whence {
+                SeekFrom::Start => 0,
+                SeekFrom::Current => file_info.offset as i64,
+                SeekFrom::End => {
+                    let fs = self.file_systems[file_info.fs as usize].as_mut().unwrap();
+                    fs.size_of_file(fd)? as i64
+                }
+            })
+            .ok_or(Error::BadOffset)?;
+        let offset = u64::try_from(offset).map_err(|_| Error::BadOffset)?;
+        self.open_files.get_mut(&fd).ok_or(Error::BadFd)?.offset = offset;
+        Ok(offset as i64)
+    }
     /// Close all open files belonging to process
     ///
     /// This should be called when the process exits/is killed.
@@ -416,15 +454,21 @@ pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
 mod test {
     use super::*;
     use crate::vfs::tempfs::TempFS;
+    // open file for fake PID of 1 for testing
+    fn open(root: &mut RootFileSystem, path: &Path, mode: Mode) -> Result<ProcessFileDescriptor> {
+        let pid = 1;
+        let fd = root.open(path, pid, mode)?;
+        Ok(ProcessFileDescriptor { fd, pid })
+    }
     #[test]
     fn test_one_filesystem_simple() {
         let mut root = RootFileSystem::new();
         let fs = TempFS::new();
         root.mount("/", fs).unwrap();
-        let file = root.open("/foo", 1, Mode::CreateReadWrite).unwrap();
+        let file = open(&mut root, "/foo", Mode::CreateReadWrite).unwrap();
         assert_eq!(root.write(file, b"test data").unwrap(), 9);
         root.close(file).unwrap();
-        let file = root.open("/foo", 1, Mode::ReadWrite).unwrap();
+        let file = open(&mut root, "/foo", Mode::ReadWrite).unwrap();
         let mut buf = [0; 10];
         assert_eq!(root.read(file, &mut buf).unwrap(), 9);
         assert_eq!(&buf, b"test data\0");
@@ -441,7 +485,7 @@ mod test {
         let fs3 = TempFS::new();
         root.mount("/2/3", fs3).unwrap();
         for path in ["/foo", "/2/foo", "/2/3/foo"] {
-            let file = root.open(path, 1, Mode::CreateReadWrite).unwrap();
+            let file = open(&mut root, path, Mode::CreateReadWrite).unwrap();
             // we shouldn't be allowed to unmount the FS file is contained in while it's open
             assert!(matches!(
                 root.unmount(dirname_and_filename(path).0),
@@ -449,7 +493,7 @@ mod test {
             ));
             assert_eq!(root.write(file, b"test data").unwrap(), 9);
             root.close(file).unwrap();
-            let file = root.open(path, 1, Mode::ReadWrite).unwrap();
+            let file = open(&mut root, path, Mode::ReadWrite).unwrap();
             let mut buf = [0; 10];
             assert_eq!(root.read(file, &mut buf).unwrap(), 9);
             assert_eq!(&buf, b"test data\0");

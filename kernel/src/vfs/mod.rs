@@ -43,6 +43,8 @@ pub enum Error {
     BadFd,
     /// Trying to unmount file system with open files
     FileSystemInUse,
+    /// Seek to bad offset
+    BadOffset,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -68,6 +70,7 @@ impl core::fmt::Display for Error {
             Self::TooManyOpenFiles => write!(f, "too many open files"),
             Self::BadFd => write!(f, "bad file descriptor"),
             Self::FileSystemInUse => write!(f, "file system in use"),
+            Self::BadOffset => write!(f, "seek to bad offset"),
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
@@ -91,6 +94,7 @@ impl Error {
             Error::TooManyOpenFiles => syscall::EMFILE,
             Error::BadFd => syscall::EBADF,
             Error::FileSystemInUse => syscall::EBUSY,
+            Error::BadOffset => syscall::EINVAL,
             Error::IO(_) => syscall::EIO,
         }
     }
