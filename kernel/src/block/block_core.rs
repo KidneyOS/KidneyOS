@@ -277,12 +277,12 @@ pub mod test {
     }
     struct FileBlockOps<T: Seek + Read + Write>(T);
     impl<T: Seek + Read + Write> BlockOp for FileBlockOps<T> {
-        fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+        unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
             self.0.seek(seek_offset(sector)).unwrap();
             self.0.read_exact(buf).unwrap();
             Ok(())
         }
-        fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+        unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
             self.0.seek(seek_offset(sector)).unwrap();
             self.0.write_all(buf).unwrap();
             Ok(())
