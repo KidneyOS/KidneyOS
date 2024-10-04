@@ -1,5 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::threading::process_table::ProcessTable;
+use crate::threading::process_table::PROCESS_TABLE;
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
@@ -41,14 +41,6 @@ pub enum ThreadStatus {
     Dying,
 }
 
-pub static mut PROCESS_TABLE: Option<Box<ProcessTable>> = None;
-
-pub fn initialize_process_table() {
-    unsafe {
-        PROCESS_TABLE = Some(Box::new(ProcessTable::new()));
-    }
-}
-
 pub fn allocate_pid() -> Pid {
     // SAFETY: Atomically accesses a shared variable.
     NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
@@ -67,6 +59,23 @@ pub struct ProcessControlBlock {
 
     // TODO: (file I/O) file descriptor table
     pub exit_code: Option<i32>,
+}
+
+impl ProcessControlBlock {
+    pub fn create() -> Pid {
+        let pid = allocate_pid();
+        let pcb = Self {
+            pid,
+            child_tids: Vec::new(),
+            wait_list: Vec::new(),
+            exit_code: None,
+        };
+        unsafe {
+            PROCESS_TABLE.as_mut().expect("").add(Box::new(pcb));
+        }
+
+        pid
+    }
 }
 
 // TODO: Use enums so that we never have garbage data (i.e. stacks that don't
@@ -102,7 +111,7 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = allocate_pid();
+        let pid: Pid = ProcessControlBlock::create();
 
         let mut page_manager = PageManager::default();
 
@@ -172,6 +181,30 @@ impl ThreadControlBlock {
         )
     }
 
+    pub fn new_with_page_manager(
+        entry_instruction: NonNull<u8>,
+        pid: Pid,
+        page_manager: PageManager,
+    ) -> Self {
+        let mut new_thread = Self::new(entry_instruction, pid, page_manager);
+
+        // Now, we must build the stack frames for our new thread.
+        let switch_threads_context = new_thread
+            .allocate_stack_space(size_of::<SwitchThreadsContext>())
+            .expect("No Stack Space!");
+
+        // SAFETY: Manually setting stack bytes a la C.
+        unsafe {
+            *switch_threads_context
+                .as_ptr()
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+        }
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
     #[allow(unused)]
     pub fn new_with_setup(eip: NonNull<u8>, pid: Pid) -> Self {
         let mut new_thread = Self::new(eip, pid, PageManager::default());
@@ -198,30 +231,6 @@ impl ThreadControlBlock {
         }
 
         new_thread.eip = prepare_thread_context;
-
-        // Our thread can now be run via the `switch_threads` method.
-        new_thread.status = ThreadStatus::Ready;
-        new_thread
-    }
-
-    pub fn new_with_page_manager(
-        entry_instruction: NonNull<u8>,
-        pid: Pid,
-        page_manager: PageManager,
-    ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, pid, page_manager);
-
-        // Now, we must build the stack frames for our new thread.
-        let switch_threads_context = new_thread
-            .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
-
-        // SAFETY: Manually setting stack bytes a la C.
-        unsafe {
-            *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
-        }
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
