@@ -1,6 +1,7 @@
 #![allow(dead_code)] // Suppress unused warnings
 
 use crate::block::block_error::BlockError;
+use crate::interrupts::{intr_get_level, IntrLevel};
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
 use core::fmt;
@@ -107,11 +108,13 @@ impl Block {
     /// Reads sector `sector` from the block device into `buf`, which must have room for
     /// `BLOCK_SECTOR_SIZE` bytes.
     ///
-    /// # Safety
-    ///
-    /// This function must be called with interrupts enabled. Otherwise, the block device may not
-    /// wake up after the read operation is complete.
-    pub unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+    /// Panics if interrupts are disabled.
+    pub fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+        assert_eq!(
+            intr_get_level(),
+            IntrLevel::IntrOn,
+            "Block::read must not be called with interrupts disabled."
+        );
         if !self.is_sector_valid(sector) {
             return Err(BlockError::SectorOutOfBounds);
         }
@@ -120,17 +123,19 @@ impl Block {
         }
 
         self.read_count += 1;
-        self.driver.read(sector, buf)
+        unsafe { self.driver.read(sector, buf) }
     }
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
     /// after the block device has acknowledged receiving the data.
     ///
-    /// # Safety
-    ///
-    /// This function must be called with interrupts enabled. Otherwise, the block device may not
-    /// wake up after the write operation is complete.
-    pub unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+    /// Panics if interrupts are disabled.
+    pub fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+        assert_eq!(
+            intr_get_level(),
+            IntrLevel::IntrOn,
+            "Block::write must not be called with interrupts disabled."
+        );
         if !self.is_sector_valid(sector) {
             return Err(BlockError::SectorOutOfBounds);
         }
@@ -145,7 +150,7 @@ impl Block {
         );
 
         self.write_count += 1;
-        self.driver.write(sector, buf)
+        unsafe { self.driver.write(sector, buf) }
     }
 
     // Block getters -----------------------------------------------------------
