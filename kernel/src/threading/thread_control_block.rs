@@ -71,7 +71,7 @@ impl ProcessControlBlock {
             exit_code: None,
         };
         unsafe {
-            PROCESS_TABLE.as_mut().expect("").add(Box::new(pcb));
+            PROCESS_TABLE.as_mut().unwrap().add(Box::new(pcb));
         }
 
         pid

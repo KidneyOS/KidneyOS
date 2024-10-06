@@ -15,7 +15,6 @@ pub struct ProcessTable {
 }
 
 impl ProcessTable {
-    #![allow(dead_code)]
     pub fn new() -> ProcessTable {
         ProcessTable {
             table: BTreeMap::new(),
