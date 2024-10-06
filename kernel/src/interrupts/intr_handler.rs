@@ -69,6 +69,7 @@ pub unsafe extern "C" fn syscall_handler() -> ! {
 pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
     asm!(
         "
+        pusha
         // Push IRQ0 value onto the stack.
         push 0x0
         call {} // Update system clock
@@ -76,6 +77,7 @@ pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
         call {} // Yield process
 
         add esp, 4 // Drop arguments from stack
+        popa
         iretd
         ",
         sym timer::step_sys_clock,
@@ -89,6 +91,7 @@ pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
 pub unsafe extern "C" fn ide_prim_interrupt_handler() -> ! {
     asm!(
     "
+    pusha
     // Push IRQ14 value onto the stack.
     push 0XE
     call {} // Send irq signal to ATA
@@ -96,6 +99,7 @@ pub unsafe extern "C" fn ide_prim_interrupt_handler() -> ! {
     call {} // Yield process
 
     add esp, 4 // Drop arguments from stack
+    popa
     iretd
     ",
     sym ata_interrupt::on_ide_interrupt,
@@ -109,6 +113,7 @@ pub unsafe extern "C" fn ide_prim_interrupt_handler() -> ! {
 pub unsafe extern "C" fn ide_secd_interrupt_handler() -> ! {
     asm!(
     "
+    pusha
     // Push IRQ15 value onto the stack.
     push 0XF
     call {} // Send irq signal to ATA
@@ -116,6 +121,7 @@ pub unsafe extern "C" fn ide_secd_interrupt_handler() -> ! {
     call {} // Yield process
 
     add esp, 4 // Drop arguments from stack
+    popa
     iretd
     ",
     sym ata_interrupt::on_ide_interrupt,
