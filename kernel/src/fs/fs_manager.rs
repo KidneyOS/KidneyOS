@@ -13,6 +13,7 @@ use alloc::{
 use core::num::NonZeroUsize;
 
 /// Possible places to seek from
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SeekFrom {
     Start,
     Current,
