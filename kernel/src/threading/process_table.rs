@@ -2,12 +2,19 @@ use super::thread_control_block::{Pid, ProcessControlBlock};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 
+pub static mut PROCESS_TABLE: Option<Box<ProcessTable>> = None;
+
+pub fn initialize_process_table() {
+    unsafe {
+        PROCESS_TABLE = Some(Box::new(ProcessTable::new()));
+    }
+}
+
 pub struct ProcessTable {
     table: BTreeMap<Pid, Box<ProcessControlBlock>>,
 }
 
 impl ProcessTable {
-    #![allow(dead_code)]
     pub fn new() -> ProcessTable {
         ProcessTable {
             table: BTreeMap::new(),
