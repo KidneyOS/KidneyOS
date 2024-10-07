@@ -22,7 +22,7 @@ pub unsafe fn enable() -> PageManager {
     page_manager
 }
 
-pub fn is_userspace_readable(ptr: *const u8) -> bool {
+pub fn is_userspace_readable<T>(ptr: *const T) -> bool {
     if (ptr as isize) <= 0 {
         // null or kernel-space address
         return false;
@@ -31,7 +31,7 @@ pub fn is_userspace_readable(ptr: *const u8) -> bool {
     true
 }
 
-pub fn is_userspace_writeable(ptr: *const u8) -> bool {
+pub fn is_userspace_writeable<T>(ptr: *const T) -> bool {
     if (ptr as isize) <= 0 {
         // null or kernel-space address
         return false;

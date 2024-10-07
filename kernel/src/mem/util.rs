@@ -9,7 +9,7 @@ pub enum CStrError {
 const MIN_PAGE_SIZE: usize = 4096;
 
 #[must_use]
-fn can_access_address_range(start: *const u8, bytes: usize, write: bool) -> bool {
+fn can_access_address_range<T>(start: *const T, bytes: usize, write: bool) -> bool {
     let check = if write {
         is_userspace_writeable
     } else {
@@ -25,7 +25,7 @@ fn can_access_address_range(start: *const u8, bytes: usize, write: bool) -> bool
     // round up to nearest page
     let mut p = (start as usize).div_ceil(MIN_PAGE_SIZE) * MIN_PAGE_SIZE;
     while p + MIN_PAGE_SIZE < end {
-        if !check(p as *const u8) {
+        if !check(p as *const T) {
             return false;
         }
         p += MIN_PAGE_SIZE;
@@ -82,7 +82,7 @@ pub unsafe fn get_mut_slice_from_user_space<T>(
         return None;
     }
     let bytes = count.checked_mul(core::mem::size_of::<T>())?;
-    if !can_access_address_range(ptr as _, bytes, true) {
+    if !can_access_address_range(ptr, bytes, true) {
         return None;
     }
     Some(core::slice::from_raw_parts_mut(ptr.cast(), count))
@@ -105,7 +105,7 @@ pub unsafe fn get_slice_from_user_space<T>(ptr: *const T, count: usize) -> Optio
         return None;
     }
     let bytes = count.checked_mul(core::mem::size_of::<T>())?;
-    if !can_access_address_range(ptr as _, bytes, false) {
+    if !can_access_address_range(ptr, bytes, false) {
         return None;
     }
     let ptr: *const T = ptr.cast();
