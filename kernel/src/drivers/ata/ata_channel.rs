@@ -1,12 +1,12 @@
 #![allow(dead_code)] // Suppress unused warnings
 
 use crate::block::block_core::{BlockSector, BLOCK_SECTOR_SIZE};
-use crate::sync::semaphore::Semaphore;
 use alloc::string::String;
 use kidneyos_shared::println;
 use kidneyos_shared::serial::{inb, insw, outb, outsw};
 
 use crate::drivers::ata::ata_timer::{msleep, nsleep, usleep};
+use crate::sync::mutex::sleep::SleepMutex;
 
 // Error Register bits -----------------------------------------------------------------------------
 // Reference: https://wiki.osdev.org/ATA_PIO_Mode#Error_Register
@@ -135,7 +135,7 @@ pub struct AtaChannel {
     expecting_interrupt: bool,
 
     /// Up'd by interrupt handler
-    completion_wait: Semaphore,
+    completion_wait: SleepMutex,
 
     /// The devices on this channel
     // Master
@@ -500,7 +500,7 @@ impl AtaChannel {
             reg_base,
             irq,
             expecting_interrupt: false,
-            completion_wait: Semaphore::new(0),
+            completion_wait: SleepMutex::new(),
             d0_name,
             d0_is_ata: false,
             d1_name,
@@ -571,15 +571,15 @@ impl AtaChannel {
         self.expecting_interrupt
     }
 
-    pub fn sem_down(&self) {
-        self.completion_wait.down();
+    pub fn sem_down(&mut self) {
+        self.completion_wait.lock();
     }
 
-    pub fn sem_up(&self) {
-        self.completion_wait.up();
+    pub fn sem_up(&mut self) {
+        self.completion_wait.unlock();
     }
 
-    pub fn sem_try_down(&self) -> bool {
-        self.completion_wait.try_down()
+    pub fn sem_try_down(&mut self) -> bool {
+        self.completion_wait.try_lock()
     }
 }
