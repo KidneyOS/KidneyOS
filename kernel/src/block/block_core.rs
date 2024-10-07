@@ -17,6 +17,12 @@ pub const BLOCK_SECTOR_SIZE: usize = 512;
 /// Good enough for devices up to 2 TB.
 pub type BlockSector = u32;
 
+/// A collection of all the block devices
+pub static mut BLOCK_MANAGER: BlockManager = BlockManager {
+    all_blocks: Vec::new(),
+    max_index: 0,
+};
+
 /// Types of blocks
 #[derive(PartialEq, Copy, Clone)]
 pub enum BlockType {
@@ -256,9 +262,4 @@ impl fmt::Display for BlockManager {
         }
         Ok(())
     }
-}
-
-/// Initialize the block layer
-pub fn block_init() -> BlockManager {
-    BlockManager::new()
 }
