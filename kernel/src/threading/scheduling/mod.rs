@@ -29,12 +29,20 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
     // Interrupts must be disabled.
     unsafe {
         let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
-        let switch_to_option = scheduler.pop();
 
-        // Do not switch to ourselves.
-        if let Some(switch_to) = switch_to_option {
-            // Switch to this other thread.
-            switch_threads(status_for_current_thread, switch_to);
+        while let Some(switch_to) = scheduler.pop() {
+            // Check if the thread is not blocked.
+            match switch_to.as_ref().status {
+                ThreadStatus::Blocked => {
+                    // If the thread is blocked, push it back onto the scheduler.
+                    scheduler.push(switch_to);
+                }
+                _ => {
+                    // Do not switch to ourselves.
+                    switch_threads(status_for_current_thread, switch_to);
+                    break;
+                }
+            }
         }
     }
 

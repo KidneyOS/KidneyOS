@@ -3,6 +3,7 @@ pub mod process_table;
 pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;
+pub mod thread_sleep;
 
 use crate::user_program::elf::Elf;
 use crate::{
@@ -11,9 +12,7 @@ use crate::{
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
-use thread_control_block::{
-    initialize_process_table, ProcessControlBlock, ThreadControlBlock, Tid,
-};
+use thread_control_block::{initialize_process_table, ProcessControlBlock, ThreadControlBlock};
 
 pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 

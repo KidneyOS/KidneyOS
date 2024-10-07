@@ -1,5 +1,5 @@
-use super::super::{ThreadControlBlock, Tid};
-use crate::alloc::boxed::Box;
+use super::super::ThreadControlBlock;
+use crate::{alloc::boxed::Box, threading::thread_control_block::Tid};
 
 pub trait Scheduler {
     fn new() -> Self
@@ -10,4 +10,5 @@ pub trait Scheduler {
     fn push(&mut self, thread: Box<ThreadControlBlock>);
     fn pop(&mut self) -> Option<Box<ThreadControlBlock>>;
     fn remove(&mut self, tid: Tid) -> Option<Box<ThreadControlBlock>>;
+    fn get_mut(&mut self, tid: Tid) -> Option<&mut ThreadControlBlock>;
 }

@@ -18,6 +18,7 @@ mod paging;
 mod sync;
 mod threading;
 mod user_program;
+pub mod vfs;
 
 extern crate alloc;
 
