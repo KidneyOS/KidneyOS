@@ -24,6 +24,7 @@ pub mod vfs;
 extern crate alloc;
 
 use crate::drivers::ata::ata_core::ide_init;
+use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
@@ -73,7 +74,13 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Finished Thread System initialization. Ready to start threading.");
 
         println!("Setting up IDE");
-        ide_init();
+
+        let ide_addr = ide_init as *const () as *mut u8;
+        let _ide_addr = NonNull::new(ide_addr).unwrap();
+        // Note: This will be commeted out until the following issue is fixed:
+        // .../shared/src/paging.rs:423:9: page manager dropped while still loaded
+        // ThreadControlBlock::new_with_setup(ide_addr, 0);
+
         println!("IDE set up!");
 
         thread_system_start(page_manager, INIT);
