@@ -130,3 +130,20 @@ pub unsafe extern "C" fn ide_secd_interrupt_handler() -> ! {
     options(noreturn),
     );
 }
+
+#[naked]
+pub unsafe extern "C" fn keyboard_handler() -> ! {
+    asm!(
+    "
+    pusha
+    // Push IRQ1 value onto the stack.
+    push 0X1
+    call {} // Send EOI signal to PICs
+    add esp, 4 // Drop arguments from stack
+    popa
+    iretd
+    ",
+    sym pic::send_eoi,
+    options(noreturn),
+    );
+}
