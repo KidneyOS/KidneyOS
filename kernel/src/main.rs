@@ -9,11 +9,12 @@
 #![feature(offset_of)]
 #![feature(slice_ptr_get)]
 #![feature(negative_impls)]
+#![feature(pointer_is_aligned)]
 
 mod block;
 mod drivers;
 mod interrupts;
-mod mem;
+pub mod mem;
 mod paging;
 mod sync;
 mod threading;

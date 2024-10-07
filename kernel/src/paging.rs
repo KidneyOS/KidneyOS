@@ -21,3 +21,21 @@ pub unsafe fn enable() -> PageManager {
     page_manager.load();
     page_manager
 }
+
+pub fn is_userspace_readable<T>(ptr: *const T) -> bool {
+    if (ptr as isize) <= 0 {
+        // null or kernel-space address
+        return false;
+    }
+    // TODO: check page table
+    true
+}
+
+pub fn is_userspace_writeable<T>(ptr: *const T) -> bool {
+    if (ptr as isize) <= 0 {
+        // null or kernel-space address
+        return false;
+    }
+    // TODO: check page table
+    true
+}
