@@ -8,7 +8,10 @@ use crate::vfs::{
 use alloc::{
     boxed::Box,
     collections::{btree_map::Entry as BTreeMapEntry, BTreeMap},
+    format,
+    string::String,
     vec,
+    vec::Vec,
 };
 use core::num::NonZeroUsize;
 
@@ -272,9 +275,13 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
 type FileSystemID = u16;
 
 #[derive(Debug)]
-struct OpenFile {
-    fs: FileSystemID,
-    offset: u64,
+enum OpenFile {
+    /// regular file
+    Regular { fs: FileSystemID, offset: u64 },
+    /// standard output
+    StdOut,
+    /// /dev/null (discards reads/writes)
+    Null,
 }
 
 pub struct RootFileSystem {
@@ -306,11 +313,11 @@ impl RootFileSystem {
         }
         result.ok_or(Error::NotFound)
     }
-    fn new_fd(&mut self, fs: FileSystemID, pid: Pid) -> Result<ProcessFileDescriptor> {
+    fn new_fd(&mut self, pid: Pid, file_info: OpenFile) -> Result<ProcessFileDescriptor> {
         for fd in 0..MAX_OPEN_FILES as FileDescriptor {
             let fd = ProcessFileDescriptor { pid, fd };
             if let alloc::collections::btree_map::Entry::Vacant(entry) = self.open_files.entry(fd) {
-                entry.insert(OpenFile { fs, offset: 0 });
+                entry.insert(file_info);
                 return Ok(fd);
             }
         }
@@ -370,7 +377,7 @@ impl RootFileSystem {
     }
     pub fn open(&mut self, path: &Path, pid: Pid, mode: Mode) -> Result<FileDescriptor> {
         let (fs, path) = self.resolve_path(path)?;
-        let fd = self.new_fd(fs, pid)?;
+        let fd = self.new_fd(pid, OpenFile::Regular { fs, offset: 0 })?;
         let fs = self.file_systems[fs as usize].as_mut().unwrap();
         let result = match mode {
             Mode::ReadWrite => fs.open(path, fd),
@@ -382,14 +389,26 @@ impl RootFileSystem {
         }
         Ok(fd.fd)
     }
+    pub fn open_stdout(&mut self, pid: Pid) -> Result<FileDescriptor> {
+        let fd = self.new_fd(pid, OpenFile::StdOut)?;
+        Ok(fd.fd)
+    }
+    pub fn open_null(&mut self, pid: Pid) -> Result<FileDescriptor> {
+        let fd = self.new_fd(pid, OpenFile::Null)?;
+        Ok(fd.fd)
+    }
     /// Close an open file
     ///
     /// If this returns an error other than [`Error::BadFd`], the file is still closed,
     /// and you should not try to close it again (as on Linux).
     pub fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
-        let fs = self.open_files.get(&fd).ok_or(Error::BadFd)?.fs;
-        let fs = self.file_systems[fs as usize].as_mut().unwrap();
-        let result = fs.close(fd);
+        let mut result = Ok(());
+        let file_info = self.open_files.get(&fd).ok_or(Error::BadFd)?;
+        if let OpenFile::Regular { fs, .. } = file_info {
+            let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+            result = fs.close(fd);
+        }
+        // don't need to do anything for non-regular files
         self.open_files.remove(&fd);
         result
     }
@@ -400,17 +419,44 @@ impl RootFileSystem {
     }
     pub fn read(&mut self, fd: ProcessFileDescriptor, buf: &mut [u8]) -> Result<usize> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
-        let fs = self.file_systems[file_info.fs as usize].as_mut().unwrap();
-        let read_count = fs.read(fd, file_info.offset, buf)?;
-        file_info.offset += read_count as u64;
-        Ok(read_count)
+        match file_info {
+            OpenFile::Regular { fs, offset } => {
+                let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+                let read_count = fs.read(fd, *offset, buf)?;
+                *offset += read_count as u64;
+                Ok(read_count)
+            }
+            OpenFile::StdOut => {
+                // shouldn't read from stdout
+                Err(Error::BadFd)
+            }
+            OpenFile::Null => Ok(0),
+        }
     }
     pub fn write(&mut self, fd: ProcessFileDescriptor, buf: &[u8]) -> Result<usize> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
-        let fs = self.file_systems[file_info.fs as usize].as_mut().unwrap();
-        let write_count = fs.write(fd, file_info.offset, buf)?;
-        file_info.offset += write_count as u64;
-        Ok(write_count)
+        match file_info {
+            OpenFile::Regular { fs, offset } => {
+                let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+                let write_count = fs.write(fd, *offset, buf)?;
+                *offset += write_count as u64;
+                Ok(write_count)
+            }
+            OpenFile::StdOut => {
+                use core::fmt::Write;
+                let string = String::from_utf8_lossy(buf);
+                // SAFETY: no other mut references to VIDEO_MEMORY_WRITER here
+                let result = unsafe {
+                    kidneyos_shared::video_memory::VIDEO_MEMORY_WRITER.write_str(&string)
+                };
+                if let Err(e) = result {
+                    Err(Error::IO(format!("{e}")))
+                } else {
+                    Ok(buf.len())
+                }
+            }
+            OpenFile::Null => Ok(buf.len()),
+        }
     }
     pub fn lseek(
         &mut self,
@@ -419,33 +465,53 @@ impl RootFileSystem {
         offset: i64,
     ) -> Result<i64> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
-        let offset = offset
-            .checked_add(match whence {
-                SeekFrom::Start => 0,
-                SeekFrom::Current => file_info.offset as i64,
-                SeekFrom::End => {
-                    let fs = self.file_systems[file_info.fs as usize].as_mut().unwrap();
-                    fs.size_of_file(fd)? as i64
-                }
-            })
-            .ok_or(Error::BadOffset)?;
-        let offset = u64::try_from(offset).map_err(|_| Error::BadOffset)?;
-        self.open_files.get_mut(&fd).ok_or(Error::BadFd)?.offset = offset;
-        Ok(offset as i64)
+        if let OpenFile::Regular {
+            fs,
+            offset: file_offset,
+        } = file_info
+        {
+            let new_offset = offset
+                .checked_add(match whence {
+                    SeekFrom::Start => 0,
+                    SeekFrom::Current => *file_offset as i64,
+                    SeekFrom::End => {
+                        let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+                        fs.size_of_file(fd)? as i64
+                    }
+                })
+                .ok_or(Error::BadOffset)?;
+            *file_offset = u64::try_from(new_offset).map_err(|_| Error::BadOffset)?;
+            Ok(new_offset)
+        } else {
+            Err(Error::IllegalSeek)
+        }
+    }
+    /// Open the standard input, output, error files for pid.
+    ///
+    /// Panics if the file descriptors 0, 1, 2 are already in use for pid.
+    pub fn open_standard_fds(&mut self, pid: Pid) {
+        // for now, ignore stdin (we don't have keyboard input set up yet)
+        let stdin = self.open_null(pid).unwrap();
+        assert_eq!(stdin, 0);
+        let stdout = self.open_stdout(pid).unwrap();
+        assert_eq!(stdout, 1);
+        // stderr and stdout can just go to the same place for now
+        let stderr = self.open_stdout(pid).unwrap();
+        assert_eq!(stderr, 2);
     }
     /// Close all open files belonging to process
     ///
     /// This should be called when the process exits/is killed.
     /// All errors that occur while closing files are ignored.
     pub fn close_all(&mut self, pid: Pid) {
-        self.open_files.retain(|&fd, info| {
-            if fd.pid != pid {
-                return true;
-            }
-            let fs = self.file_systems[info.fs as usize].as_mut().unwrap();
-            let _ = fs.close(fd);
-            false
-        });
+        let fds: Vec<FileDescriptor> = self
+            .open_files
+            .keys()
+            .filter_map(|fd| if fd.pid == pid { Some(fd.fd) } else { None })
+            .collect();
+        for fd in fds {
+            let _ = self.close(ProcessFileDescriptor { pid, fd });
+        }
     }
 }
 

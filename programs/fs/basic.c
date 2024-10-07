@@ -1,4 +1,11 @@
 #include <kidneyos.h>
+#include <stddef.h>
+
+static void print(const char *s) {
+    size_t len;
+    for (len = 0; s[len]; len++);
+    write(1, s, len);
+}
 
 void _start() {
     const char *test_data = "test data";
@@ -16,6 +23,6 @@ void _start() {
     }
     if (fd < 0) exit(-1);
     if (close(fd) < 0) exit(-1);
-    
+    print("success!\n");
     exit(0);
 }

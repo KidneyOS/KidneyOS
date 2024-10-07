@@ -64,6 +64,8 @@ pub struct ProcessControlBlock {
 impl ProcessControlBlock {
     pub fn create() -> Pid {
         let pid = allocate_pid();
+        // open stdin, stdout, stderr
+        crate::fs::fs_manager::ROOT.lock().open_standard_fds(pid);
         let pcb = Self {
             pid,
             child_tids: Vec::new(),

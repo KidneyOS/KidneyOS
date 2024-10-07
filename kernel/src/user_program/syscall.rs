@@ -28,6 +28,7 @@ pub const EISDIR: isize = 21;
 pub const EINVAL: isize = 22;
 pub const EMFILE: isize = 24;
 pub const ENOSPC: isize = 28;
+pub const ESPIPE: isize = 29;
 pub const EROFS: isize = 30;
 pub const EMLINK: isize = 31;
 pub const ENOSYS: isize = 38;

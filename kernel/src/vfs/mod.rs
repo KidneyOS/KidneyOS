@@ -45,6 +45,8 @@ pub enum Error {
     FileSystemInUse,
     /// Seek to bad offset
     BadOffset,
+    /// Seek in non-seekable file
+    IllegalSeek,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -71,6 +73,7 @@ impl core::fmt::Display for Error {
             Self::BadFd => write!(f, "bad file descriptor"),
             Self::FileSystemInUse => write!(f, "file system in use"),
             Self::BadOffset => write!(f, "seek to bad offset"),
+            Self::IllegalSeek => write!(f, "illegal seek"),
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
@@ -95,6 +98,7 @@ impl Error {
             Error::BadFd => syscall::EBADF,
             Error::FileSystemInUse => syscall::EBUSY,
             Error::BadOffset => syscall::EINVAL,
+            Error::IllegalSeek => syscall::ESPIPE,
             Error::IO(_) => syscall::EIO,
         }
     }

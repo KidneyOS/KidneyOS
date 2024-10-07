@@ -19,7 +19,7 @@ unsafe fn getpid() -> crate::threading::thread_control_block::Pid {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and getpid is safe
 pub unsafe fn open(path: *const u8, flags: usize) -> isize {
     if (flags & !O_CREATE) != 0 {
         return -EINVAL;
@@ -42,7 +42,7 @@ pub unsafe fn open(path: *const u8, flags: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly
+/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly and getpid is safe
 pub unsafe fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
@@ -61,7 +61,7 @@ pub unsafe fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly
+/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly and getpid is safe
 pub unsafe fn write(fd: usize, buf: *const u8, count: usize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
@@ -84,7 +84,7 @@ pub const SEEK_END: isize = 2;
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly
+/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly and getpid is safe
 pub unsafe fn lseek(fd: usize, offset: *mut i64, whence: isize) -> isize {
     let Some(offset) = get_mut_from_user_space(offset) else {
         return -EFAULT;
