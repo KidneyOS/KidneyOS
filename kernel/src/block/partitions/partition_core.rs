@@ -241,12 +241,10 @@ fn read_partition_table(
     // Read sector
     let mut buf: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
     println!("Reading partition table from sector {}", sector);
-    unsafe {
-        let ret = block.read(sector, &mut buf);
-        if ret.is_err() {
-            println!("{}: Error reading partition table", block.get_name());
-            return;
-        }
+    let ret = block.read(sector, &mut buf);
+    if ret.is_err() {
+        println!("{}: Error reading partition table", block.get_name());
+        return;
     }
 
     let pt = PartitionTable::new(&buf);
