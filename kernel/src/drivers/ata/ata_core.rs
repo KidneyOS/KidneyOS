@@ -4,9 +4,11 @@
 
 #![allow(dead_code)]
 
-use crate::block::block_core::{BlockManager, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
+use crate::block::block_core::{BlockSector, BlockType, BLOCK_MANAGER, BLOCK_SECTOR_SIZE};
+use crate::block::partitions::partition_core::partition_scan;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
+// use crate::interrupts::{intr_get_level, IntrLevel};
 use crate::sync::mutex::Mutex;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -44,7 +46,16 @@ lazy_static! {
 /// # Safety
 ///
 /// This function must be called with interrupts enabled.
-pub unsafe fn ide_init(mut all_blocks: BlockManager, block: bool) -> BlockManager {
+pub fn ide_init() {
+    // TODO: Enabling interrupt will cause the mutex to never be unlocked. Figure out why.
+    // NOTE: For now, since everything is blocking, disabling interrupts won't harm
+
+    // assert_eq!(
+    //     intr_get_level(),
+    //     IntrLevel::IntrOn,
+    //     "ide_init must be called with interrupts enabled"
+    // );
+
     let mut present: [[bool; 2]; 2] = [[false; 2]; 2];
 
     for (i, c) in CHANNELS.iter().enumerate() {
@@ -52,28 +63,26 @@ pub unsafe fn ide_init(mut all_blocks: BlockManager, block: bool) -> BlockManage
 
         // Initialize the channel
         channel.set_names();
-        channel.reset(true);
+        unsafe { channel.reset(true) };
 
         // Initialize the devices
-        if channel.check_device_type(0, block) {
+        if unsafe { channel.check_device_type(0, true) } {
             present[i][0] = true;
-            present[i][1] = channel.check_device_type(1, block);
+            present[i][1] = unsafe { channel.check_device_type(1, true) };
         } else {
-            println!("IDE: Channel {} device {} not ata", i, 0);
+            // println!("IDE: Channel {} device {} not ata", i, 0);
         }
     }
 
     for (i, c) in CHANNELS.iter().enumerate() {
         for j in 0..2 {
             if present[i][j] {
-                all_blocks = identify_ata_device(c, j as u8, all_blocks, block);
+                unsafe { identify_ata_device(c, j as u8, true) };
             } else {
-                println!("IDE: Channel {} device {} not present", i, j);
+                // println!("IDE: Channel {} device {} not present", i, j);
             }
         }
     }
-
-    all_blocks
 }
 
 /// Sends an IDENTIFY DEVICE command to disk `dev_no` and reads the response. Registers the disk
@@ -82,12 +91,7 @@ pub unsafe fn ide_init(mut all_blocks: BlockManager, block: bool) -> BlockManage
 /// # Safety
 ///
 /// This function must be called with interrupts enabled
-unsafe fn identify_ata_device(
-    channel: &'static Mutex<AtaChannel>,
-    dev_no: u8,
-    mut all_blocks: BlockManager,
-    block: bool,
-) -> BlockManager {
+unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, block: bool) {
     let _index: usize;
     let c: &mut AtaChannel = &mut channel.lock();
     let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
@@ -101,7 +105,7 @@ unsafe fn identify_ata_device(
     if !c.wait_while_busy(block) {
         c.set_is_ata(dev_no, false);
         // println!("channel {} device {} is not ata", c.channel_num, dev_no);
-        return all_blocks;
+        return;
     }
     c.read_sector(&mut id);
 
@@ -121,14 +125,13 @@ unsafe fn identify_ata_device(
         capacity >> 11
     );
 
-    // TODO: Register block device
-    all_blocks.register_block(
+    let idx = BLOCK_MANAGER.register_block(
         BlockType::Raw,
         &name,
         capacity as BlockSector,
         Box::new(AtaDevice(dev_no)),
     );
 
-    // TODO: scan partitions and recognize block types
-    all_blocks
+    channel.force_unlock();
+    partition_scan(BLOCK_MANAGER.by_id(idx).unwrap());
 }

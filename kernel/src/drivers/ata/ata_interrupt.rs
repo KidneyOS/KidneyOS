@@ -1,10 +1,15 @@
 use crate::drivers::ata::ata_core::CHANNELS;
 use alloc::string::String;
-use kidneyos_shared::println;
+use kidneyos_shared::eprintln;
 use kidneyos_shared::serial::inb;
 
 pub fn on_ide_interrupt(vec_no: u8) {
     for (i, chan) in CHANNELS.iter().enumerate() {
+        unsafe {
+            if chan.is_locked() {
+                chan.force_unlock();
+            }
+        }
         let c = &mut chan.lock();
 
         // Check if interrupt is from this channel
@@ -19,7 +24,7 @@ pub fn on_ide_interrupt(vec_no: u8) {
                 c.sem_up();
             } else {
                 // Spurious interrupt
-                println!(
+                eprintln!(
                     "IDE: Spurious interrupt on channel {} ({})",
                     i,
                     String::from_iter(c.get_name())

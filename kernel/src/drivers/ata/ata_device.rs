@@ -36,11 +36,11 @@ impl BlockOp for AtaDevice {
 
         let channel: &mut AtaChannel = &mut CHANNELS[self.get_channel() as usize].lock();
 
-        channel.select_sector(self.get_device_num(), sector, false);
+        channel.select_sector(self.get_device_num(), sector, true);
         channel.issue_pio_command(crate::drivers::ata::ata_core::ATA_READ_SECTOR_RETRY);
 
         channel.sem_down();
-        if !channel.wait_while_busy(false) {
+        if !channel.wait_while_busy(true) {
             // println!("Read failed on sector {}.", sector);
             return Err(BlockError::ReadError);
         }
@@ -63,10 +63,10 @@ impl BlockOp for AtaDevice {
 
         let channel: &mut AtaChannel = &mut CHANNELS[self.get_channel() as usize].lock();
 
-        channel.select_sector(self.get_device_num(), sector, false);
+        channel.select_sector(self.get_device_num(), sector, true);
         channel.issue_pio_command(crate::drivers::ata::ata_core::ATA_WRITE_SECTOR_RETRY);
 
-        if !channel.wait_while_busy(false) {
+        if !channel.wait_while_busy(true) {
             // println!("Write failed on sector {}.", sec_no);
             return Err(BlockError::WriteError);
         }
