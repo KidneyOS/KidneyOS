@@ -2,6 +2,7 @@
 pub mod read_only_test;
 pub mod tempfs;
 
+use crate::user_program::syscall;
 use alloc::{borrow::Cow, format, string::String, vec::Vec};
 
 pub type INodeNum = u32;
@@ -92,7 +93,6 @@ impl core::error::Error for Error {}
 
 impl Error {
     pub fn to_isize(&self) -> isize {
-        use crate::user_program::syscall;
         match self {
             Error::NotFound => syscall::ENOENT,
             Error::NotDirectory => syscall::ENOTDIR,
@@ -139,6 +139,16 @@ pub enum INodeType {
     Link,
     /// Directory
     Directory,
+}
+
+impl INodeType {
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::File => syscall::S_REGULAR_FILE,
+            Self::Link => syscall::S_SYMLINK,
+            Self::Directory => syscall::S_DIRECTORY,
+        }
+    }
 }
 
 /// Raw directory entry information

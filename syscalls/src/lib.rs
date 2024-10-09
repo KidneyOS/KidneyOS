@@ -10,10 +10,8 @@ pub struct Timespec {
     // TODO: Fill for nanosleep.
 }
 
-pub const O_CREATE: u32 = 0x40;
-pub const SEEK_SET: i32 = 0;
-pub const SEEK_CUR: i32 = 1;
-pub const SEEK_END: i32 = 2;
+mod defs;
+pub use defs::*;
 
 #[no_mangle]
 pub extern "C" fn exit(code: usize) {
@@ -38,7 +36,7 @@ pub extern "C" fn fork() {
 }
 
 #[no_mangle]
-pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> i32 {
+pub extern "C" fn read(fd: i32, buffer: *mut u8, count: usize) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -50,7 +48,7 @@ pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn write(fd: u32, buffer: *const u8, count: usize) -> i32 {
+pub extern "C" fn write(fd: i32, buffer: *const u8, count: usize) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -74,7 +72,7 @@ pub extern "C" fn open(name: *const u8, flags: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn close(fd: u32) -> i32 {
+pub extern "C" fn close(fd: i32) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -86,7 +84,7 @@ pub extern "C" fn close(fd: u32) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn lseek64(fd: u32, offset: i64, whence: i32) -> i64 {
+pub extern "C" fn lseek64(fd: i32, offset: i64, whence: i32) -> i64 {
     let mut offset = offset;
     let result: i32;
     unsafe {
@@ -134,6 +132,18 @@ pub extern "C" fn mkdir(path: *const i8) -> i32 {
             mov eax, 0x27
             int 0x80
         ", in("ebx") path, out("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn fstat(fd: i32, statbuf: *mut Stat) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0x6c
+            int 0x80
+        ", in("ebx") fd, in("ecx") statbuf, out("eax") result);
     }
     result
 }

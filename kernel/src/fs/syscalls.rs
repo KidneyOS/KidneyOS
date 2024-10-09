@@ -9,9 +9,7 @@ use crate::mem::util::{
 use crate::threading::{
     process_table::PROCESS_TABLE, thread_control_block::ProcessControlBlock, RUNNING_THREAD,
 };
-use crate::user_program::syscall::{EBADF, EFAULT, EINVAL, ENOENT, ERANGE};
-
-pub const O_CREATE: usize = 0x40;
+use crate::user_program::syscall::{Stat, EBADF, EFAULT, EINVAL, ENOENT, ERANGE, O_CREATE};
 
 unsafe fn running_process() -> &'static ProcessControlBlock {
     PROCESS_TABLE
@@ -190,5 +188,33 @@ pub unsafe fn mkdir(path: *const u8) -> isize {
     match ROOT.lock().mkdir(running_process(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
+    }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
+    let Some(statbuf) = get_mut_from_user_space(statbuf) else {
+        return -EFAULT;
+    };
+    let Ok(fd) = FileDescriptor::try_from(fd) else {
+        return -EBADF;
+    };
+    let fd = ProcessFileDescriptor {
+        pid: unsafe { running_process().pid },
+        fd,
+    };
+    match ROOT.lock().fstat(fd) {
+        Err(e) => -e.to_isize(),
+        Ok(info) => {
+            *statbuf = Stat {
+                inode: info.inode,
+                size: info.size,
+                nlink: info.nlink,
+                r#type: info.r#type.to_u8(),
+            };
+            0
+        }
     }
 }

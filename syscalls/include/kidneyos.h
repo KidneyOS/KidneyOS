@@ -18,6 +18,85 @@
 
 #define SEEK_END 2
 
+#define ENOENT 2
+
+#define EIO 5
+
+#define EBADF 9
+
+#define EFAULT 14
+
+#define EBUSY 16
+
+#define EEXIST 17
+
+#define ENOTDIR 20
+
+#define EISDIR 21
+
+#define EINVAL 22
+
+#define EMFILE 24
+
+#define ENOSPC 28
+
+#define ESPIPE 29
+
+#define EROFS 30
+
+#define EMLINK 31
+
+#define ERANGE 34
+
+#define ENOSYS 38
+
+#define ENOTEMPTY 39
+
+#define ELOOP 40
+
+#define SYS_EXIT 1
+
+#define SYS_FORK 2
+
+#define SYS_READ 3
+
+#define SYS_WRITE 4
+
+#define SYS_OPEN 5
+
+#define SYS_CLOSE 6
+
+#define SYS_WAITPID 7
+
+#define SYS_EXECVE 11
+
+#define SYS_CHDIR 12
+
+#define SYS_MKDIR 39
+
+#define SYS_FSTAT 108
+
+#define SYS_LSEEK64 140
+
+#define SYS_NANOSLEEP 162
+
+#define SYS_SCHED_YIELD 158
+
+#define SYS_GETCWD 183
+
+#define S_REGULAR_FILE 1
+
+#define S_SYMLINK 2
+
+#define S_DIRECTORY 3
+
+typedef struct Stat {
+  uint32_t inode;
+  uint32_t nlink;
+  uint64_t size;
+  uint8_t type;
+} Stat;
+
 typedef uint16_t Pid;
 
 typedef struct Timespec {
@@ -28,21 +107,23 @@ void exit(uintptr_t code);
 
 void fork(void);
 
-int32_t read(uint32_t fd, uint8_t *buffer, uintptr_t count);
+int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 
-int32_t write(uint32_t fd, const uint8_t *buffer, uintptr_t count);
+int32_t write(int32_t fd, const uint8_t *buffer, uintptr_t count);
 
 int32_t open(const uint8_t *name, uintptr_t flags);
 
-int32_t close(uint32_t fd);
+int32_t close(int32_t fd);
 
-int64_t lseek64(uint32_t fd, int64_t offset, int32_t whence);
+int64_t lseek64(int32_t fd, int64_t offset, int32_t whence);
 
 int32_t getcwd(int8_t *buf, uintptr_t size);
 
 int32_t chdir(const int8_t *path);
 
 int32_t mkdir(const int8_t *path);
+
+int32_t fstat(int32_t fd, struct Stat *statbuf);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 

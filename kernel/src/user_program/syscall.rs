@@ -1,43 +1,16 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::fs::syscalls::{chdir, close, getcwd, lseek64, mkdir, open, read, write};
+use crate::fs::syscalls::{chdir, close, fstat, getcwd, lseek64, mkdir, open, read, write};
 use crate::threading::scheduling::scheduler_yield_and_continue;
 use crate::threading::thread_functions;
 use kidneyos_shared::println;
 
-pub const SYS_EXIT: usize = 0x1;
-pub const SYS_FORK: usize = 0x2;
-pub const SYS_READ: usize = 0x3;
-pub const SYS_WRITE: usize = 0x4;
-pub const SYS_OPEN: usize = 0x5;
-pub const SYS_CLOSE: usize = 0x6;
-pub const SYS_WAITPID: usize = 0x7;
-pub const SYS_EXECVE: usize = 0x0b;
-pub const SYS_CHDIR: usize = 0xc;
-pub const SYS_MKDIR: usize = 0x27;
-pub const SYS_LSEEK64: usize = 0x8c;
-pub const SYS_NANOSLEEP: usize = 0xa2;
-pub const SYS_SCHED_YIELD: usize = 0x9e;
-pub const SYS_GETCWD: usize = 0xb7;
-
-pub const ENOENT: isize = 2;
-pub const EIO: isize = 5;
-pub const EBADF: isize = 9;
-pub const EFAULT: isize = 14;
-pub const EBUSY: isize = 16;
-pub const EEXIST: isize = 17;
-pub const ENOTDIR: isize = 20;
-pub const EISDIR: isize = 21;
-pub const EINVAL: isize = 22;
-pub const EMFILE: isize = 24;
-pub const ENOSPC: isize = 28;
-pub const ESPIPE: isize = 29;
-pub const EROFS: isize = 30;
-pub const EMLINK: isize = 31;
-pub const ERANGE: isize = 34;
-pub const ENOSYS: isize = 38;
-pub const ENOTEMPTY: isize = 39;
-pub const ELOOP: isize = 40;
+/// Definitions of syscall numbers, etc.
+#[allow(dead_code)]
+mod syscall_defs {
+    include!("../../../syscalls/src/defs.rs");
+}
+pub use syscall_defs::*;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -63,6 +36,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_CHDIR => unsafe { chdir(arg0 as _) as usize },
         SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) as usize },
         SYS_MKDIR => unsafe { mkdir(arg0 as _) as usize },
+        SYS_FSTAT => unsafe { fstat(arg0 as _, arg1 as _) as usize },
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }

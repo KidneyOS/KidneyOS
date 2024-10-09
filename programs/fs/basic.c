@@ -38,9 +38,13 @@ void _start() {
     if (status < 0) exit(status);
     fd = open("file", O_CREATE);
     if (fd < 0) exit(fd);
+    struct Stat statbuf;
+    status = fstat(fd, &statbuf);
     status = close(fd);
     if (status < 0) exit(status);
-
+    if (status < 0) exit(status);
+    if (statbuf.size != 0) exit(0xf0);
+    if (statbuf.type != S_REGULAR_FILE) exit(0xf1);
     print("success!\n");
     exit(0);
 }

@@ -170,7 +170,7 @@ trait FileSystemManagerTrait: Send + Sync {
     fn mount(&mut self, dir: INodeNum, fs: FileSystemID) -> Result<()>;
     fn unmount(&mut self, dir: INodeNum) -> Result<()>;
     fn mount_point_at(&self, dir: INodeNum) -> Option<FileSystemID>;
-    fn stat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo>;
+    fn fstat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo>;
     fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64>;
     fn inode_type(&mut self, inode: INodeNum) -> Result<INodeType>;
     fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>>;
@@ -274,12 +274,12 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         self.fs.write(handle, offset, buf)
     }
-    fn stat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo> {
+    fn fstat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo> {
         let handle = self.open_files.get(&fd).ok_or(Error::BadFd)?;
         self.fs.stat(handle)
     }
     fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64> {
-        Ok(self.stat(fd)?.size)
+        Ok(self.fstat(fd)?.size)
     }
     fn mount(&mut self, dir: INodeNum, fs: FileSystemID) -> Result<()> {
         // ensure directory entries are in cache
@@ -750,6 +750,14 @@ impl RootFileSystem {
             process.cwd_path.push_str(component);
         }
         Ok(())
+    }
+    pub fn fstat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo> {
+        let file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        if let OpenFile::Regular { fs, .. } = file {
+            self.file_systems.get_mut(*fs).fstat(fd)
+        } else {
+            Err(Error::NotFound)
+        }
     }
     /// Close all open files belonging to process
     ///
