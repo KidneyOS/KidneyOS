@@ -371,7 +371,7 @@ impl SimpleFileSystem for TempFS {
         parent_dir.add_entry(name.into(), source);
         Ok(())
     }
-    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<()> {
+    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<INodeNum> {
         if DEBUG_TEMPFS {
             println!("tempfs: create symlink to {link} in {parent:?}: {name}",);
         }
@@ -400,7 +400,7 @@ impl SimpleFileSystem for TempFS {
             panic!("Should never happen since we did this check above.");
         };
         parent_dir.add_entry(name.into(), link_inode_num);
-        Ok(())
+        Ok(link_inode_num)
     }
     fn readlink_no_alloc<'a>(
         &mut self,
@@ -448,7 +448,7 @@ impl SimpleFileSystem for TempFS {
         }
         Ok(())
     }
-    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum> {
         if DEBUG_TEMPFS {
             println!("tempfs: mkdir in {parent:?}: {name}");
         }
@@ -478,7 +478,7 @@ impl SimpleFileSystem for TempFS {
             panic!("This should never happen due to the check above");
         };
         parent_dir.add_entry(name.into(), inode_num);
-        Ok(())
+        Ok(inode_num)
     }
     fn sync(&mut self) -> Result<()> {
         // not applicable to in-memory filesystem

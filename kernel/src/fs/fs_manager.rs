@@ -1,10 +1,11 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::sync::mutex::Mutex;
 use crate::threading::thread_control_block::Pid;
+use crate::threading::thread_control_block::ProcessControlBlock;
 use crate::vfs::{
-    DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, OwnedPath, Path,
-    Result,
+    DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, Result,
 };
+use alloc::borrow::Cow;
 use alloc::{
     boxed::Box,
     collections::{btree_map::Entry as BTreeMapEntry, BTreeMap},
@@ -41,13 +42,39 @@ pub enum Mode {
 pub const MAX_OPEN_FILES: u16 = 1024;
 /// Maximum number of simultaneous mounts.
 pub const MAX_MOUNT_POINTS: u16 = 256;
+/// Maximum number of nested symbolic links
+pub const MAX_LEVEL_OF_LINKS: usize = 32;
+
+struct Directory {
+    entries: Option<DirEntries>,
+    parent: INodeNum,
+    mount: Option<FileSystemID>,
+}
+
+impl Directory {
+    fn add(&mut self, inode: INodeNum, r#type: INodeType, name: &Path) {
+        self.entries
+            .as_mut()
+            .expect("Directory::add called before directory entries were scanned")
+            .add(inode, r#type, name)
+    }
+    fn is_empty(&self) -> bool {
+        self.entries
+            .as_ref()
+            .expect("Directory::is_empty called before directory entries were scanned")
+            .entries
+            .is_empty()
+    }
+}
 
 /// Manages a single file system
 struct FileSystemManager<F: FileSystem> {
     fs: F,
+    mount_point: Option<(FileSystemID, INodeNum)>,
     open_file_count: BTreeMap<INodeNum, NonZeroUsize>,
     open_files: BTreeMap<ProcessFileDescriptor, F::FileHandle>,
-    directories: BTreeMap<INodeNum, DirEntries>,
+    directories: BTreeMap<INodeNum, Directory>,
+    mount_count: u32,
 }
 
 struct TempOpen<F: FileSystem> {
@@ -60,95 +87,55 @@ impl<F: FileSystem> Drop for TempOpen<F> {
     }
 }
 
+fn temp_open<F: FileSystem>(fs: &mut F, inode: INodeNum) -> Result<TempOpen<F>> {
+    let handle = fs.open(inode)?;
+    Ok(TempOpen { handle })
+}
+
+fn temp_close<F: FileSystem>(
+    fs: &mut F,
+    file: TempOpen<F>,
+    open_file_count: &BTreeMap<INodeNum, NonZeroUsize>,
+) {
+    let inode = file.handle.inode();
+    if open_file_count.contains_key(&inode) {
+        fs.release(inode);
+    }
+    // prevent drop from running
+    core::mem::forget(file);
+}
+
 impl<F: FileSystem> FileSystemManager<F> {
-    fn new(fs: F) -> Self {
-        Self {
+    fn new(fs: F, mount_point: Option<(FileSystemID, INodeNum)>) -> Self {
+        let root_ino = fs.root();
+        let mut me = Self {
             fs,
             open_file_count: BTreeMap::new(),
             open_files: BTreeMap::new(),
             directories: BTreeMap::new(),
-        }
+            mount_point,
+            mount_count: 0,
+        };
+        me.directories.insert(
+            root_ino,
+            Directory {
+                entries: None,
+                mount: None,
+                parent: root_ino,
+            },
+        );
+        // ensure root directory entries are in cache
+        let _ = me.lookup(root_ino, "x");
+        me
     }
 
     fn temp_open(&mut self, inode: INodeNum) -> Result<TempOpen<F>> {
-        let handle = self.fs.open(inode)?;
-        Ok(TempOpen { handle })
-    }
-    fn temp_open_path(&mut self, path: &Path) -> Result<TempOpen<F>> {
-        let inode = self.inode_for_path(path)?;
-        self.temp_open(inode)
+        temp_open(&mut self.fs, inode)
     }
     fn temp_close(&mut self, file: TempOpen<F>) {
-        let inode = file.handle.inode();
-        if self.open_file_count.contains_key(&inode) {
-            self.fs.release(inode);
-        }
-        core::mem::forget(file);
+        temp_close(&mut self.fs, file, &self.open_file_count)
     }
 
-    fn directory_entries(&mut self, inode: INodeNum) -> Result<&mut DirEntries> {
-        #[allow(clippy::map_entry)] // can't use entry() here because we're borrowing self mutably
-        if !self.directories.contains_key(&inode) {
-            let mut dir = self.temp_open(inode)?;
-            // TODO: consider converting entries to a BTreeMap.
-            let entries = self.fs.readdir(&mut dir.handle);
-            self.temp_close(dir);
-            let entries = entries?;
-            self.directories.insert(inode, entries);
-        }
-        Ok(self.directories.get_mut(&inode).unwrap())
-    }
-    /// get inode number corresponding to path
-    fn inode_for_path(&mut self, path: &Path) -> Result<INodeNum> {
-        let root_inode = self.fs.root();
-        if path == "/" {
-            return Ok(root_inode);
-        }
-        assert!(path.len() > 1, "path is not absolute");
-        let mut inode = root_inode;
-        let mut i = 1;
-        let mut parent_inodes = vec![];
-        loop {
-            let (component, is_last) = match path[i..].find('/') {
-                Some(l) => (&path[i..i + l], false),
-                None => (&path[i..], true),
-            };
-            if component == ".." {
-                inode = parent_inodes.pop().unwrap_or(root_inode);
-            }
-            if component == "." {
-                continue;
-            }
-            let dir_entries = self.directory_entries(inode)?;
-            let mut found = false;
-            for entry in &*dir_entries {
-                if entry.name == component {
-                    match entry.r#type {
-                        INodeType::Link => todo!("symlink handling"),
-                        INodeType::File => {
-                            if !is_last {
-                                return Err(Error::NotDirectory);
-                            }
-                        }
-                        INodeType::Directory => {
-                            parent_inodes.push(inode);
-                        }
-                    }
-                    inode = entry.inode;
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                return Err(Error::NotFound);
-            }
-            if is_last {
-                break;
-            }
-            i += component.len() + 1;
-        }
-        Ok(inode)
-    }
     fn open_file_handle(&mut self, fd: ProcessFileDescriptor, handle: F::FileHandle) -> Result<()> {
         match self.open_file_count.entry(handle.inode()) {
             BTreeMapEntry::Occupied(mut o) => {
@@ -169,24 +156,30 @@ impl<F: FileSystem> FileSystemManager<F> {
 /// FileHandle type). So we need a new trait to be able to create dynamic objects
 /// which can use different file systems.
 trait FileSystemManagerTrait: Send + Sync {
-    fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
-    fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()>;
+    fn root(&self) -> INodeNum;
+    fn mount_point(&self) -> Option<(FileSystemID, INodeNum)>;
+    fn lookup(&mut self, dir: INodeNum, entry: &Path) -> Result<INodeNum>;
+    fn open(&mut self, inode: INodeNum, fd: ProcessFileDescriptor) -> Result<()>;
+    fn create(&mut self, parent: INodeNum, name: &Path, fd: ProcessFileDescriptor) -> Result<()>;
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
     fn read(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &mut [u8]) -> Result<usize>;
     fn write(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &[u8]) -> Result<usize>;
     fn sync(&mut self) -> Result<()>;
-    fn exists(&mut self, path: &Path) -> Result<bool>;
-    fn mkdir(&mut self, path: &Path) -> Result<()>;
+    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
     fn can_be_safely_unmounted(&self) -> bool;
+    fn mount(&mut self, dir: INodeNum, fs: FileSystemID) -> Result<()>;
+    fn unmount(&mut self, dir: INodeNum) -> Result<()>;
+    fn mount_point_at(&self, dir: INodeNum) -> Option<FileSystemID>;
     fn stat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo>;
     fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64>;
+    fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>>;
 }
 
 /// get parent directory and name of absolute path
 /// e.g. /foo/bar => "/foo", "bar"
 fn dirname_and_filename(path: &Path) -> (&Path, &Path) {
     let Some(final_slash) = path.rfind('/') else {
-        panic!("not an absolute path");
+        return (".", path);
     };
     let dir = if final_slash == 0 {
         "/"
@@ -197,26 +190,38 @@ fn dirname_and_filename(path: &Path) -> (&Path, &Path) {
     (dir, name)
 }
 
+fn dirname_of(path: &Path) -> &Path {
+    dirname_and_filename(path).0
+}
+
+fn filename_of(path: &Path) -> &Path {
+    dirname_and_filename(path).1
+}
+
 impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
-    fn open(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        let inode = self.inode_for_path(path)?;
+    fn root(&self) -> INodeNum {
+        self.fs.root()
+    }
+    fn mount_point(&self) -> Option<(FileSystemID, INodeNum)> {
+        self.mount_point
+    }
+    fn open(&mut self, inode: INodeNum, fd: ProcessFileDescriptor) -> Result<()> {
         let handle = self.fs.open(inode)?;
         self.open_file_handle(fd, handle)
     }
-    fn create(&mut self, path: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        let (dir, name) = dirname_and_filename(path);
+    fn create(&mut self, parent: INodeNum, name: &Path, fd: ProcessFileDescriptor) -> Result<()> {
         if name.is_empty() {
             // e.g. create("foo/")
             return Err(Error::IsDirectory);
         }
-        let dir_inode = self.inode_for_path(dir)?;
-        let mut dir = self.temp_open(dir_inode)?;
+        let mut dir = self.temp_open(parent)?;
         let file = self.fs.create(&mut dir.handle, name);
         self.temp_close(dir);
         let file = file?;
         // add file to directory entry cache
-        self.directory_entries(dir_inode)?
-            .add(file.inode(), INodeType::File, name);
+        if let Some(dir) = self.directories.get_mut(&parent) {
+            dir.add(file.inode(), INodeType::File, name);
+        }
         self.open_file_handle(fd, file)
     }
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
@@ -232,28 +237,33 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         Ok(())
     }
     fn can_be_safely_unmounted(&self) -> bool {
-        self.open_files.is_empty()
+        self.open_files.is_empty() && self.mount_count == 0
     }
     fn sync(&mut self) -> Result<()> {
         self.fs.sync()
     }
-    fn mkdir(&mut self, path: &Path) -> Result<()> {
-        let (parent_dir, name) = dirname_and_filename(path);
+    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
         if name.is_empty() {
-            // e.g. turn mkdir("/foo/") into mkdir("/foo")
-            return self.mkdir(parent_dir);
+            // e.g. mkdir("/foo/"), where /foo exists.
+            return Err(Error::Exists);
         }
-        let mut parent_dir = self.temp_open_path(parent_dir)?;
+        let mut parent_dir = self.temp_open(parent)?;
         let result = self.fs.mkdir(&mut parent_dir.handle, name);
         self.temp_close(parent_dir);
-        result
-    }
-    fn exists(&mut self, path: &Path) -> Result<bool> {
-        match self.inode_for_path(path) {
-            Err(Error::NotFound) => Ok(false),
-            Err(e) => Err(e),
-            Ok(_) => Ok(true),
-        }
+        let inode = result?;
+        self.directories
+            .get_mut(&parent)
+            .unwrap()
+            .add(inode, INodeType::Directory, name);
+        self.directories.insert(
+            inode,
+            Directory {
+                entries: Some(DirEntries::new()),
+                mount: None,
+                parent,
+            },
+        );
+        Ok(())
     }
     fn read(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &mut [u8]) -> Result<usize> {
         let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
@@ -270,6 +280,107 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64> {
         Ok(self.stat(fd)?.size)
     }
+    fn mount(&mut self, dir: INodeNum, fs: FileSystemID) -> Result<()> {
+        // ensure directory entries are in cache
+        let _ = self.lookup(dir, "x");
+        let dir = self.directories.get_mut(&dir).ok_or(Error::NotDirectory)?;
+        if !dir.is_empty() || dir.mount.is_some() {
+            return Err(Error::NotEmpty);
+        }
+        dir.mount = Some(fs);
+        self.mount_count += 1;
+        Ok(())
+    }
+    fn unmount(&mut self, dir: INodeNum) -> Result<()> {
+        let dir = self.directories.get_mut(&dir).ok_or(Error::NotDirectory)?;
+        if dir.mount.is_none() {
+            return Err(Error::NotMounted);
+        }
+        dir.mount = None;
+        self.mount_count -= 1;
+        Ok(())
+    }
+    fn mount_point_at(&self, dir: INodeNum) -> Option<FileSystemID> {
+        self.directories.get(&dir).and_then(|dir| dir.mount)
+    }
+    fn lookup(&mut self, dir_inode: INodeNum, name: &Path) -> Result<INodeNum> {
+        if name.is_empty() || name == "." {
+            return Ok(dir_inode);
+        }
+        let dir = self
+            .directories
+            .get_mut(&dir_inode)
+            .ok_or(Error::NotDirectory)?;
+        if name == ".." {
+            return Ok(dir.parent);
+        }
+        let mut new_directories = vec![];
+        if dir.entries.is_none() {
+            // can't use self.temp_open here due to borrowing rules
+            let mut handle = temp_open(&mut self.fs, dir_inode)?;
+            // TODO: consider converting entries to a BTreeMap.
+            let entries = self.fs.readdir(&mut handle.handle);
+            temp_close(&mut self.fs, handle, &self.open_file_count);
+            let entries = entries?;
+            for entry in &entries {
+                if entry.r#type == INodeType::Directory {
+                    new_directories.push(entry.inode);
+                }
+            }
+            dir.entries = Some(entries);
+        }
+        // dir.entries should now definitely be set
+        let entries = dir.entries.as_ref().unwrap();
+        let result = entries
+            .into_iter()
+            .find_map(|e| if e.name == name { Some(e.inode) } else { None })
+            .ok_or(Error::NotFound);
+        for child_dir in new_directories {
+            // make note of child's parent here
+            // (needed so that we can resolve .. in paths)
+            self.directories.insert(
+                child_dir,
+                Directory {
+                    parent: dir_inode,
+                    entries: None,
+                    mount: None,
+                },
+            );
+        }
+        result
+    }
+    fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>> {
+        let mut handle = self.temp_open(inode)?;
+        let result = self.fs.stat(&handle.handle).and_then(|st| {
+            if st.r#type != INodeType::Link {
+                return Err(Error::NotLink);
+            }
+            if buf.len() as u64 >= st.size {
+                let s = self
+                    .fs
+                    .readlink(&mut handle.handle, buf)?
+                    .expect("link size changed mysteriously");
+                Ok(Cow::Borrowed(s))
+            } else {
+                if st.size > isize::MAX as u64 {
+                    // enormous link. will probably never happen.
+                    return Err(Error::IO("symlink too large".into()));
+                }
+                let mut buf = vec![0u8; st.size as usize];
+                let s = self
+                    .fs
+                    .readlink(&mut handle.handle, &mut buf[..])?
+                    .expect("link size changed mysteriously");
+                let len = s.len();
+                buf.truncate(len);
+                let string = String::from_utf8(buf)
+                    .expect("filesystem gave us bad UTF-8 in a str! terrible!!");
+                Ok(Cow::Owned(string))
+            }
+        });
+        self.temp_close(handle);
+        result
+    }
 }
 
 type FileSystemID = u16;
@@ -284,34 +395,137 @@ enum OpenFile {
     Null,
 }
 
+// wrapper around an array of filesystems for convenience
+struct FileSystemList([Option<Box<dyn FileSystemManagerTrait>>; MAX_MOUNT_POINTS as usize]);
+
+impl FileSystemList {
+    const fn new() -> Self {
+        Self([const { None }; MAX_MOUNT_POINTS as usize])
+    }
+    /// get reference to filesystem with ID
+    ///
+    /// panics if id is invalid.
+    fn get(&self, id: FileSystemID) -> &dyn FileSystemManagerTrait {
+        self.0[id as usize]
+            .as_ref()
+            .expect("bad filesystem ID")
+            .as_ref()
+    }
+    /// get mutable reference to filesystem with ID
+    ///
+    /// panics if id is invalid.
+    fn get_mut(&mut self, id: FileSystemID) -> &mut dyn FileSystemManagerTrait {
+        self.0[id as usize]
+            .as_mut()
+            .expect("bad filesystem ID")
+            .as_mut()
+    }
+    fn add<F: FileSystem + 'static>(
+        &mut self,
+        fs: F,
+        mount_point: Option<(FileSystemID, INodeNum)>,
+    ) -> Result<FileSystemID> {
+        let mut new_fs = None;
+        for id in 0..MAX_MOUNT_POINTS as usize {
+            if self.0[id].is_none() {
+                self.0[id] = Some(Box::new(FileSystemManager::new(fs, mount_point)));
+                new_fs = Some(id as FileSystemID);
+                break;
+            }
+        }
+        let Some(new_fs) = new_fs else {
+            // Maybe this isn't the best error to return here?
+            // Seems unlikely that this would happen in any case.
+            return Err(Error::NoSpace);
+        };
+        Ok(new_fs)
+    }
+    fn remove(&mut self, id: FileSystemID) {
+        self.0[id as usize] = None;
+    }
+}
+
 pub struct RootFileSystem {
-    file_systems: [Option<Box<dyn FileSystemManagerTrait>>; MAX_MOUNT_POINTS as usize],
-    mount_points: BTreeMap<OwnedPath, FileSystemID>,
+    file_systems: FileSystemList,
+    root_mount: Option<FileSystemID>,
     open_files: BTreeMap<ProcessFileDescriptor, OpenFile>,
 }
 
 impl RootFileSystem {
     pub const fn new() -> Self {
         Self {
-            file_systems: [const { None }; MAX_MOUNT_POINTS as usize],
-            mount_points: BTreeMap::new(),
+            file_systems: FileSystemList::new(),
+            root_mount: None,
             open_files: BTreeMap::new(),
         }
     }
-    /// Determine which filesystem a path belongs to, and return the path relative to the filesystem.
-    ///
-    /// This can only fail if / isn't mounted.
-    fn resolve_path<'a>(&self, path: &'a Path) -> Result<(FileSystemID, &'a Path)> {
-        let mut result = None;
-        for i in 0..path.len() {
-            if path.as_bytes()[i] == b'/' {
-                let dir = if i == 0 { "/" } else { &path[..i] };
-                if let Some(id) = self.mount_points.get(dir) {
-                    result = Some((*id, &path[i..]));
+    fn resolve_path_relative_to(
+        &mut self,
+        cwd: (FileSystemID, INodeNum),
+        path: &Path,
+        level_of_links: usize,
+    ) -> Result<(FileSystemID, INodeNum)> {
+        if level_of_links > MAX_LEVEL_OF_LINKS {
+            return Err(Error::TooManyLevelsOfLinks);
+        }
+        let mut fs_id = self.root_mount.ok_or(Error::NotFound)?;
+        let mut fs_root = self.file_systems.get(fs_id).root();
+        let mut inode;
+        if path.starts_with('/') {
+            inode = fs_root;
+        } else {
+            (fs_id, inode) = cwd;
+            fs_root = self.file_systems.get(fs_id).root();
+        }
+        let mut link_buf = [0; 256];
+        for component in path.split('/') {
+            if component.is_empty() || component == "." {
+                continue;
+            }
+            if component == ".." && inode == fs_root {
+                // .. from root of filesystem
+                // escape to parent filesystem, or do nothing if at /
+                if let Some((parent_fs, ino)) = self.file_systems.get(fs_id).mount_point() {
+                    fs_id = parent_fs;
+                    fs_root = self.file_systems.get(fs_id).root();
+                    inode = ino;
                 }
+                continue;
+            }
+            let fs = self.file_systems.get_mut(fs_id);
+            inode = fs.lookup(inode, component)?;
+            if let Some(child_fs) = fs.mount_point_at(inode) {
+                // enter mount
+                fs_id = child_fs;
+                fs_root = self.file_systems.get(fs_id).root();
+                inode = fs_root;
+                continue;
+            }
+            match fs.read_link(inode, &mut link_buf) {
+                Err(Error::NotLink) => {}
+                Ok(link_dest) => {
+                    (fs_id, inode) = self.resolve_path_relative_to(
+                        (fs_id, inode),
+                        link_dest.as_ref(),
+                        level_of_links + 1,
+                    )?;
+                }
+                Err(e) => return Err(e),
             }
         }
-        result.ok_or(Error::NotFound)
+        Ok((fs_id, inode))
+    }
+    /// Determine which filesystem a path belongs to, and inode number in the filesystem.
+    fn resolve_path(
+        &mut self,
+        process: &ProcessControlBlock,
+        path: &Path,
+    ) -> Result<(FileSystemID, INodeNum)> {
+        let _ = process;
+        // TODO : use process cwd
+        let fs_id = self.root_mount.ok_or(Error::NotFound)?;
+        let fs = self.file_systems.get(fs_id);
+        self.resolve_path_relative_to((fs_id, fs.root()), path, 0)
     }
     fn new_fd(&mut self, pid: Pid, file_info: OpenFile) -> Result<ProcessFileDescriptor> {
         for fd in 0..MAX_OPEN_FILES as FileDescriptor {
@@ -323,65 +537,62 @@ impl RootFileSystem {
         }
         Err(Error::TooManyOpenFiles)
     }
-    pub fn mount<F: FileSystem + 'static>(&mut self, path: &Path, fs: F) -> Result<()> {
-        // verify that path doesn't already exist
-        if path == "/" {
-            if !self.mount_points.is_empty() {
-                return Err(Error::Exists);
-            }
-        } else {
-            let (fs, name) = self.resolve_path(path)?;
-            let fs = self.file_systems[fs as usize].as_mut().unwrap();
-            let (parent, _) = dirname_and_filename(name);
-            if !fs.exists(parent)? {
-                // e.g. mount /foo/bar when /foo doesn't exist
-                return Err(Error::NotFound);
-            }
-            if fs.exists(name)? {
-                return Err(Error::Exists);
-            }
+    pub fn mount<F: FileSystem + 'static>(
+        &mut self,
+        process: &ProcessControlBlock,
+        path: &Path,
+        fs: F,
+    ) -> Result<()> {
+        let (parent_fs, inode) = self.resolve_path(process, path)?;
+        let new_fs = self.file_systems.add(fs, Some((parent_fs, inode)))?;
+        let result = self.file_systems.get_mut(parent_fs).mount(inode, new_fs);
+        if result.is_err() {
+            self.file_systems.remove(new_fs);
         }
-        // add FS
-        let mut fs_id = None;
-        for id in 0..MAX_MOUNT_POINTS as usize {
-            if self.file_systems[id].is_none() {
-                self.file_systems[id] = Some(Box::new(FileSystemManager::new(fs)));
-                fs_id = Some(id as FileSystemID);
-                break;
-            }
-        }
-        let Some(fs_id) = fs_id else {
-            // Maybe this isn't the best error to return here?
-            // Seems unlikely that this would happen in any case.
-            return Err(Error::NoSpace);
-        };
-        self.mount_points.insert(path.into(), fs_id);
-        Ok(())
+        result
     }
-    pub fn unmount(&mut self, path: &Path) -> Result<()> {
-        for mount_point in self.mount_points.keys() {
-            if path != mount_point && mount_point.starts_with(path) {
-                // e.g. can't unmount /foo while /foo/bar is mounted
-                return Err(Error::FileSystemInUse);
-            }
-        }
-        let fs_id = *self.mount_points.get(path).ok_or(Error::NotFound)?;
-        let fs = self.file_systems[fs_id as usize].as_mut().unwrap();
+    pub fn unmount(&mut self, process: &ProcessControlBlock, path: &Path) -> Result<()> {
+        let (child_fs_id, _) = self.resolve_path(process, path)?;
+        let Some((parent_fs_id, inode)) = self.file_systems.get(child_fs_id).mount_point() else {
+            // ordinary processes probably shouldn't unmount /
+            return Err(Error::FileSystemInUse);
+        };
+        let parent_fs = self.file_systems.get_mut(parent_fs_id);
+        let child_fs_id = parent_fs.mount_point_at(inode).ok_or(Error::NotFound)?;
+        let fs = self.file_systems.get_mut(child_fs_id);
         if !fs.can_be_safely_unmounted() {
             return Err(Error::FileSystemInUse);
         }
         fs.sync()?;
-        self.file_systems[fs_id as usize] = None;
-        self.mount_points.remove(path);
+        self.file_systems.remove(child_fs_id);
+        let parent_fs = self.file_systems.get_mut(parent_fs_id);
+        // parent_fs.unmount should only fail if inode isn't a mount point, but we checked that already.
+        parent_fs.unmount(inode).unwrap();
         Ok(())
     }
-    pub fn open(&mut self, path: &Path, pid: Pid, mode: Mode) -> Result<FileDescriptor> {
-        let (fs, path) = self.resolve_path(path)?;
-        let fd = self.new_fd(pid, OpenFile::Regular { fs, offset: 0 })?;
-        let fs = self.file_systems[fs as usize].as_mut().unwrap();
+    pub fn mount_root<F: FileSystem + 'static>(&mut self, fs: F) -> Result<()> {
+        if self.root_mount.is_some() {
+            return Err(Error::NotEmpty);
+        }
+        let new_fs = self.file_systems.add(fs, None)?;
+        self.root_mount = Some(new_fs);
+        Ok(())
+    }
+    pub fn open(
+        &mut self,
+        process: &ProcessControlBlock,
+        path: &Path,
+        mode: Mode,
+    ) -> Result<FileDescriptor> {
+        let (fs, inode) = match mode {
+            Mode::ReadWrite => self.resolve_path(process, path)?,
+            Mode::CreateReadWrite => self.resolve_path(process, dirname_of(path))?,
+        };
+        let fd = self.new_fd(process.pid, OpenFile::Regular { fs, offset: 0 })?;
+        let fs = self.file_systems.get_mut(fs);
         let result = match mode {
-            Mode::ReadWrite => fs.open(path, fd),
-            Mode::CreateReadWrite => fs.create(path, fd),
+            Mode::ReadWrite => fs.open(inode, fd),
+            Mode::CreateReadWrite => fs.create(inode, filename_of(path), fd),
         };
         if let Err(e) = result {
             self.open_files.remove(&fd);
@@ -405,23 +616,24 @@ impl RootFileSystem {
         let mut result = Ok(());
         let file_info = self.open_files.get(&fd).ok_or(Error::BadFd)?;
         if let OpenFile::Regular { fs, .. } = file_info {
-            let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+            let fs = self.file_systems.get_mut(*fs);
             result = fs.close(fd);
         }
         // don't need to do anything for non-regular files
         self.open_files.remove(&fd);
         result
     }
-    pub fn mkdir(&mut self, path: &Path) -> Result<()> {
-        let (fs, path) = self.resolve_path(path)?;
-        let fs = self.file_systems[fs as usize].as_mut().unwrap();
-        fs.mkdir(path)
+    pub fn mkdir(&mut self, process: &ProcessControlBlock, path: &Path) -> Result<()> {
+        let (parent, name) = dirname_and_filename(path);
+        let (fs, parent) = self.resolve_path(process, parent)?;
+        let fs = self.file_systems.get_mut(fs);
+        fs.mkdir(parent, name)
     }
     pub fn read(&mut self, fd: ProcessFileDescriptor, buf: &mut [u8]) -> Result<usize> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
             OpenFile::Regular { fs, offset } => {
-                let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+                let fs = self.file_systems.get_mut(*fs);
                 let read_count = fs.read(fd, *offset, buf)?;
                 *offset += read_count as u64;
                 Ok(read_count)
@@ -437,7 +649,7 @@ impl RootFileSystem {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
             OpenFile::Regular { fs, offset } => {
-                let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+                let fs = self.file_systems.get_mut(*fs);
                 let write_count = fs.write(fd, *offset, buf)?;
                 *offset += write_count as u64;
                 Ok(write_count)
@@ -475,7 +687,7 @@ impl RootFileSystem {
                     SeekFrom::Start => 0,
                     SeekFrom::Current => *file_offset as i64,
                     SeekFrom::End => {
-                        let fs = self.file_systems[*fs as usize].as_mut().unwrap();
+                        let fs = self.file_systems.get_mut(*fs);
                         fs.size_of_file(fd)? as i64
                     }
                 })
@@ -521,17 +733,24 @@ pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
 mod test {
     use super::*;
     use crate::vfs::tempfs::TempFS;
+    // fake PCB for testing
+    const PCB: ProcessControlBlock = ProcessControlBlock {
+        pid: 0,
+        child_tids: vec![],
+        wait_list: vec![],
+        exit_code: None,
+    };
     // open file for fake PID of 1 for testing
     fn open(root: &mut RootFileSystem, path: &Path, mode: Mode) -> Result<ProcessFileDescriptor> {
-        let pid = 1;
-        let fd = root.open(path, pid, mode)?;
+        let pid = 0;
+        let fd = root.open(&PCB, path, mode)?;
         Ok(ProcessFileDescriptor { fd, pid })
     }
     #[test]
     fn test_one_filesystem_simple() {
         let mut root = RootFileSystem::new();
         let fs = TempFS::new();
-        root.mount("/", fs).unwrap();
+        root.mount_root(fs).unwrap();
         let file = open(&mut root, "/foo", Mode::CreateReadWrite).unwrap();
         assert_eq!(root.write(file, b"test data").unwrap(), 9);
         root.close(file).unwrap();
@@ -540,22 +759,23 @@ mod test {
         assert_eq!(root.read(file, &mut buf).unwrap(), 9);
         assert_eq!(&buf, b"test data\0");
         root.close(file).unwrap();
-        root.unmount("/").unwrap();
     }
     #[test]
     fn test_multiple_filesystems_simple() {
         let mut root = RootFileSystem::new();
         let fs = TempFS::new();
-        root.mount("/", fs).unwrap();
+        root.mount_root(fs).unwrap();
         let fs2 = TempFS::new();
-        root.mount("/2", fs2).unwrap();
+        root.mkdir(&PCB, "/2").unwrap();
+        root.mount(&PCB, "/2", fs2).unwrap();
         let fs3 = TempFS::new();
-        root.mount("/2/3", fs3).unwrap();
+        root.mkdir(&PCB, "/2/3").unwrap();
+        root.mount(&PCB, "/2/3", fs3).unwrap();
         for path in ["/foo", "/2/foo", "/2/3/foo"] {
             let file = open(&mut root, path, Mode::CreateReadWrite).unwrap();
             // we shouldn't be allowed to unmount the FS file is contained in while it's open
             assert!(matches!(
-                root.unmount(dirname_and_filename(path).0),
+                root.unmount(&PCB, dirname_and_filename(path).0),
                 Err(Error::FileSystemInUse)
             ));
             assert_eq!(root.write(file, b"test data").unwrap(), 9);
@@ -566,9 +786,11 @@ mod test {
             assert_eq!(&buf, b"test data\0");
             root.close(file).unwrap();
         }
-        assert!(matches!(root.unmount("/2"), Err(Error::FileSystemInUse)));
-        root.unmount("/2/3").unwrap();
-        root.unmount("/2").unwrap();
-        root.unmount("/").unwrap();
+        assert!(matches!(
+            root.unmount(&PCB, "/2"),
+            Err(Error::FileSystemInUse)
+        ));
+        root.unmount(&PCB, "/2/3").unwrap();
+        root.unmount(&PCB, "/2").unwrap();
     }
 }

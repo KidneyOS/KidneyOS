@@ -33,6 +33,7 @@ pub const EROFS: isize = 30;
 pub const EMLINK: isize = 31;
 pub const ENOSYS: isize = 38;
 pub const ENOTEMPTY: isize = 39;
+pub const ELOOP: isize = 40;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -54,7 +55,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) as usize },
         SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) as usize },
         SYS_LSEEK => unsafe { lseek(arg0, arg1 as _, arg2 as _) as usize },
-        SYS_CLOSE => close(arg0) as usize,
+        SYS_CLOSE => unsafe { close(arg0) as usize },
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }

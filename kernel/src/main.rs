@@ -88,7 +88,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Mounting root filesystem...");
         // for now, we just use TempFS for the root filesystem
         ROOT.lock()
-            .mount("/", TempFS::new())
+            .mount_root(TempFS::new())
             .expect("Couldn't mount root FS");
         println!("Root mounted!");
 

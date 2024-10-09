@@ -57,7 +57,6 @@ pub struct ProcessControlBlock {
     // The TIDs of the threads waiting on this process to end
     pub wait_list: Vec<Tid>,
 
-    // TODO: (file I/O) file descriptor table
     pub exit_code: Option<i32>,
 }
 
