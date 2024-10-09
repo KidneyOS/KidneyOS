@@ -187,7 +187,11 @@ impl SimpleFileSystem for TempFS {
         if DEBUG_TEMPFS {
             println!("tempfs: open {inode}");
         }
-        if self.inodes.get(&inode).is_none() {
+        if self
+            .inodes
+            .get(&inode)
+            .map_or(true, |inode| inode.nlink == 0)
+        {
             return Err(Error::NotFound);
         }
         Ok(())

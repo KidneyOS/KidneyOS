@@ -45,6 +45,14 @@ void _start() {
     if (status < 0) exit(status);
     if (statbuf.size != 0) exit(0xf0);
     if (statbuf.type != S_REGULAR_FILE) exit(0xf1);
+    status = unlink("file");
+    if (status < 0) exit(status);
+    status = open("file", 0);
+    if (status != -ENOENT) exit(status == 0 ? -1 : status);
+    status = rmdir("/d");
+    if (status < 0) exit(status);
+    status = open("/d/new", O_CREATE);
+    if (status != -ENOENT) exit(status == 0 ? -1 : status);
     print("success!\n");
     exit(0);
 }

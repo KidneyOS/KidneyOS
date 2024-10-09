@@ -68,11 +68,15 @@
 
 #define SYS_WAITPID 7
 
+#define SYS_UNLINK 10
+
 #define SYS_EXECVE 11
 
 #define SYS_CHDIR 12
 
 #define SYS_MKDIR 39
+
+#define SYS_RMDIR 40
 
 #define SYS_FSTAT 108
 
@@ -124,6 +128,10 @@ int32_t chdir(const int8_t *path);
 int32_t mkdir(const int8_t *path);
 
 int32_t fstat(int32_t fd, struct Stat *statbuf);
+
+int32_t unlink(const int8_t *path);
+
+int32_t rmdir(const int8_t *path);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 

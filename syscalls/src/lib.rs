@@ -40,9 +40,8 @@ pub extern "C" fn read(fd: i32, buffer: *mut u8, count: usize) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0x3
             int 0x80
-        ", in("ebx") fd, in("ecx") buffer, in("edx") count, out("eax") result);
+        ", in("eax") SYS_READ, in("ebx") fd, in("ecx") buffer, in("edx") count, lateout("eax") result);
     }
     result
 }
@@ -52,9 +51,8 @@ pub extern "C" fn write(fd: i32, buffer: *const u8, count: usize) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0x4
             int 0x80
-        ", in("ebx") fd, in("ecx") buffer, in("edx") count, out("eax") result);
+        ", in("eax") SYS_WRITE, in("ebx") fd, in("ecx") buffer, in("edx") count, lateout("eax") result);
     }
     result
 }
@@ -64,9 +62,8 @@ pub extern "C" fn open(name: *const u8, flags: usize) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0x5
             int 0x80
-        ", in("ebx") name, in("ecx") flags, out("eax") result);
+        ", in("eax") SYS_OPEN, in("ebx") name, in("ecx") flags, lateout("eax") result);
     }
     result
 }
@@ -76,9 +73,8 @@ pub extern "C" fn close(fd: i32) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0x6
             int 0x80
-        ", in("ebx") fd, out("eax") result);
+        ", in("eax") SYS_CLOSE, in("ebx") fd, lateout("eax") result);
     }
     result
 }
@@ -89,9 +85,10 @@ pub extern "C" fn lseek64(fd: i32, offset: i64, whence: i32) -> i64 {
     let result: i32;
     unsafe {
         asm!("
-            mov eax, 0x8c
             int 0x80
-        ", in("ebx") fd, in("ecx") (core::ptr::addr_of_mut!(offset)), in("edx") whence, out("eax") result);
+        ", in("eax") SYS_LSEEK64,
+            in("ebx") fd, in("ecx") (core::ptr::addr_of_mut!(offset)),
+            in("edx") whence, lateout("eax") result);
     }
     if result < 0 {
         result.into()
@@ -105,9 +102,8 @@ pub extern "C" fn getcwd(buf: *mut i8, size: usize) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0xb7
             int 0x80
-        ", in("ebx") buf, in("ecx") size, out("eax") result);
+        ", in("eax") SYS_GETCWD, in("ebx") buf, in("ecx") size, lateout("eax") result);
     }
     result
 }
@@ -117,9 +113,8 @@ pub extern "C" fn chdir(path: *const i8) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0xc
             int 0x80
-        ", in("ebx") path, out("eax") result);
+        ", in("eax") SYS_CHDIR, in("ebx") path, lateout("eax") result);
     }
     result
 }
@@ -129,9 +124,8 @@ pub extern "C" fn mkdir(path: *const i8) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0x27
             int 0x80
-        ", in("ebx") path, out("eax") result);
+        ", in("eax") SYS_MKDIR, in("ebx") path, lateout("eax") result);
     }
     result
 }
@@ -141,9 +135,30 @@ pub extern "C" fn fstat(fd: i32, statbuf: *mut Stat) -> i32 {
     let result;
     unsafe {
         asm!("
-            mov eax, 0x6c
             int 0x80
-        ", in("ebx") fd, in("ecx") statbuf, out("eax") result);
+        ", in("eax") SYS_FSTAT, in("ebx") fd, in("ecx") statbuf, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn unlink(path: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_UNLINK, in("ebx") path, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn rmdir(path: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_RMDIR, in("ebx") path, lateout("eax") result);
     }
     result
 }

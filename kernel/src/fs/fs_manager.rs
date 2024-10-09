@@ -2,9 +2,7 @@ use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::sync::mutex::Mutex;
 use crate::threading::thread_control_block::Pid;
 use crate::threading::thread_control_block::ProcessControlBlock;
-use crate::vfs::{
-    DirEntries, Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, Result,
-};
+use crate::vfs::{Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, Result};
 use alloc::borrow::Cow;
 use alloc::{
     boxed::Box,
@@ -46,7 +44,7 @@ pub const MAX_MOUNT_POINTS: u16 = 256;
 pub const MAX_LEVEL_OF_LINKS: usize = 32;
 
 struct Directory {
-    entries: Option<DirEntries>,
+    entries: Option<BTreeMap<String, (INodeType, INodeNum)>>,
     parent: INodeNum,
     mount: Option<FileSystemID>,
 }
@@ -56,13 +54,18 @@ impl Directory {
         self.entries
             .as_mut()
             .expect("Directory::add called before directory entries were scanned")
-            .add(inode, r#type, name)
+            .insert(name.into(), (r#type, inode));
+    }
+    fn remove(&mut self, name: &Path) {
+        self.entries
+            .as_mut()
+            .expect("Directory::remove called before directory entries were scanned")
+            .remove(name);
     }
     fn is_empty(&self) -> bool {
         self.entries
             .as_ref()
             .expect("Directory::is_empty called before directory entries were scanned")
-            .entries
             .is_empty()
     }
 }
@@ -174,6 +177,8 @@ trait FileSystemManagerTrait: Send + Sync {
     fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64>;
     fn inode_type(&mut self, inode: INodeNum) -> Result<INodeType>;
     fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>>;
+    fn unlink(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
+    fn rmdir(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
 }
 
 /// get parent directory and name of absolute path
@@ -259,7 +264,7 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         self.directories.insert(
             inode,
             Directory {
-                entries: Some(DirEntries::new()),
+                entries: Some(BTreeMap::new()),
                 mount: None,
                 parent,
             },
@@ -308,6 +313,7 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         if name.is_empty() || name == "." {
             return Ok(dir_inode);
         }
+        let mut new_directories = vec![];
         let dir = self
             .directories
             .get_mut(&dir_inode)
@@ -315,11 +321,9 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         if name == ".." {
             return Ok(dir.parent);
         }
-        let mut new_directories = vec![];
         if dir.entries.is_none() {
             // can't use self.temp_open here due to borrowing rules
             let mut handle = temp_open(&mut self.fs, dir_inode)?;
-            // TODO: consider converting entries to a BTreeMap.
             let entries = self.fs.readdir(&mut handle.handle);
             temp_close(&mut self.fs, handle, &self.open_file_count);
             let entries = entries?;
@@ -328,14 +332,15 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
                     new_directories.push(entry.inode);
                 }
             }
-            dir.entries = Some(entries);
+            let mut entry_map = BTreeMap::new();
+            for entry in &entries {
+                entry_map.insert(entry.name.into_owned(), (entry.r#type, entry.inode));
+            }
+            dir.entries = Some(entry_map);
         }
         // dir.entries should now definitely be set
         let entries = dir.entries.as_ref().unwrap();
-        let result = entries
-            .into_iter()
-            .find_map(|e| if e.name == name { Some(e.inode) } else { None })
-            .ok_or(Error::NotFound);
+        let inode = entries.get(name).ok_or(Error::NotFound)?.1;
         for child_dir in new_directories {
             // make note of child's parent here
             // (needed so that we can resolve .. in paths)
@@ -348,7 +353,7 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
                 },
             );
         }
-        result
+        Ok(inode)
     }
     fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>> {
         let mut handle = self.temp_open(inode)?;
@@ -387,6 +392,22 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         let st = self.fs.stat(&handle.handle);
         self.temp_close(handle);
         Ok(st?.r#type)
+    }
+    fn unlink(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+        let dir = self.directories.get_mut(&parent).ok_or(Error::NotFound)?;
+        let mut handle = temp_open(&mut self.fs, parent)?;
+        let result = self.fs.unlink(&mut handle.handle, name);
+        temp_close(&mut self.fs, handle, &self.open_file_count);
+        dir.remove(name);
+        result
+    }
+    fn rmdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+        let dir = self.directories.get_mut(&parent).ok_or(Error::NotFound)?;
+        let mut handle = temp_open(&mut self.fs, parent)?;
+        let result = self.fs.rmdir(&mut handle.handle, name);
+        temp_close(&mut self.fs, handle, &self.open_file_count);
+        dir.remove(name);
+        result
     }
 }
 
@@ -758,6 +779,16 @@ impl RootFileSystem {
         } else {
             Err(Error::NotFound)
         }
+    }
+    pub fn unlink(&mut self, process: &ProcessControlBlock, path: &Path) -> Result<()> {
+        let (dirname, filename) = dirname_and_filename(path);
+        let (fs_id, inode) = self.resolve_path(process, dirname)?;
+        self.file_systems.get_mut(fs_id).unlink(inode, filename)
+    }
+    pub fn rmdir(&mut self, process: &ProcessControlBlock, path: &Path) -> Result<()> {
+        let (dirname, filename) = dirname_and_filename(path);
+        let (fs_id, inode) = self.resolve_path(process, dirname)?;
+        self.file_systems.get_mut(fs_id).rmdir(inode, filename)
     }
     /// Close all open files belonging to process
     ///

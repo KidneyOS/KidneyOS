@@ -9,7 +9,9 @@ use crate::mem::util::{
 use crate::threading::{
     process_table::PROCESS_TABLE, thread_control_block::ProcessControlBlock, RUNNING_THREAD,
 };
-use crate::user_program::syscall::{Stat, EBADF, EFAULT, EINVAL, ENOENT, ERANGE, O_CREATE};
+use crate::user_program::syscall::{
+    Stat, EBADF, EFAULT, EINVAL, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END, SEEK_SET,
+};
 
 unsafe fn running_process() -> &'static ProcessControlBlock {
     PROCESS_TABLE
@@ -94,10 +96,6 @@ pub unsafe fn write(fd: usize, buf: *const u8, count: usize) -> isize {
     }
 }
 
-pub const SEEK_SET: isize = 0;
-pub const SEEK_CUR: isize = 1;
-pub const SEEK_END: isize = 2;
-
 /// # Safety
 ///
 /// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly and accessing running PCB is safe
@@ -108,7 +106,7 @@ pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
     };
-    let whence = match whence {
+    let whence = match whence as i32 {
         SEEK_SET => SeekFrom::Start,
         SEEK_CUR => SeekFrom::Current,
         SEEK_END => SeekFrom::End,
@@ -218,3 +216,35 @@ pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
         }
     }
 }
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn unlink(path: *const u8) -> isize {
+    let path = match get_cstr_from_user_space(path) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().unlink(running_process(), path) {
+        Err(e) => -e.to_isize(),
+        Ok(()) => 0,
+    }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn rmdir(path: *const u8) -> isize {
+    let path = match get_cstr_from_user_space(path) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().rmdir(running_process(), path) {
+        Err(e) => -e.to_isize(),
+        Ok(()) => 0,
+    }
+}
+
+// TODO: link, symlink, readdir, mount, unmount, sync, rename, ftruncate
