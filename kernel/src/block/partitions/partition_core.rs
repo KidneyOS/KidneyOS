@@ -2,6 +2,7 @@ use crate::block::block_core::{
     Block, BlockOp, BlockSector, BlockType, BLOCK_MANAGER, BLOCK_SECTOR_SIZE,
 };
 use crate::block::block_error::BlockError;
+use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
 use alloc::boxed::Box;
 use alloc::format;
 use kidneyos_shared::{eprintln, println};
@@ -266,7 +267,15 @@ fn read_partition_table(
 
     // Read sector
     let mut buf: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
+
+    // TODO: remove intr related coed when ata_core.rs:50 is fixed
+    let intr_level = intr_get_level();
+    intr_enable();
     let ret = block.read(sector, &mut buf);
+    if intr_level == IntrLevel::IntrOff {
+        intr_disable();
+    }
+
     if ret.is_err() {
         eprintln!("{}: Error reading partition table", block.get_name());
         return;
