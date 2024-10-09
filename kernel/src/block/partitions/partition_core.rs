@@ -1,6 +1,10 @@
-use crate::block::block_core::{Block, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
+use crate::block::block_core::{
+    Block, BlockOp, BlockSector, BlockType, BLOCK_MANAGER, BLOCK_SECTOR_SIZE,
+};
+use crate::block::block_error::BlockError;
+use alloc::boxed::Box;
 use alloc::format;
-use kidneyos_shared::println;
+use kidneyos_shared::{eprintln, println};
 
 /// A partition table entry in the MBR.
 ///
@@ -106,6 +110,28 @@ impl PartitionTable {
             entries,
             signature,
         }
+    }
+}
+
+/// A partition.
+struct Partition {
+    block_idx: usize,
+    start: BlockSector,
+}
+
+impl BlockOp for Partition {
+    unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+        BLOCK_MANAGER
+            .by_id(self.block_idx)
+            .unwrap()
+            .read(sector + self.start, buf)
+    }
+
+    unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+        BLOCK_MANAGER
+            .by_id(self.block_idx)
+            .unwrap()
+            .write(sector + self.start, buf)
     }
 }
 
@@ -217,7 +243,7 @@ pub fn partition_scan(block: &mut Block) {
     let mut part_nr = 0;
     read_partition_table(block, 0, 0, &mut part_nr);
     if part_nr == 0 {
-        println!("{}: Device contains no partitions", block.get_name());
+        eprintln!("{}: Device contains no partitions", block.get_name());
     }
 }
 
@@ -229,7 +255,7 @@ fn read_partition_table(
 ) {
     // Check sector validity
     if sector >= block.get_size() {
-        println!(
+        eprintln!(
             "{}: Partition table at sector {} past end of device ({} sectors)",
             block.get_name(),
             sector,
@@ -240,10 +266,9 @@ fn read_partition_table(
 
     // Read sector
     let mut buf: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
-    println!("Reading partition table from sector {}", sector);
     let ret = block.read(sector, &mut buf);
     if ret.is_err() {
-        println!("{}: Error reading partition table", block.get_name());
+        eprintln!("{}: Error reading partition table", block.get_name());
         return;
     }
 
@@ -252,9 +277,9 @@ fn read_partition_table(
     // Check signature
     if pt.signature != 0xAA55 {
         if primary_extended_sector == 0 {
-            println!("{}: Invalid partition table signature", block.get_name());
+            eprintln!("{}: Invalid partition table signature", block.get_name());
         } else {
-            println!(
+            eprintln!(
                 "{}: Invalid extended partition table in sector",
                 block.get_name()
             );
@@ -271,7 +296,7 @@ fn read_partition_table(
             || entry.partition_type == 0x85
             || entry.partition_type == 0xc5
         {
-            println!(
+            eprintln!(
                 "{}: Extended partition in sector {}",
                 block.get_name(),
                 sector
@@ -309,7 +334,7 @@ fn found_partition(
     part_nr: &mut i32,
 ) {
     if start >= block.get_size() {
-        println!(
+        eprintln!(
             "{}: Partition {} starts at sector {} past end of device ({} sectors)",
             block.get_name(),
             part_nr,
@@ -317,7 +342,7 @@ fn found_partition(
             block.get_size()
         );
     } else if start.overflowing_add(size).1 || start + size > block.get_size() {
-        println!(
+        eprintln!(
             "{}: Partition {} ends at sector {} past end of device ({} sectors)",
             block.get_name(),
             part_nr,
@@ -344,12 +369,12 @@ fn found_partition(
             size
         );
 
-        // TODO: register partition as a block device
-        println!(
-            "{}: Registering partition {} of type {}",
-            block.get_name(),
-            name,
-            b_type
-        );
+        let p = Partition {
+            block_idx: block.get_index(),
+            start,
+        };
+        unsafe {
+            BLOCK_MANAGER.register_block(b_type, name.as_ref(), size, Box::new(p));
+        }
     }
 }
