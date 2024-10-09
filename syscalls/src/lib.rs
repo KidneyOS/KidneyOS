@@ -91,7 +91,7 @@ pub extern "C" fn lseek64(fd: u32, offset: i64, whence: i32) -> i64 {
     let result: i32;
     unsafe {
         asm!("
-            mov eax, 0x13
+            mov eax, 0x8c
             int 0x80
         ", in("ebx") fd, in("ecx") (core::ptr::addr_of_mut!(offset)), in("edx") whence, out("eax") result);
     }
@@ -120,6 +120,18 @@ pub extern "C" fn chdir(path: *const i8) -> i32 {
     unsafe {
         asm!("
             mov eax, 0xc
+            int 0x80
+        ", in("ebx") path, out("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn mkdir(path: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0x27
             int 0x80
         ", in("ebx") path, out("eax") result);
     }

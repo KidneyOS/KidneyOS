@@ -211,8 +211,8 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         self.open_file_handle(fd, handle)
     }
     fn create(&mut self, parent: INodeNum, name: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        if name.is_empty() {
-            // e.g. create("foo/")
+        if name.is_empty() || name == "." || name == ".." {
+            // e.g. create("foo/"), create("foo/."), create("foo/..")
             return Err(Error::IsDirectory);
         }
         let mut dir = self.temp_open(parent)?;
@@ -244,7 +244,7 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         self.fs.sync()
     }
     fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
-        if name.is_empty() {
+        if name.is_empty() || name == "." || name == ".." {
             // e.g. mkdir("/foo/"), where /foo exists.
             return Err(Error::Exists);
         }
@@ -724,6 +724,10 @@ impl RootFileSystem {
             return Err(Error::NotDirectory);
         }
         process.cwd = (fs_id, inode);
+        if path.starts_with('/') {
+            // chdir to absolute path
+            process.cwd_path.clear();
+        }
         for component in path.split('/') {
             if component == "." || component.is_empty() {
                 continue;

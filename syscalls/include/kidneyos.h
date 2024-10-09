@@ -42,6 +42,8 @@ int32_t getcwd(int8_t *buf, uintptr_t size);
 
 int32_t chdir(const int8_t *path);
 
+int32_t mkdir(const int8_t *path);
+
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 
 void execve(const int8_t *filename, const int8_t *const *argv, const int8_t *const *envp);

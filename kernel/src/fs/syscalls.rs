@@ -177,3 +177,18 @@ pub unsafe fn getcwd(buf: *mut u8, size: usize) -> isize {
     buf[cwd.len()] = 0;
     0
 }
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn mkdir(path: *const u8) -> isize {
+    let path = match get_cstr_from_user_space(path) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().mkdir(running_process(), path) {
+        Err(e) => -e.to_isize(),
+        Ok(()) => 0,
+    }
+}

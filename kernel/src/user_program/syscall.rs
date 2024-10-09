@@ -1,6 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::fs::syscalls::{chdir, close, getcwd, lseek64, open, read, write};
+use crate::fs::syscalls::{chdir, close, getcwd, lseek64, mkdir, open, read, write};
 use crate::threading::scheduling::scheduler_yield_and_continue;
 use crate::threading::thread_functions;
 use kidneyos_shared::println;
@@ -14,6 +14,7 @@ pub const SYS_CLOSE: usize = 0x6;
 pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0x0b;
 pub const SYS_CHDIR: usize = 0xc;
+pub const SYS_MKDIR: usize = 0x27;
 pub const SYS_LSEEK64: usize = 0x8c;
 pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
@@ -61,6 +62,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_CLOSE => unsafe { close(arg0) as usize },
         SYS_CHDIR => unsafe { chdir(arg0 as _) as usize },
         SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) as usize },
+        SYS_MKDIR => unsafe { mkdir(arg0 as _) as usize },
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }
