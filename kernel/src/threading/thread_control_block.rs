@@ -2,8 +2,10 @@ use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
 use crate::threading::process_table::PROCESS_TABLE;
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
+    fs::fs_manager::FileSystemID,
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
+    vfs::{INodeNum, OwnedPath},
     KERNEL_ALLOCATOR,
 };
 use alloc::boxed::Box;
@@ -58,18 +60,25 @@ pub struct ProcessControlBlock {
     pub wait_list: Vec<Tid>,
 
     pub exit_code: Option<i32>,
+    /// filesystem and inode of current working directory
+    pub cwd: (FileSystemID, INodeNum),
+    /// path to cwd (needed for getcwd syscall)
+    pub cwd_path: OwnedPath,
 }
 
 impl ProcessControlBlock {
     pub fn create() -> Pid {
         let pid = allocate_pid();
+        let mut root = crate::fs::fs_manager::ROOT.lock();
         // open stdin, stdout, stderr
-        crate::fs::fs_manager::ROOT.lock().open_standard_fds(pid);
+        root.open_standard_fds(pid);
         let pcb = Self {
             pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
+            cwd: root.get_root().unwrap(),
+            cwd_path: "/".into(),
         };
         unsafe {
             PROCESS_TABLE.as_mut().unwrap().add(Box::new(pcb));

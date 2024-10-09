@@ -39,4 +39,9 @@ impl ProcessTable {
     pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
         self.table.get(&pid).map(|pcb| &**pcb)
     }
+
+    #[allow(dead_code)]
+    pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {
+        self.table.get_mut(&pid).map(|pcb| &mut **pcb)
+    }
 }

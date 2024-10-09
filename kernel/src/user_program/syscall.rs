@@ -1,6 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::fs::syscalls::{close, lseek, open, read, write};
+use crate::fs::syscalls::{chdir, close, getcwd, lseek64, open, read, write};
 use crate::threading::scheduling::scheduler_yield_and_continue;
 use crate::threading::thread_functions;
 use kidneyos_shared::println;
@@ -13,9 +13,11 @@ pub const SYS_OPEN: usize = 0x5;
 pub const SYS_CLOSE: usize = 0x6;
 pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0x0b;
-pub const SYS_LSEEK: usize = 0x13;
+pub const SYS_CHDIR: usize = 0xc;
+pub const SYS_LSEEK64: usize = 0x8c;
 pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
+pub const SYS_GETCWD: usize = 0xb7;
 
 pub const ENOENT: isize = 2;
 pub const EIO: isize = 5;
@@ -31,6 +33,7 @@ pub const ENOSPC: isize = 28;
 pub const ESPIPE: isize = 29;
 pub const EROFS: isize = 30;
 pub const EMLINK: isize = 31;
+pub const ERANGE: isize = 34;
 pub const ENOSYS: isize = 38;
 pub const ENOTEMPTY: isize = 39;
 pub const ELOOP: isize = 40;
@@ -54,8 +57,10 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_OPEN => unsafe { open(arg0 as _, arg1) as usize },
         SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) as usize },
         SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) as usize },
-        SYS_LSEEK => unsafe { lseek(arg0, arg1 as _, arg2 as _) as usize },
+        SYS_LSEEK64 => unsafe { lseek64(arg0, arg1 as _, arg2 as _) as usize },
         SYS_CLOSE => unsafe { close(arg0) as usize },
+        SYS_CHDIR => unsafe { chdir(arg0 as _) as usize },
+        SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) as usize },
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }

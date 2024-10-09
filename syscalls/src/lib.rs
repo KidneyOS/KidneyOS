@@ -86,7 +86,7 @@ pub extern "C" fn close(fd: u32) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn lseek(fd: u32, offset: i64, whence: i32) -> i64 {
+pub extern "C" fn lseek64(fd: u32, offset: i64, whence: i32) -> i64 {
     let mut offset = offset;
     let result: i32;
     unsafe {
@@ -103,10 +103,34 @@ pub extern "C" fn lseek(fd: u32, offset: i64, whence: i32) -> i64 {
 }
 
 #[no_mangle]
+pub extern "C" fn getcwd(buf: *mut i8, size: usize) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0xb7
+            int 0x80
+        ", in("ebx") buf, in("ecx") size, out("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn chdir(path: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            mov eax, 0xc
+            int 0x80
+        ", in("ebx") path, out("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
     unsafe {
         asm!("
-            mov eax, 0x7
+            mov eax, 0x8c
             int 0x80
         ", in("ebx") pid, in("ecx") stat, in("edx") options);
     }

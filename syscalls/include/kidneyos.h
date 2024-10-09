@@ -36,7 +36,11 @@ int32_t open(const uint8_t *name, uintptr_t flags);
 
 int32_t close(uint32_t fd);
 
-int64_t lseek(uint32_t fd, int64_t offset, int32_t whence);
+int64_t lseek64(uint32_t fd, int64_t offset, int32_t whence);
+
+int32_t getcwd(int8_t *buf, uintptr_t size);
+
+int32_t chdir(const int8_t *path);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 

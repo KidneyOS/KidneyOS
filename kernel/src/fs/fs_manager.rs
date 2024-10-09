@@ -172,6 +172,7 @@ trait FileSystemManagerTrait: Send + Sync {
     fn mount_point_at(&self, dir: INodeNum) -> Option<FileSystemID>;
     fn stat(&mut self, fd: ProcessFileDescriptor) -> Result<FileInfo>;
     fn size_of_file(&mut self, fd: ProcessFileDescriptor) -> Result<u64>;
+    fn inode_type(&mut self, inode: INodeNum) -> Result<INodeType>;
     fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>>;
 }
 
@@ -381,9 +382,15 @@ impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         self.temp_close(handle);
         result
     }
+    fn inode_type(&mut self, inode: INodeNum) -> Result<INodeType> {
+        let handle = self.temp_open(inode)?;
+        let st = self.fs.stat(&handle.handle);
+        self.temp_close(handle);
+        Ok(st?.r#type)
+    }
 }
 
-type FileSystemID = u16;
+pub type FileSystemID = u16;
 
 #[derive(Debug)]
 enum OpenFile {
@@ -521,11 +528,11 @@ impl RootFileSystem {
         process: &ProcessControlBlock,
         path: &Path,
     ) -> Result<(FileSystemID, INodeNum)> {
-        let _ = process;
-        // TODO : use process cwd
-        let fs_id = self.root_mount.ok_or(Error::NotFound)?;
-        let fs = self.file_systems.get(fs_id);
-        self.resolve_path_relative_to((fs_id, fs.root()), path, 0)
+        self.resolve_path_relative_to(process.cwd, path, 0)
+    }
+    pub fn get_root(&self) -> Result<(FileSystemID, INodeNum)> {
+        let root_fs = self.root_mount.ok_or(Error::NotFound)?;
+        Ok((root_fs, self.file_systems.get(root_fs).root()))
     }
     fn new_fd(&mut self, pid: Pid, file_info: OpenFile) -> Result<ProcessFileDescriptor> {
         for fd in 0..MAX_OPEN_FILES as FileDescriptor {
@@ -710,6 +717,35 @@ impl RootFileSystem {
         // stderr and stdout can just go to the same place for now
         let stderr = self.open_stdout(pid).unwrap();
         assert_eq!(stderr, 2);
+    }
+    pub fn chdir(&mut self, process: &mut ProcessControlBlock, path: &Path) -> Result<()> {
+        let (fs_id, inode) = self.resolve_path(process, path)?;
+        if self.file_systems.get_mut(fs_id).inode_type(inode)? != INodeType::Directory {
+            return Err(Error::NotDirectory);
+        }
+        process.cwd = (fs_id, inode);
+        for component in path.split('/') {
+            if component == "." || component.is_empty() {
+                continue;
+            }
+            if component == ".." {
+                let last_slash = process
+                    .cwd_path
+                    .rfind('/')
+                    .expect("cwd should be an absolute path");
+                if last_slash == 0 {
+                    // cwd_path/.. is just /
+                    process.cwd_path.truncate(1);
+                } else {
+                    // remove final component in cwd_path
+                    process.cwd_path.truncate(last_slash);
+                }
+                continue;
+            }
+            process.cwd_path.push('/');
+            process.cwd_path.push_str(component);
+        }
+        Ok(())
     }
     /// Close all open files belonging to process
     ///

@@ -9,7 +9,7 @@ use crate::mem::util::{
 use crate::threading::{
     process_table::PROCESS_TABLE, thread_control_block::ProcessControlBlock, RUNNING_THREAD,
 };
-use crate::user_program::syscall::{EBADF, EFAULT, EINVAL, ENOENT};
+use crate::user_program::syscall::{EBADF, EFAULT, EINVAL, ENOENT, ERANGE};
 
 pub const O_CREATE: usize = 0x40;
 
@@ -18,6 +18,14 @@ unsafe fn running_process() -> &'static ProcessControlBlock {
         .as_ref()
         .unwrap()
         .get(RUNNING_THREAD.as_ref().unwrap().as_ref().pid)
+        .unwrap()
+}
+
+unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
+    PROCESS_TABLE
+        .as_mut()
+        .unwrap()
+        .get_mut(RUNNING_THREAD.as_ref().unwrap().as_ref().pid)
         .unwrap()
 }
 
@@ -95,7 +103,7 @@ pub const SEEK_END: isize = 2;
 /// # Safety
 ///
 /// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly and accessing running PCB is safe
-pub unsafe fn lseek(fd: usize, offset: *mut i64, whence: isize) -> isize {
+pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
     let Some(offset) = get_mut_from_user_space(offset) else {
         return -EFAULT;
     };
@@ -136,4 +144,36 @@ pub unsafe fn close(fd: usize) -> isize {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn chdir(path: *const u8) -> isize {
+    let path = match get_cstr_from_user_space(path) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -ENOENT,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().chdir(running_process_mut(), path) {
+        Err(e) => -e.to_isize(),
+        Ok(()) => 0,
+    }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn getcwd(buf: *mut u8, size: usize) -> isize {
+    let Some(buf) = get_mut_slice_from_user_space(buf, size) else {
+        return -EFAULT;
+    };
+    let pcb = running_process();
+    let cwd = pcb.cwd_path.as_bytes();
+    if size < cwd.len() + 1 {
+        return -ERANGE;
+    }
+    buf[..cwd.len()].copy_from_slice(cwd);
+    buf[cwd.len()] = 0;
+    0
 }
