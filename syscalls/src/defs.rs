@@ -44,6 +44,7 @@ pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_UNLINK: usize = 0x0a;
 pub const SYS_EXECVE: usize = 0x0b;
 pub const SYS_CHDIR: usize = 0xc;
+pub const SYS_SYNC: usize = 0x24;
 pub const SYS_MKDIR: usize = 0x27;
 pub const SYS_RMDIR: usize = 0x28;
 pub const SYS_FSTAT: usize = 0x6c;

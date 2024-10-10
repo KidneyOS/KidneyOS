@@ -74,6 +74,8 @@
 
 #define SYS_CHDIR 12
 
+#define SYS_SYNC 36
+
 #define SYS_MKDIR 39
 
 #define SYS_RMDIR 40
@@ -132,6 +134,8 @@ int32_t fstat(int32_t fd, struct Stat *statbuf);
 int32_t unlink(const int8_t *path);
 
 int32_t rmdir(const int8_t *path);
+
+int32_t sync(void);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 

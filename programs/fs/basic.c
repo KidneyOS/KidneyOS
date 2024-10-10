@@ -53,6 +53,8 @@ void _start() {
     if (status < 0) exit(status);
     status = open("/d/new", O_CREATE);
     if (status != -ENOENT) exit(status == 0 ? -1 : status);
+    status = sync();
+    if (status < 0) exit(status);
     print("success!\n");
     exit(0);
 }

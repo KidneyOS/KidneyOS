@@ -164,6 +164,15 @@ pub extern "C" fn rmdir(path: *const i8) -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn sync() -> i32 {
+    let result;
+    unsafe {
+        asm!("int 0x80", in("eax") SYS_SYNC, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
     unsafe {
         asm!("

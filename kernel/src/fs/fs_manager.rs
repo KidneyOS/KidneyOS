@@ -108,7 +108,7 @@ fn temp_close<F: FileSystem>(
     core::mem::forget(file);
 }
 
-impl<F: FileSystem> FileSystemManager<F> {
+impl<F: FileSystem + 'static> FileSystemManager<F> {
     fn new(fs: F, mount_point: Option<(FileSystemID, INodeNum)>) -> Self {
         let root_ino = fs.root();
         let mut me = Self {
@@ -158,7 +158,7 @@ impl<F: FileSystem> FileSystemManager<F> {
 /// Unfortunately `FileSystemManager<dyn FileSystem>` doesn't work (we'd have to specify the
 /// FileHandle type). So we need a new trait to be able to create dynamic objects
 /// which can use different file systems.
-trait FileSystemManagerTrait: Send + Sync {
+trait FileSystemManagerTrait: 'static + Send + Sync {
     fn root(&self) -> INodeNum;
     fn mount_point(&self) -> Option<(FileSystemID, INodeNum)>;
     fn lookup(&mut self, dir: INodeNum, entry: &Path) -> Result<INodeNum>;
@@ -204,7 +204,7 @@ fn filename_of(path: &Path) -> &Path {
     dirname_and_filename(path).1
 }
 
-impl<F: FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
+impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     fn root(&self) -> INodeNum {
         self.fs.root()
     }
@@ -470,6 +470,13 @@ impl FileSystemList {
     }
     fn remove(&mut self, id: FileSystemID) {
         self.0[id as usize] = None;
+    }
+    fn iter_mut(
+        &mut self,
+    ) -> impl '_ + Iterator<Item = &'_ mut (dyn 'static + FileSystemManagerTrait)> {
+        self.0
+            .iter_mut()
+            .filter_map(move |fs| Some(fs.as_mut()?.as_mut()))
     }
 }
 
@@ -789,6 +796,15 @@ impl RootFileSystem {
         let (dirname, filename) = dirname_and_filename(path);
         let (fs_id, inode) = self.resolve_path(process, dirname)?;
         self.file_systems.get_mut(fs_id).rmdir(inode, filename)
+    }
+    /// Sync all filesystems to disk
+    pub fn sync(&mut self) -> Result<()> {
+        let mut result = Ok(());
+        for fs in self.file_systems.iter_mut() {
+            // don't break out when one fs fails -- sync as many file systems as possible
+            result = result.and(fs.sync());
+        }
+        result
     }
     /// Close all open files belonging to process
     ///

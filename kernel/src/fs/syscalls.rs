@@ -247,4 +247,11 @@ pub unsafe fn rmdir(path: *const u8) -> isize {
     }
 }
 
-// TODO: link, symlink, readdir, mount, unmount, sync, rename, ftruncate
+pub fn sync() -> isize {
+    match ROOT.lock().sync() {
+        Err(e) => -e.to_isize(),
+        Ok(()) => 0,
+    }
+}
+
+// TODO: link, symlink, readdir, mount, unmount, rename, ftruncate
