@@ -19,7 +19,7 @@ pub unsafe extern "C" fn unhandled_handler() -> ! {
         "call {}",
         sym inner,
         options(noreturn),
-    );
+    )
 }
 
 #[naked]
@@ -34,7 +34,7 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
         "call {}",
         sym inner,
         options(noreturn),
-    );
+    )
 }
 
 #[naked]
@@ -62,7 +62,7 @@ pub unsafe extern "C" fn syscall_handler() -> ! {
         ",
         sym syscall::handler,
         options(noreturn),
-    );
+    )
 }
 
 #[naked]
@@ -84,7 +84,7 @@ pub unsafe extern "C" fn timer_interrupt_handler() -> ! {
         sym pic::send_eoi,
         sym scheduling::scheduler_yield_and_continue,
         options(noreturn),
-    );
+    )
 }
 
 #[naked]
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn ide_prim_interrupt_handler() -> ! {
     sym pic::send_eoi,
     sym scheduling::scheduler_yield_and_continue,
     options(noreturn),
-    );
+    )
 }
 
 #[naked]
@@ -128,7 +128,7 @@ pub unsafe extern "C" fn ide_secd_interrupt_handler() -> ! {
     sym pic::send_eoi,
     sym scheduling::scheduler_yield_and_continue,
     options(noreturn),
-    );
+    )
 }
 
 #[naked]

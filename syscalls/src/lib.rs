@@ -52,13 +52,26 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
     }
 }
 
+// Temporarily defining execve as (elf_bytes: *const u8, count: usize) while FS comes together.
+/*
 #[no_mangle]
 pub extern "C" fn execve(filename: *const i8, argv: *const *const i8, envp: *const *const i8) {
     unsafe {
         asm!("
-            mov eax, 0x7
+            mov eax, 0x0b
             int 0x80
         ", in("ebx") filename, in("ecx") argv, in("edx") envp);
+    }
+}
+*/
+
+#[no_mangle]
+pub extern "C" fn execve(elf_bytes: *const u8, byte_count: usize) {
+    unsafe {
+        asm!("
+            mov eax, 0x0b
+            int 0x80
+        ", in("ebx") elf_bytes, in("ecx") byte_count)
     }
 }
 
