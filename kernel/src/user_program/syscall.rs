@@ -1,11 +1,13 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::interrupts::{intr_disable, intr_enable};
 use crate::threading::scheduling::{
-    scheduler_yield_and_block, scheduler_yield_and_continue, SCHEDULER
+    scheduler_yield_and_block, scheduler_yield_and_continue, SCHEDULER,
 };
+use crate::threading::thread_control_block::PROCESS_TABLE;
+use crate::threading::thread_sleep::thread_sleep;
 use crate::threading::{thread_functions, RUNNING_THREAD};
 use alloc::boxed::Box;
+use core::slice::SliceIndex;
 use kidneyos_shared::println;
 
 /// This function is responsible for processing syscalls made by user programs.
@@ -56,24 +58,26 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             2048
         }
         SYS_WAITPID => {
-            todo!("waitpid not implemented");
-            // println!("Starting wait syscall");
+            // todo!("waitpid not implemented");
+            println!("Starting wait syscall");
 
-            // if arg0 < 1 {
-            //     todo!("process groups not implemented");
-            // } else {
-            //     let running_tcb =
-            //         unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
+            if arg0 == 0 {
+                todo!("process groups not implemented");
+            }
 
-            //     unsafe {
-            //         SCHEDULER
-            //             .as_mut()
-            //             .expect("Scheduler not set up!")
-            //             .remove(running_tcb.tid)
-            //     };
+            let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
 
-            //     let waited_tcb = unsafe {};
-            // }
+            let process_table = unsafe { PROCESS_TABLE.as_mut().expect("No process table set up").as_mut() };
+            if let Some(parnet_pcb) = process_table.get_mut(arg0 as u16) {
+                parnet_pcb.wait_list.push(running_tcb.pid);
+
+                thread_sleep();
+
+                parnet_pcb.pid as usize
+            } else {
+                // Parent TID not found
+                usize::max_value()
+            }
         }
         SYS_EXECVE => {
             // todo!("exec syscall");
@@ -81,6 +85,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             // Hard code the elf file to load for now
 
             // Should only reach here if there is an error
+            0
         }
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")

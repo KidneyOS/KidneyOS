@@ -7,7 +7,6 @@ pub struct ProcessTable {
 }
 
 impl ProcessTable {
-    #![allow(dead_code)]
     pub fn new() -> ProcessTable {
         ProcessTable {
             table: BTreeMap::new(),
@@ -23,13 +22,18 @@ impl ProcessTable {
         self.table.insert(pcb.pid, pcb);
     }
 
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn remove(&mut self, pid: Pid) -> Option<Box<ProcessControlBlock>> {
         self.table.remove(&pid)
     }
 
-    #[allow(dead_code)]
+    #[allow(unused)]
     pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
         self.table.get(&pid).map(|pcb| &**pcb)
+    } 
+
+    #[allow(unused)]
+    pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {
+        self.table.get_mut(&pid).map(|pcb| &mut **pcb)
     }
 }
