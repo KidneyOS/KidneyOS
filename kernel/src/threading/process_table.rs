@@ -30,7 +30,7 @@ impl ProcessTable {
     #[allow(unused)]
     pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
         self.table.get(&pid).map(|pcb| &**pcb)
-    } 
+    }
 
     #[allow(unused)]
     pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {

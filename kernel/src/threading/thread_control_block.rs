@@ -355,8 +355,13 @@ impl ThreadControlBlock {
 
         // This will have to eventually be changed to ensure this is only done when the last thread of
         // The process ends
-        let process_table = unsafe { PROCESS_TABLE.as_mut().expect("No process table set up").as_mut() };
-        let parent_pcb= process_table.get(self.pid).expect("No process exists");
+        let process_table = unsafe {
+            PROCESS_TABLE
+                .as_mut()
+                .expect("No process table set up")
+                .as_mut()
+        };
+        let parent_pcb = process_table.get(self.pid).expect("No process exists");
 
         parent_pcb.wait_list.iter().for_each(|waiting_tid| {
             thread_wakeup(*waiting_tid);
@@ -374,7 +379,7 @@ impl ThreadControlBlock {
             // TODO: drop up alloc'd memory
         }
 
-        // Defer Process table removal until 
+        // Defer Process table removal until
         process_table.remove(self.pid);
 
         self.status = ThreadStatus::Invalid;

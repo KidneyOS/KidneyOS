@@ -67,7 +67,12 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
 
-            let process_table = unsafe { PROCESS_TABLE.as_mut().expect("No process table set up").as_mut() };
+            let process_table = unsafe {
+                PROCESS_TABLE
+                    .as_mut()
+                    .expect("No process table set up")
+                    .as_mut()
+            };
             if let Some(parnet_pcb) = process_table.get_mut(arg0 as u16) {
                 parnet_pcb.wait_list.push(running_tcb.pid);
 
