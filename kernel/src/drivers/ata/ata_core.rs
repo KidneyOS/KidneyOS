@@ -8,7 +8,7 @@ use crate::block::block_core::{BlockSector, BlockType, BLOCK_MANAGER, BLOCK_SECT
 use crate::block::partitions::partition_core::partition_scan;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
-// use crate::interrupts::{intr_get_level, IntrLevel};
+use crate::interrupts::{intr_get_level, IntrLevel};
 use crate::sync::mutex::Mutex;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -47,14 +47,13 @@ lazy_static! {
 ///
 /// This function must be called with interrupts enabled.
 pub fn ide_init() {
-    // TODO: Enabling interrupt will cause the mutex to never be unlocked. Figure out why.
-    // NOTE: For now, since everything is blocking, disabling interrupts won't harm
+    assert_eq!(
+        intr_get_level(),
+        IntrLevel::IntrOn,
+        "ide_init must be called with interrupts enabled"
+    );
 
-    // assert_eq!(
-    //     intr_get_level(),
-    //     IntrLevel::IntrOn,
-    //     "ide_init must be called with interrupts enabled"
-    // );
+    println!("Initializing IDE subsystem");
 
     let mut present: [[bool; 2]; 2] = [[false; 2]; 2];
 
@@ -83,6 +82,8 @@ pub fn ide_init() {
             }
         }
     }
+
+    println!("IDE subsystem initialized");
 }
 
 /// Sends an IDENTIFY DEVICE command to disk `dev_no` and reads the response. Registers the disk
