@@ -1,13 +1,9 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::threading::scheduling::{
-    scheduler_yield_and_block, scheduler_yield_and_continue, SCHEDULER,
+    scheduler_yield_and_block, scheduler_yield_and_continue,
 };
-use crate::threading::thread_control_block::PROCESS_TABLE;
-use crate::threading::thread_sleep::thread_sleep;
 use crate::threading::{thread_functions, RUNNING_THREAD};
-use alloc::boxed::Box;
-use core::slice::SliceIndex;
 use kidneyos_shared::println;
 
 /// This function is responsible for processing syscalls made by user programs.
@@ -57,33 +53,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             println!("(syscall) completed read");
             2048
         }
-        SYS_WAITPID => {
-            // todo!("waitpid not implemented");
-            println!("Starting wait syscall");
-
-            if arg0 == 0 {
-                todo!("process groups not implemented");
-            }
-
-            let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
-
-            let process_table = unsafe {
-                PROCESS_TABLE
-                    .as_mut()
-                    .expect("No process table set up")
-                    .as_mut()
-            };
-            if let Some(parnet_pcb) = process_table.get_mut(arg0 as u16) {
-                parnet_pcb.wait_list.push(running_tcb.pid);
-
-                thread_sleep();
-
-                parnet_pcb.pid as usize
-            } else {
-                // Parent TID not found
-                usize::max_value()
-            }
-        }
         SYS_EXECVE => {
             // todo!("exec syscall");
             // let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
@@ -110,7 +79,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 pub const SYS_EXIT: usize = 0x1;
 pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;
-pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0xb;
 pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
