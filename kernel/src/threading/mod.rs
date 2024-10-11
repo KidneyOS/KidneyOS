@@ -5,6 +5,7 @@ pub mod thread_control_block;
 pub mod thread_functions;
 pub mod thread_sleep;
 
+use crate::threading::process_table::initialize_process_table;
 use crate::user_program::elf::Elf;
 use crate::{
     interrupts::{intr_enable, intr_get_level, IntrLevel},
@@ -12,7 +13,7 @@ use crate::{
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
-use thread_control_block::{initialize_process_table, ProcessControlBlock, ThreadControlBlock};
+use thread_control_block::ThreadControlBlock;
 
 pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
 
@@ -22,7 +23,7 @@ static mut THREAD_SYSTEM_INITIALIZED: bool = false;
 pub fn thread_system_initialization() {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
-    // Initalize the process table
+    // Initialize the process table
     initialize_process_table();
 
     // Initialize the scheduler.
@@ -53,7 +54,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
 
     // Create the initial user program thread.
-    let user_tcb = ProcessControlBlock::new(elf);
+    let user_tcb = ThreadControlBlock::new_from_elf(elf);
 
     // SAFETY: Interrupts must be disabled.
     unsafe {

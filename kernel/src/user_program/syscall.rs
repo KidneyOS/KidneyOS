@@ -1,8 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::threading::scheduling::{
-    scheduler_yield_and_block, scheduler_yield_and_continue,
-};
+use crate::threading::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
 use crate::threading::{thread_functions, RUNNING_THREAD};
 use kidneyos_shared::println;
 
@@ -53,16 +51,14 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             println!("(syscall) completed read");
             2048
         }
+        SYS_WAITPID => {
+            todo!("waitpid syscall");
+        }
         SYS_EXECVE => {
-            // todo!("exec syscall");
-            // let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
-            // Hard code the elf file to load for now
-
-            // Should only reach here if there is an error
-            0
+            todo!("execv syscall");
         }
         SYS_NANOSLEEP => {
-            todo!("nanosleep syscall")
+            todo!("nanosleep syscall");
         }
         SYS_SCHED_YIELD => {
             scheduler_yield_and_continue();
@@ -79,6 +75,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 pub const SYS_EXIT: usize = 0x1;
 pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;
+pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0xb;
 pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_SCHED_YIELD: usize = 0x9e;

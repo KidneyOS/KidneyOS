@@ -165,6 +165,7 @@ pub enum ElfProgramType {
     Dynamic,
     Interpret,
     Note,
+    ProgramHeaderTable,
     OsSpecific(u32),
 }
 
@@ -212,6 +213,7 @@ impl<'a> ElfProgramHeader<'a> {
             2 => Some(ElfProgramType::Dynamic),
             3 => Some(ElfProgramType::Interpret),
             4 => Some(ElfProgramType::Note),
+            6 => Some(ElfProgramType::ProgramHeaderTable),
             0x60000000.. => Some(ElfProgramType::OsSpecific(value)), // OS Specific Headers
             _ => None,
         })(bytes)?;
