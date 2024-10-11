@@ -86,12 +86,16 @@ pub extern "C" fn scheduler_yield() {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn WIFEXITED(status: i32) -> bool {
-    (status >> 8) & 0xff == 0
+#[macro_export]
+macro_rules! WIFEXITED {
+    ($status:expr) => {
+        ($status >> 8) & 0xff == 0
+    };
 }
 
-#[no_mangle]
-pub extern "C" fn WIFEXITSTATUS(status: i32) -> i32 {
-    (status >> 8) & 0xff
+#[macro_export]
+macro_rules! WIFEXITSTATUS {
+    ($status:expr) => {
+        ($status >> 8) & 0xff
+    };
 }
