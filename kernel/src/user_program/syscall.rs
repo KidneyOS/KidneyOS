@@ -80,7 +80,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 let parent_pid = parnet_pcb.pid;
 
                 thread_sleep();
-                
+
                 *status_ptr = (parnet_pcb.exit_code.unwrap() & 0xff) << 8;
                 parent_pid as usize
             } else {

@@ -30,4 +30,8 @@ void nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 
 void scheduler_yield(void);
 
+bool WIFEXITED(int32_t status);
+
+int32_t WIFEXITSTATUS(int32_t status);
+
 #endif  /* KIDNEYOS_SYSCALLS_H */
