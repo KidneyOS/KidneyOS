@@ -61,6 +61,7 @@ unsafe extern "C" fn run_thread(
     let mut switched_from = Box::from_raw(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
+        switched_from.wait_for_parent();
         switched_from.reap();
 
         // Page manager must be loaded to be dropped.

@@ -1,6 +1,7 @@
+use super::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use super::thread_sleep::thread_wakeup;
 use crate::threading::process_table::PROCESS_TABLE;
-use crate::threading::thread_sleep::thread_wakeup;
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
@@ -354,20 +355,6 @@ impl ThreadControlBlock {
             "A thread must be dying to be reaped."
         );
 
-        // This will have to eventually be changed to ensure this is only done when the last thread of
-        // The process ends
-        let process_table = unsafe {
-            PROCESS_TABLE
-                .as_mut()
-                .expect("No process table set up")
-                .as_mut()
-        };
-        let parent_pcb = process_table.get(self.pid).expect("No process exists");
-
-        parent_pcb.wait_list.iter().for_each(|waiting_tid| {
-            thread_wakeup(*waiting_tid);
-        });
-
         // Most of the TCB is dropped automatically.
         // But the stack must be manually deallocated.
         // However, the first TCB is the kernel stack and not treated as such.
@@ -384,5 +371,25 @@ impl ThreadControlBlock {
         process_table.remove(self.pid);
 
         self.status = ThreadStatus::Invalid;
+    }
+
+    pub fn wait_for_parent(&mut self) {
+        // This will have to eventually be changed to ensure this is only done when the last thread of
+        // The process ends
+        let process_table = unsafe {
+            PROCESS_TABLE
+                .as_mut()
+                .expect("No process table set up")
+                .as_mut()
+        };
+        let parent_pcb = process_table.get(self.pid).expect("No process exists");
+
+        while parent_pcb.wait_list.is_empty() {
+            scheduler_yield_and_die()
+        }
+
+        parent_pcb.wait_list.iter().for_each(|waiting_tid| {
+            thread_wakeup(*waiting_tid);
+        });
     }
 }

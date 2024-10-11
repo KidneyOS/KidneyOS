@@ -85,3 +85,18 @@ pub extern "C" fn scheduler_yield() {
         );
     }
 }
+
+#[macro_export]
+macro_rules! WIFEXITED {
+    ($status:expr) => {
+        ($status >> 8) & 0xff == 0
+    };
+}
+
+/// Macro to get the exit status of a process.
+#[macro_export]
+macro_rules! WIFEXITSTATUS {
+    ($status:expr) => {
+        ($status >> 8) & 0xff
+    };
+}

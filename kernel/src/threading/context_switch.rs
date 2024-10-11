@@ -51,6 +51,7 @@ pub unsafe fn switch_threads(
     RUNNING_THREAD = Some(Box::from_raw(switch_from));
 
     if previous.status == ThreadStatus::Dying {
+        previous.wait_for_parent();
         previous.reap();
 
         // Page manager must be loaded when dropped.

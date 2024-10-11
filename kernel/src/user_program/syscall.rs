@@ -1,6 +1,9 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::mem::util::get_mut_from_user_space;
+use crate::threading::process_table::PROCESS_TABLE;
 use crate::threading::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
+use crate::threading::thread_sleep::thread_sleep;
 use crate::threading::{thread_functions, RUNNING_THREAD};
 use kidneyos_shared::println;
 
@@ -52,7 +55,38 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             2048
         }
         SYS_WAITPID => {
-            todo!("waitpid syscall");
+            // todo!("waitpid not implemented");
+            println!("Starting wait syscall");
+
+            if arg0 == 0 {
+                todo!("process groups not implemented");
+            }
+
+            let status_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut i32) } {
+                Some(ptr) => ptr,
+                None => return usize::max_value(),
+            };
+
+            let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
+
+            let process_table = unsafe {
+                PROCESS_TABLE
+                    .as_mut()
+                    .expect("No process table set up")
+                    .as_mut()
+            };
+            if let Some(parnet_pcb) = process_table.get_mut(arg0 as u16) {
+                parnet_pcb.wait_list.push(running_tcb.pid);
+                let parent_pid = parnet_pcb.pid;
+
+                thread_sleep();
+                
+                *status_ptr = (parnet_pcb.exit_code.unwrap() & 0xff) << 8;
+                parent_pid as usize
+            } else {
+                // Parent TID not found
+                usize::max_value()
+            }
         }
         SYS_EXECVE => {
             todo!("execv syscall");
