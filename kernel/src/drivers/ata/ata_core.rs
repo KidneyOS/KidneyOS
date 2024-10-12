@@ -9,12 +9,10 @@ use crate::block::partitions::partition_core::partition_scan;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
 use crate::interrupts::{intr_get_level, IntrLevel};
-use crate::sync::mutex::Mutex;
+use crate::sync::mutex::sleep::SleepMutex;
 use alloc::boxed::Box;
 use alloc::string::String;
-use alloc::vec::Vec;
 use kidneyos_shared::println;
-use lazy_static::lazy_static;
 
 // Commands ----------------------------------------------------------------------------------------
 // Reference: https://wiki.osdev.org/ATA_Command_Matrix
@@ -30,14 +28,9 @@ pub const ATA_IDENTIFY_DEVICE: u8 = 0xEC;
 
 /// Number of ATA channels
 const CHANNEL_CNT: usize = 2;
-lazy_static! {
-    /// A list of ATA channels
-    pub static ref CHANNELS: Vec<Mutex<AtaChannel>> = {
-        (0..CHANNEL_CNT)
-            .map(|i| Mutex::new(AtaChannel::new(i as u8)))
-            .collect()
-    };
-}
+
+pub static mut CHANNELS: [AtaChannel; CHANNEL_CNT] = [AtaChannel::new(0), AtaChannel::new(1)];
+pub static mut ACCESS_MUTEX: [SleepMutex; CHANNEL_CNT] = [SleepMutex::new(), SleepMutex::new()];
 
 // -------------------------------------------------------------------------------------------------
 
@@ -57,9 +50,7 @@ pub fn ide_init() {
 
     let mut present: [[bool; 2]; 2] = [[false; 2]; 2];
 
-    for (i, c) in CHANNELS.iter().enumerate() {
-        let channel = &mut c.lock();
-
+    for (i, channel) in unsafe { CHANNELS.iter_mut().enumerate() } {
         // Initialize the channel
         channel.set_names();
         unsafe { channel.reset(true) };
@@ -73,10 +64,10 @@ pub fn ide_init() {
         }
     }
 
-    for (i, c) in CHANNELS.iter().enumerate() {
+    for (i, channel) in unsafe { CHANNELS.iter_mut().enumerate() } {
         for j in 0..2 {
             if present[i][j] {
-                unsafe { identify_ata_device(c, j as u8, true) };
+                unsafe { identify_ata_device(channel, j as u8, true) };
             } else {
                 // println!("IDE: Channel {} device {} not present", i, j);
             }
@@ -92,9 +83,8 @@ pub fn ide_init() {
 /// # Safety
 ///
 /// This function must be called with interrupts enabled
-unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, block: bool) {
+unsafe fn identify_ata_device(c: &mut AtaChannel, dev_no: u8, block: bool) {
     let _index: usize;
-    let c: &mut AtaChannel = &mut channel.lock();
     let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
 
     // Send the IDENTIFY DEVICE command, wait for an interrupt indicating the device's response
@@ -133,6 +123,5 @@ unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, b
         Box::new(AtaDevice(dev_no)),
     );
 
-    channel.force_unlock();
     partition_scan(BLOCK_MANAGER.by_id(idx).unwrap());
 }

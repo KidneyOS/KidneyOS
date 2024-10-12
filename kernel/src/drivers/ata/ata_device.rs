@@ -34,7 +34,7 @@ impl BlockOp for AtaDevice {
     unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
         assert_eq!(buf.len(), BLOCK_SECTOR_SIZE); // Checked by block layer, should never fail
 
-        let channel: &mut AtaChannel = &mut CHANNELS[self.get_channel() as usize].lock();
+        let channel: &mut AtaChannel = &mut CHANNELS[self.get_channel() as usize];
 
         channel.select_sector(self.get_device_num(), sector, true);
         channel.issue_pio_command(crate::drivers::ata::ata_core::ATA_READ_SECTOR_RETRY);
@@ -61,7 +61,7 @@ impl BlockOp for AtaDevice {
     unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
         assert_eq!(buf.len(), BLOCK_SECTOR_SIZE); // Checked by block layer, should never fail
 
-        let channel: &mut AtaChannel = &mut CHANNELS[self.get_channel() as usize].lock();
+        let channel: &mut AtaChannel = &mut CHANNELS[self.get_channel() as usize];
 
         channel.select_sector(self.get_device_num(), sector, true);
         channel.issue_pio_command(crate::drivers::ata::ata_core::ATA_WRITE_SECTOR_RETRY);

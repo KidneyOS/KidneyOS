@@ -4,14 +4,7 @@ use kidneyos_shared::eprintln;
 use kidneyos_shared::serial::inb;
 
 pub fn on_ide_interrupt(vec_no: u8) {
-    for (i, chan) in CHANNELS.iter().enumerate() {
-        unsafe {
-            if chan.is_locked() {
-                chan.force_unlock();
-            }
-        }
-        let c = &mut chan.lock();
-
+    for (i, c) in unsafe { CHANNELS.iter_mut().enumerate() } {
         // Check if interrupt is from this channel
         if vec_no == c.get_irq() {
             // Check if channel is expecting an interrupt
