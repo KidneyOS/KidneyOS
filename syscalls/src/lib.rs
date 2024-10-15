@@ -164,6 +164,17 @@ pub extern "C" fn rmdir(path: *const i8) -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn getdents(fd: i32, output: *mut Dirent, size: usize) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_GETDENTS, in("ebx") fd, in("ecx") output, in("edx") size, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn sync() -> i32 {
     let result;
     unsafe {

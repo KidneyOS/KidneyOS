@@ -1,7 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::fs::syscalls::{
-    chdir, close, fstat, getcwd, lseek64, mkdir, open, read, rmdir, sync, unlink, write,
+    chdir, close, fstat, getcwd, getdents, lseek64, mkdir, open, read, rmdir, sync, unlink, write,
 };
 use crate::threading::scheduling::scheduler_yield_and_continue;
 use crate::threading::thread_functions;
@@ -41,6 +41,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_RMDIR => unsafe { rmdir(arg0 as _) as usize },
         SYS_FSTAT => unsafe { fstat(arg0 as _, arg1 as _) as usize },
         SYS_UNLINK => unsafe { unlink(arg0 as _) as usize },
+        SYS_GETDENTS => unsafe { getdents(arg0, arg1 as _, arg2 as _) as usize },
         SYS_SYNC => sync() as usize,
         SYS_WAITPID => {
             todo!("waitpid syscall")

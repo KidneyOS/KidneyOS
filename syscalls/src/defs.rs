@@ -9,6 +9,18 @@ pub struct Stat {
     pub r#type: u8,
 }
 
+#[repr(C)]
+pub struct Dirent {
+    /// Opaque offset value to be used with seekdir.
+    pub offset: u64,
+    pub inode: u32,
+    /// Length of this directory entry in bytes.
+    pub reclen: u16,
+    pub r#type: u8,
+    /// Null-terminated file name
+    pub name: [u8; 0],
+}
+
 pub const O_CREATE: usize = 0x40;
 
 pub const SEEK_SET: i32 = 0;
@@ -49,6 +61,7 @@ pub const SYS_MKDIR: usize = 0x27;
 pub const SYS_RMDIR: usize = 0x28;
 pub const SYS_FSTAT: usize = 0x6c;
 pub const SYS_LSEEK64: usize = 0x8c;
+pub const SYS_GETDENTS: usize = 0x8d;
 pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
 pub const SYS_GETCWD: usize = 0xb7;

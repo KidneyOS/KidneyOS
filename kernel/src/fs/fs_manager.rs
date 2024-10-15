@@ -2,7 +2,11 @@ use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::sync::mutex::Mutex;
 use crate::threading::thread_control_block::Pid;
 use crate::threading::thread_control_block::ProcessControlBlock;
-use crate::vfs::{Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, Path, Result};
+use crate::user_program::syscall::Dirent;
+use crate::vfs::{
+    Error, FileHandle, FileInfo, FileSystem, INodeNum, INodeType, OwnedDirEntry, OwnedPath, Path,
+    Result,
+};
 use alloc::borrow::Cow;
 use alloc::{
     boxed::Box,
@@ -12,6 +16,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::mem::{align_of, size_of};
 use core::num::NonZeroUsize;
 
 /// Possible places to seek from
@@ -44,29 +49,117 @@ pub const MAX_MOUNT_POINTS: u16 = 256;
 pub const MAX_LEVEL_OF_LINKS: usize = 32;
 
 struct Directory {
-    entries: Option<BTreeMap<String, (INodeType, INodeNum)>>,
+    entries: Option<BTreeMap<u64, OwnedDirEntry>>,
+    lookup: BTreeMap<OwnedPath, u64>,
+    id: u64,
     parent: INodeNum,
     mount: Option<FileSystemID>,
 }
 
 impl Directory {
+    fn new(parent: INodeNum) -> Self {
+        Directory {
+            entries: None,
+            mount: None,
+            parent,
+            id: 0,
+            lookup: BTreeMap::new(),
+        }
+    }
+    fn empty(parent: INodeNum) -> Self {
+        let mut dir = Self::new(parent);
+        dir.entries = Some(BTreeMap::new());
+        dir
+    }
     fn add(&mut self, inode: INodeNum, r#type: INodeType, name: &Path) {
+        let id = self.id;
+        self.id += 1;
         self.entries
             .as_mut()
             .expect("Directory::add called before directory entries were scanned")
-            .insert(name.into(), (r#type, inode));
+            .insert(
+                id,
+                OwnedDirEntry {
+                    r#type,
+                    inode,
+                    name: Cow::Owned(name.into()),
+                },
+            );
+        self.lookup.insert(name.into(), id);
     }
     fn remove(&mut self, name: &Path) {
-        self.entries
+        let entries = self
+            .entries
             .as_mut()
-            .expect("Directory::remove called before directory entries were scanned")
-            .remove(name);
+            .expect("Directory::remove called before directory entries were scanned");
+        if let Some(id) = self.lookup.remove(name) {
+            entries.remove(&id);
+        }
+    }
+    fn lookup_inode(&self, name: &Path) -> Option<INodeNum> {
+        Some(
+            self.entries
+                .as_ref()
+                .expect("Directory::lookup_inode called before directory entries were scanned")
+                .get(self.lookup.get(name)?)?
+                .inode,
+        )
     }
     fn is_empty(&self) -> bool {
         self.entries
             .as_ref()
             .expect("Directory::is_empty called before directory entries were scanned")
             .is_empty()
+    }
+
+    /// # Safety
+    ///
+    /// See [`FileSystemManagerTrait::getdents`].
+    unsafe fn getdents(
+        &self,
+        offset: &mut u64,
+        mut output: *mut Dirent,
+        mut size: usize,
+    ) -> Result<usize> {
+        let entries = self
+            .entries
+            .as_ref()
+            .expect("Directory::getdents called before directory entries were scanned");
+        let mut bytes_read = 0;
+        for entry in entries.range(*offset..) {
+            let off = *entry.0;
+            let r#type = entry.1.r#type;
+            let inode = entry.1.inode;
+            let name = &entry.1.name;
+            let required_bytes = size_of::<Dirent>() + name.len() + 1;
+            let dirent_align = align_of::<Dirent>();
+            // round up to dirent alignment
+            let required_bytes = required_bytes.div_ceil(dirent_align) * dirent_align;
+            if size < required_bytes {
+                break;
+            }
+            let Ok(reclen) = u16::try_from(required_bytes) else {
+                return Err(Error::IO("file name too long".into()));
+            };
+            let dirent = Dirent {
+                offset: off,
+                inode,
+                reclen,
+                r#type: r#type.to_u8(),
+                name: [],
+            };
+            unsafe {
+                output.write(dirent);
+                let name_ptr: *mut u8 = output.add(core::mem::offset_of!(Dirent, name)).cast();
+                name_ptr.copy_from_nonoverlapping(name.as_ptr(), name.len());
+                name_ptr.add(name.len()).write(0); // null terminator
+            }
+            size -= required_bytes;
+            output = output.add(required_bytes);
+            bytes_read += required_bytes;
+            *offset = off + 1;
+        }
+        Ok(bytes_read)
     }
 }
 
@@ -119,14 +212,7 @@ impl<F: FileSystem + 'static> FileSystemManager<F> {
             mount_point,
             mount_count: 0,
         };
-        me.directories.insert(
-            root_ino,
-            Directory {
-                entries: None,
-                mount: None,
-                parent: root_ino,
-            },
-        );
+        me.directories.insert(root_ino, Directory::new(root_ino));
         // ensure root directory entries are in cache
         let _ = me.lookup(root_ino, "x");
         me
@@ -179,6 +265,20 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
     fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>>;
     fn unlink(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
     fn rmdir(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
+    /// Read directory entries into `entries`.
+    /// Returns the number of bytes read.
+    /// Advances `offset` past the directory entries read.
+    ///
+    /// # Safety
+    ///
+    /// entries must be valid for writing up to `size` bytes.
+    unsafe fn getdents(
+        &mut self,
+        dir: ProcessFileDescriptor,
+        offset: &mut u64,
+        entries: *mut Dirent,
+        size: usize,
+    ) -> Result<usize>;
 }
 
 /// get parent directory and name of absolute path
@@ -261,14 +361,7 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
             .get_mut(&parent)
             .unwrap()
             .add(inode, INodeType::Directory, name);
-        self.directories.insert(
-            inode,
-            Directory {
-                entries: Some(BTreeMap::new()),
-                mount: None,
-                parent,
-            },
-        );
+        self.directories.insert(inode, Directory::empty(parent));
         Ok(())
     }
     fn read(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &mut [u8]) -> Result<usize> {
@@ -332,26 +425,17 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
                     new_directories.push(entry.inode);
                 }
             }
-            let mut entry_map = BTreeMap::new();
+            dir.entries = Some(BTreeMap::new());
             for entry in &entries {
-                entry_map.insert(entry.name.into_owned(), (entry.r#type, entry.inode));
+                dir.add(entry.inode, entry.r#type, &entry.name);
             }
-            dir.entries = Some(entry_map);
         }
-        // dir.entries should now definitely be set
-        let entries = dir.entries.as_ref().unwrap();
-        let inode = entries.get(name).ok_or(Error::NotFound)?.1;
+        let inode = dir.lookup_inode(name).ok_or(Error::NotFound)?;
         for child_dir in new_directories {
             // make note of child's parent here
             // (needed so that we can resolve .. in paths)
-            self.directories.insert(
-                child_dir,
-                Directory {
-                    parent: dir_inode,
-                    entries: None,
-                    mount: None,
-                },
-            );
+            self.directories
+                .insert(child_dir, Directory::new(dir_inode));
         }
         Ok(inode)
     }
@@ -409,14 +493,34 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         dir.remove(name);
         result
     }
+    unsafe fn getdents(
+        &mut self,
+        dir: ProcessFileDescriptor,
+        offset: &mut u64,
+        entries: *mut Dirent,
+        size: usize,
+    ) -> Result<usize> {
+        let inode = self.open_files.get(&dir).ok_or(Error::BadFd)?.inode();
+        // ensure directory entries are loaded
+        let _ = self.lookup(inode, "x");
+        let dir = self.directories.get(&inode).ok_or(Error::NotDirectory)?;
+        if dir.entries.is_none() {
+            return Err(Error::IO("failed to read directory entries".into()));
+        }
+        dir.getdents(offset, entries, size)
+    }
 }
 
 pub type FileSystemID = u16;
 
 #[derive(Debug)]
 enum OpenFile {
-    /// regular file
-    Regular { fs: FileSystemID, offset: u64 },
+    /// regular file/directory
+    Regular {
+        fs: FileSystemID,
+        offset: u64,
+        is_dir: bool,
+    },
     /// standard output
     StdOut,
     /// /dev/null (discards reads/writes)
@@ -623,10 +727,30 @@ impl RootFileSystem {
             Mode::ReadWrite => self.resolve_path(process, path)?,
             Mode::CreateReadWrite => self.resolve_path(process, dirname_of(path))?,
         };
-        let fd = self.new_fd(process.pid, OpenFile::Regular { fs, offset: 0 })?;
+        let fd = self.new_fd(
+            process.pid,
+            OpenFile::Regular {
+                fs,
+                offset: 0,
+                is_dir: false,
+            },
+        )?;
         let fs = self.file_systems.get_mut(fs);
         let result = match mode {
-            Mode::ReadWrite => fs.open(inode, fd),
+            Mode::ReadWrite => {
+                fs.open(inode, fd).and_then(|()| {
+                    if fs.fstat(fd)?.r#type == INodeType::Directory {
+                        // set is_dir to true in open file info
+                        let OpenFile::Regular { is_dir, .. } =
+                            self.open_files.get_mut(&fd).unwrap()
+                        else {
+                            panic!();
+                        };
+                        *is_dir = true;
+                    }
+                    Ok(())
+                })
+            }
             Mode::CreateReadWrite => fs.create(inode, filename_of(path), fd),
         };
         if let Err(e) = result {
@@ -667,7 +791,10 @@ impl RootFileSystem {
     pub fn read(&mut self, fd: ProcessFileDescriptor, buf: &mut [u8]) -> Result<usize> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset } => {
+            OpenFile::Regular { fs, offset, is_dir } => {
+                if *is_dir {
+                    return Err(Error::IsDirectory);
+                }
                 let fs = self.file_systems.get_mut(*fs);
                 let read_count = fs.read(fd, *offset, buf)?;
                 *offset += read_count as u64;
@@ -683,7 +810,10 @@ impl RootFileSystem {
     pub fn write(&mut self, fd: ProcessFileDescriptor, buf: &[u8]) -> Result<usize> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset } => {
+            OpenFile::Regular { fs, offset, is_dir } => {
+                if *is_dir {
+                    return Err(Error::IsDirectory);
+                }
                 let fs = self.file_systems.get_mut(*fs);
                 let write_count = fs.write(fd, *offset, buf)?;
                 *offset += write_count as u64;
@@ -715,13 +845,24 @@ impl RootFileSystem {
         if let OpenFile::Regular {
             fs,
             offset: file_offset,
+            is_dir,
         } = file_info
         {
             let new_offset = offset
                 .checked_add(match whence {
                     SeekFrom::Start => 0,
-                    SeekFrom::Current => *file_offset as i64,
+                    SeekFrom::Current => {
+                        // only SEEK_SET should be used for directories
+                        if *is_dir {
+                            return Err(Error::IsDirectory);
+                        }
+                        *file_offset as i64
+                    }
                     SeekFrom::End => {
+                        // only SEEK_SET should be used for directories
+                        if *is_dir {
+                            return Err(Error::IsDirectory);
+                        }
                         let fs = self.file_systems.get_mut(*fs);
                         fs.size_of_file(fd)? as i64
                     }
@@ -797,6 +938,7 @@ impl RootFileSystem {
         let (fs_id, inode) = self.resolve_path(process, dirname)?;
         self.file_systems.get_mut(fs_id).rmdir(inode, filename)
     }
+
     /// Sync all filesystems to disk
     pub fn sync(&mut self) -> Result<()> {
         let mut result = Ok(());
@@ -806,6 +948,35 @@ impl RootFileSystem {
         }
         result
     }
+
+    /// Read up to `size` bytes of directory entries into `output`.
+    ///
+    /// Returns the number of bytes read.
+    ///
+    /// # Safety
+    ///
+    /// `output` must be valid for writing up to `size` bytes.
+    pub unsafe fn getdents(
+        &mut self,
+        fd: ProcessFileDescriptor,
+        output: *mut Dirent,
+        size: usize,
+    ) -> Result<usize> {
+        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        match file_info {
+            OpenFile::Regular {
+                fs,
+                offset,
+                is_dir: true,
+            } => {
+                let fs = self.file_systems.get_mut(*fs);
+                let read_count = fs.getdents(fd, offset, output, size)?;
+                Ok(read_count)
+            }
+            _ => Err(Error::NotDirectory),
+        }
+    }
+
     /// Close all open files belonging to process
     ///
     /// This should be called when the process exits/is killed.

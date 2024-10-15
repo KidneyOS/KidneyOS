@@ -84,6 +84,8 @@
 
 #define SYS_LSEEK64 140
 
+#define SYS_GETDENTS 141
+
 #define SYS_NANOSLEEP 162
 
 #define SYS_SCHED_YIELD 158
@@ -102,6 +104,23 @@ typedef struct Stat {
   uint64_t size;
   uint8_t type;
 } Stat;
+
+typedef struct Dirent {
+  /**
+   * Opaque offset value to be used with seekdir.
+   */
+  uint64_t offset;
+  uint32_t inode;
+  /**
+   * Length of this directory entry in bytes.
+   */
+  uint16_t reclen;
+  uint8_t type;
+  /**
+   * Null-terminated file name
+   */
+  uint8_t name[0];
+} Dirent;
 
 typedef uint16_t Pid;
 
@@ -134,6 +153,8 @@ int32_t fstat(int32_t fd, struct Stat *statbuf);
 int32_t unlink(const int8_t *path);
 
 int32_t rmdir(const int8_t *path);
+
+int32_t getdents(int32_t fd, struct Dirent *output, uintptr_t size);
 
 int32_t sync(void);
 
