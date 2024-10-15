@@ -76,7 +76,10 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         thread_system_initialization();
         println!("Finished Thread System initialization. Ready to start threading.");
 
-        let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
+        let ide_addr = ide_init as *const () as *mut u8;
+        let ide_addr = NonNull::new(ide_addr).unwrap();
+        // Note: This will be commeted out until the following issue is fixed:
+        // .../shared/src/paging.rs:423:9: page manager dropped while still loaded
         let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0);
 
         SCHEDULER
