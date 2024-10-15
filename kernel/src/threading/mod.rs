@@ -4,6 +4,8 @@ pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;
 
+use core::cell::RefCell;
+
 use crate::user_program::elf::Elf;
 use crate::{
     interrupts::{intr_enable, intr_get_level, IntrLevel},
@@ -11,11 +13,12 @@ use crate::{
     threading::scheduling::{initialize_scheduler, scheduler_yield_and_continue, SCHEDULER},
 };
 use alloc::boxed::Box;
+use alloc::rc::Rc;
 use thread_control_block::{
     initialize_process_table, ProcessControlBlock, ThreadControlBlock, Tid,
 };
 
-pub static mut RUNNING_THREAD: Option<Box<ThreadControlBlock>> = None;
+pub static mut RUNNING_THREAD: Option<Rc<RefCell<ThreadControlBlock>>> = None;
 
 /// To be called before any other thread functions.
 /// To be called with interrupts disabled.
@@ -58,12 +61,12 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
 
     // SAFETY: Interrupts must be disabled.
     unsafe {
-        RUNNING_THREAD = Some(Box::new(kernel_tcb));
+        RUNNING_THREAD = Some(Rc::new(RefCell::new(kernel_tcb)));
 
         SCHEDULER
             .as_mut()
             .expect("No Scheduler set up!")
-            .push(Box::new(user_tcb));
+            .push(Rc::clone(&user_tcb));
     }
 
     intr_enable();

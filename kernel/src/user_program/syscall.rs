@@ -81,6 +81,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             // Hard code the elf file to load for now
 
             // Should only reach here if there is an error
+            0
         }
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")
@@ -91,7 +92,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         SYS_GETPID => {
             let tcb = unsafe { RUNNING_THREAD.as_mut().expect("Why is nothing running?") };
-            tcb.pid as usize
+            tcb.borrow().pid as usize
         }
         _ => 1,
     }

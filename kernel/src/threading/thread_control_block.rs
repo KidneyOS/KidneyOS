@@ -6,7 +6,9 @@ use crate::{
     user_program::elf::Elf,
     KERNEL_ALLOCATOR,
 };
+use alloc::rc::Rc;
 use alloc::{boxed::Box, vec::Vec};
+use core::cell::RefCell;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
@@ -59,10 +61,10 @@ pub fn allocate_tid() -> Tid {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
-    // The TIDs of this process' children threads
-    pub child_tids: Vec<Tid>,
-    // The TIDs of the threads waiting on this process to end
-    pub wait_list: Vec<Tid>,
+    // References to the TCBs of this process' children threads
+    pub child_tcbs: Vec<Rc<RefCell<ThreadControlBlock>>>,
+    // References to the TCBs of the threads waiting on this process to end
+    pub wait_list: Vec<Rc<RefCell<ThreadControlBlock>>>,
 
     // TODO: (file I/O) file descriptor table
     pub exit_code: Option<i32>,
@@ -70,7 +72,7 @@ pub struct ProcessControlBlock {
 
 impl ProcessControlBlock {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(elf: Elf) -> ThreadControlBlock {
+    pub fn new(elf: Elf) -> Rc<RefCell<ThreadControlBlock>> {
         if elf.header.architecture != ElfArchitecture::X86
             || elf.header.usage != ElfUsage::Executable
         {
@@ -131,17 +133,19 @@ impl ProcessControlBlock {
 
         let mut new_pcb = Self {
             pid,
-            child_tids: Vec::new(),
+            child_tcbs: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
         };
-        let new_tcb = ThreadControlBlock::new_with_elf(
+
+        let new_tcb = Rc::new(RefCell::new(ThreadControlBlock::new_with_elf(
             NonNull::new(elf.header.program_entry as *mut u8)
                 .expect("fail to create PCB entry point"),
             pid,
             page_manager,
-        );
-        new_pcb.child_tids.push(new_tcb.tid);
+        )));
+
+        new_pcb.child_tcbs.push(Rc::clone(&new_tcb));
 
         unsafe {
             PROCESS_TABLE

@@ -7,8 +7,8 @@ use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
 };
-use alloc::boxed::Box;
-use core::arch::asm;
+use alloc::{boxed::Box, rc::Rc};
+use core::{arch::asm, cell::RefCell};
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
@@ -32,7 +32,7 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // SAFETY: Interrupts must be off.
     unsafe {
         let mut current_thread = RUNNING_THREAD.take().expect("Why is nothing running!?");
-        current_thread.set_exit_code(exit_code);
+        current_thread.borrow().set_exit_code(exit_code);
 
         // Replace and yield.
         RUNNING_THREAD = Some(current_thread);
@@ -45,28 +45,28 @@ unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
 ) -> ! {
-    let mut switched_to = Box::from_raw(switched_to);
+    let mut switched_to =  Rc::new(RefCell::new(*switched_to));
 
     // We assume that switched_from had its status changed already.
     // We must only mark this thread as running.
-    switched_to.status = ThreadStatus::Running;
+    switched_to.borrow().status = ThreadStatus::Running;
 
-    TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
+    TASK_STATE_SEGMENT.esp0 = switched_to.borrow().kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
+    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to.borrow();
 
     // Reschedule our threads.
     RUNNING_THREAD = Some(switched_to);
 
-    let mut switched_from = Box::from_raw(switched_from);
+    let mut switched_from = Rc::new(RefCell::new(*switched_from));
 
-    if switched_from.status == ThreadStatus::Dying {
-        switched_from.reap();
+    if switched_from.borrow().status == ThreadStatus::Dying {
+        switched_from.borrow().reap();
 
         // Page manager must be loaded to be dropped.
-        switched_from.page_manager.load();
+        switched_from.borrow().page_manager.load();
         drop(switched_from);
-        RUNNING_THREAD.as_ref().unwrap().page_manager.load();
+        RUNNING_THREAD.as_ref().unwrap().borrow().page_manager.load();
     } else {
         SCHEDULER
             .as_mut()

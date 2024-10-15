@@ -1,5 +1,6 @@
+use alloc::rc::Rc;
+use core::cell::RefCell;
 use super::super::{ThreadControlBlock, Tid};
-use crate::alloc::boxed::Box;
 
 pub trait Scheduler {
     fn new() -> Self
@@ -7,7 +8,7 @@ pub trait Scheduler {
         Self: Sized,
         Self: Sync;
 
-    fn push(&mut self, thread: Box<ThreadControlBlock>);
-    fn pop(&mut self) -> Option<Box<ThreadControlBlock>>;
-    fn remove(&mut self, tid: Tid) -> Option<Box<ThreadControlBlock>>;
+    fn push(&mut self, thread: Rc<RefCell<ThreadControlBlock>>);
+    fn pop(&mut self) -> Option<Rc<RefCell<ThreadControlBlock>>>;
+    fn remove(&mut self, tid: Tid) -> Option<Rc<RefCell<ThreadControlBlock>>>;
 }
