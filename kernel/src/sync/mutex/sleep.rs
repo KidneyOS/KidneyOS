@@ -7,17 +7,30 @@ use crate::{
     },
 };
 use alloc::collections::VecDeque;
+use core::{
+    cell::UnsafeCell,
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
-pub struct SleepMutex {
+pub struct SleepMutex<T: ?Sized> {
     holding_thread: Option<Tid>,
     wait_queue: VecDeque<Tid>,
+    data: UnsafeCell<T>,
 }
 
-pub struct SleepMutexGuard<'a> {
-    mutex: Option<&'a mut SleepMutex>,
+pub struct SleepMutexGuard<'a, T: ?Sized + 'a> {
+    mutex: Option<&'a mut SleepMutex<T>>,
 }
 
-impl<'a> SleepMutexGuard<'a> {
+// Same unsafe impls as `std::sync::Mutex`
+unsafe impl<T: ?Sized + Send> Sync for SleepMutex<T> {}
+unsafe impl<T: ?Sized + Send> Send for SleepMutex<T> {}
+
+unsafe impl<T: ?Sized + Sync> Sync for SleepMutexGuard<'_, T> {}
+unsafe impl<T: ?Sized + Send> Send for SleepMutexGuard<'_, T> {}
+
+impl<'a, T> SleepMutexGuard<'a, T> {
     pub fn unlock(&mut self) {
         intr_disable();
         if let Some(mutex) = self.mutex.take() {
@@ -25,14 +38,10 @@ impl<'a> SleepMutexGuard<'a> {
         }
         intr_enable();
     }
-
-    pub fn is_locked(&self) -> bool {
-        self.mutex.is_some()
-    }
 }
 
 // Ensure mutex is released if dropped (such as in the event of a panic)
-impl<'a> Drop for SleepMutexGuard<'a> {
+impl<'a, T: ?Sized> Drop for SleepMutexGuard<'a, T> {
     fn drop(&mut self) {
         if let Some(mutex) = self.mutex.take() {
             mutex.unlock();
@@ -40,15 +49,66 @@ impl<'a> Drop for SleepMutexGuard<'a> {
     }
 }
 
-impl SleepMutex {
-    pub const fn new() -> Self {
+impl<'a, T: ?Sized + fmt::Debug> fmt::Debug for SleepMutexGuard<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(
+            &self
+                .mutex
+                .as_ref()
+                .expect("No inner mutex present")
+                .data
+                .get(),
+            f,
+        )
+    }
+}
+
+impl<'a, T: ?Sized> Deref for SleepMutexGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { &*self.mutex.as_ref().unwrap().data.get() }
+    }
+}
+
+impl<'a, T: ?Sized> DerefMut for SleepMutexGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.mutex.as_mut().unwrap().data.get() }
+    }
+}
+
+impl<T: ?Sized + Default> Default for SleepMutex<T> {
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
+impl<T> From<T> for SleepMutex<T> {
+    fn from(data: T) -> Self {
+        Self::new(data)
+    }
+}
+
+impl<T> SleepMutex<T> {
+    pub const fn new(data: T) -> Self {
         Self {
             holding_thread: None,
             wait_queue: VecDeque::new(),
+            data: UnsafeCell::new(data),
         }
     }
 
-    pub fn lock(&mut self) -> SleepMutexGuard {
+    pub fn into_inner(self) -> T {
+        self.data.into_inner()
+    }
+
+    pub fn as_mut_ptr(&self) -> *mut T {
+        self.data.get()
+    }
+}
+
+impl<T: ?Sized> SleepMutex<T> {
+    #[must_use = "Mutex is released when guard falls out of scpe"]
+    pub fn lock(&mut self) -> SleepMutexGuard<T> {
         intr_disable();
 
         let current_tid = unsafe {
@@ -129,18 +189,8 @@ impl SleepMutex {
         intr_enable();
         true
     }
-}
 
-// Release all threads when mutex is dropped
-impl Drop for SleepMutex {
-    fn drop(&mut self) {
-        intr_disable();
-
-        while let Some(tid) = self.wait_queue.pop_front() {
-            thread_wakeup(tid);
-        }
-
-        self.holding_thread = None;
-        intr_enable();
+    pub fn get_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.data.get() }
     }
 }
