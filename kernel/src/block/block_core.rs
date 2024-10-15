@@ -1,7 +1,9 @@
 #![allow(dead_code)] // Suppress unused warnings
 
+use crate::block::bio_core::BioScheduler;
 use crate::block::bio_request::{BioOp, BioReq};
 use crate::block::block_error::BlockError;
+use crate::block::schedulers::noop_scheduler::NoopScheduler;
 use crate::interrupts::{intr_get_level, IntrLevel};
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
@@ -94,6 +96,9 @@ pub struct Block {
     read_count: u32,
     /// The write count
     write_count: u32,
+
+    /// The IO scheduler
+    scheduler: Box<dyn BioScheduler>,
 }
 
 impl Block {
@@ -128,13 +133,29 @@ impl Block {
             return Err(BlockError::BufferInvalid);
         }
 
-        // self.read_count += 1;
-        // unsafe { self.driver.read(sector, buf) }
+        let mut r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioRead, 0, 0, None);
+        self.scheduler.enqueue(&mut r);
+        self.scheduler.wait()
+    }
 
-        let _r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioRead, 0, 0, None);
-        // TODO: Scheduler wait
-        // Ok(())
-        Err(BlockError::ReadError)
+    /// Reads sector `sector` from the block device into `buf`, which must have room for
+    /// `BLOCK_SECTOR_SIZE` bytes.
+    ///
+    /// # Important
+    ///
+    /// This function should **NOT** be called outside the block layer.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it provides no checks on anything. It is merely a wrapper
+    /// around the driver's read function.
+    pub(crate) unsafe fn read_raw(
+        &mut self,
+        sector: BlockSector,
+        buf: &mut [u8],
+    ) -> Result<(), BlockError> {
+        self.read_count += 1;
+        self.driver.read(sector, buf)
     }
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
@@ -160,13 +181,29 @@ impl Block {
             "Cannot write to foreign block"
         );
 
-        // self.write_count += 1;
-        // unsafe { self.driver.write(sector, buf) }
+        let mut r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioWrite, 0, 0, None);
+        self.scheduler.enqueue(&mut r);
+        self.scheduler.wait()
+    }
 
-        let _r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioWrite, 0, 0, None);
-        // TODO: Scheduler wait
-        // Ok(())
-        Err(BlockError::WriteError)
+    /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
+    /// after the block device has acknowledged receiving the data.
+    ///
+    /// # Important
+    ///
+    /// This function should **NOT** be called outside the block layer.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it provides no checks on anything. It is merely a wrapper
+    /// around the driver's write function.
+    pub(crate) unsafe fn write_raw(
+        &mut self,
+        sector: BlockSector,
+        buf: &[u8],
+    ) -> Result<(), BlockError> {
+        self.write_count += 1;
+        self.driver.write(sector, buf)
     }
 
     // Block getters -----------------------------------------------------------
@@ -233,14 +270,17 @@ impl BlockManager {
         block_size: BlockSector,
         driver: Box<dyn BlockOp>,
     ) -> usize {
+        let block_id = self.max_index;
+
         self.all_blocks.push(Block {
-            index: self.max_index,
+            index: block_id,
             block_name: String::from(block_name),
             block_type,
             driver,
             block_size,
             read_count: 0,
             write_count: 0,
+            scheduler: Box::new(NoopScheduler::new(block_id)), // TODO: Implement a real scheduler
         });
 
         println!(
@@ -249,7 +289,7 @@ impl BlockManager {
         );
 
         self.max_index += 1;
-        self.max_index - 1
+        block_id
     }
 
     /// Get the block device with the given `index`.
