@@ -1,5 +1,5 @@
 use crate::{
-    interrupts::{intr_disable, intr_enable, mutex_irq::MutexIrq},
+    interrupts::mutex_irq::MutexIrq,
     threading::{
         thread_control_block::{AtomicTid, Tid},
         thread_sleep::{thread_sleep, thread_wakeup},
