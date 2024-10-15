@@ -1,5 +1,6 @@
 #![allow(dead_code)] // Suppress unused warnings
 
+use crate::block::bio_request::{BioOp, BioReq};
 use crate::block::block_error::BlockError;
 use crate::interrupts::{intr_get_level, IntrLevel};
 use alloc::boxed::Box;
@@ -127,8 +128,13 @@ impl Block {
             return Err(BlockError::BufferInvalid);
         }
 
-        self.read_count += 1;
-        unsafe { self.driver.read(sector, buf) }
+        // self.read_count += 1;
+        // unsafe { self.driver.read(sector, buf) }
+
+        let _r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioRead, 0, 0, None);
+        // TODO: Scheduler wait
+        // Ok(())
+        Err(BlockError::ReadError)
     }
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
@@ -154,8 +160,13 @@ impl Block {
             "Cannot write to foreign block"
         );
 
-        self.write_count += 1;
-        unsafe { self.driver.write(sector, buf) }
+        // self.write_count += 1;
+        // unsafe { self.driver.write(sector, buf) }
+
+        let _r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioWrite, 0, 0, None);
+        // TODO: Scheduler wait
+        // Ok(())
+        Err(BlockError::WriteError)
     }
 
     // Block getters -----------------------------------------------------------
