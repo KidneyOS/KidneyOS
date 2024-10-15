@@ -1,12 +1,13 @@
 use crate::{
-    interrupts::{intr_disable, intr_enable},
+    interrupts::{intr_disable, intr_enable, mutex_irq::MutexIrq},
     threading::{
-        thread_control_block::Tid,
+        thread_control_block::{AtomicTid, Tid},
         thread_sleep::{thread_sleep, thread_wakeup},
         RUNNING_THREAD,
     },
 };
 use alloc::collections::VecDeque;
+use core::sync::atomic::Ordering::{AcqRel, Acquire, Release};
 use core::{
     cell::UnsafeCell,
     fmt,
@@ -14,13 +15,13 @@ use core::{
 };
 
 pub struct SleepMutex<T: ?Sized> {
-    holding_thread: Option<Tid>,
-    wait_queue: VecDeque<Tid>,
+    holding_thread: AtomicTid,
+    wait_queue: MutexIrq<VecDeque<Tid>>,
     data: UnsafeCell<T>,
 }
 
 pub struct SleepMutexGuard<'a, T: ?Sized + 'a> {
-    mutex: Option<&'a mut SleepMutex<T>>,
+    mutex: Option<&'a SleepMutex<T>>,
 }
 
 // Same unsafe impls as `std::sync::Mutex`
@@ -32,11 +33,9 @@ unsafe impl<T: ?Sized + Send> Send for SleepMutexGuard<'_, T> {}
 
 impl<'a, T> SleepMutexGuard<'a, T> {
     pub fn unlock(&mut self) {
-        intr_disable();
         if let Some(mutex) = self.mutex.take() {
             mutex.unlock();
         }
-        intr_enable();
     }
 }
 
@@ -91,8 +90,8 @@ impl<T> From<T> for SleepMutex<T> {
 impl<T> SleepMutex<T> {
     pub const fn new(data: T) -> Self {
         Self {
-            holding_thread: None,
-            wait_queue: VecDeque::new(),
+            holding_thread: AtomicTid::new(0),
+            wait_queue: MutexIrq::new(VecDeque::new()),
             data: UnsafeCell::new(data),
         }
     }
@@ -108,9 +107,7 @@ impl<T> SleepMutex<T> {
 
 impl<T: ?Sized> SleepMutex<T> {
     #[must_use = "Mutex is released when guard falls out of scpe"]
-    pub fn lock(&mut self) -> SleepMutexGuard<T> {
-        intr_disable();
-
+    pub fn lock(&self) -> SleepMutexGuard<T> {
         let current_tid = unsafe {
             RUNNING_THREAD
                 .as_ref()
@@ -118,20 +115,30 @@ impl<T: ?Sized> SleepMutex<T> {
                 .tid
         };
 
-        while self.is_locked() {
-            if !self.wait_queue.contains(&current_tid) {
-                self.wait_queue.push_back(current_tid);
+        loop {
+            // If no thread is holding the mutex, grab it.
+            let _ = self
+                .holding_thread
+                .compare_exchange(0, current_tid, AcqRel, Acquire);
+            // If we are the owner of the mutex, break.
+            // Note that holding_thread can be set to current_tid either by the line
+            // above, or by unlock().
+            if self.holding_thread.load(Acquire) == current_tid {
+                break;
             }
+
+            let mut wait_queue = self.wait_queue.lock();
+            if !wait_queue.contains(&current_tid) {
+                wait_queue.push_back(current_tid);
+            }
+            drop(wait_queue);
             thread_sleep();
         }
-
-        self.holding_thread = Some(current_tid);
-        intr_enable();
 
         SleepMutexGuard { mutex: Some(self) }
     }
 
-    pub fn unlock(&mut self) {
+    fn unlock(&self) {
         let running_tid = unsafe {
             RUNNING_THREAD
                 .as_ref()
@@ -139,58 +146,40 @@ impl<T: ?Sized> SleepMutex<T> {
                 .tid
         };
 
-        if self.holding_thread != Some(running_tid) {
+        if self.holding_thread.load(Acquire) != running_tid {
             return;
         }
 
-        if !self.wait_queue.is_empty() {
-            let next_thread = self
-                .wait_queue
-                .pop_front()
-                .expect("No item in wait queue despite non-zero size.");
-            self.holding_thread = Some(next_thread);
-            thread_wakeup(next_thread);
-        } else {
-            self.holding_thread = None;
+        let next = self.wait_queue.lock().pop_front();
+        match next {
+            None => {
+                self.holding_thread.store(0, Release);
+            }
+            Some(next_thread) => {
+                self.holding_thread.store(next_thread, Release);
+                thread_wakeup(next_thread);
+            }
         }
-    }
-
-    pub unsafe fn force_unlock(&mut self) {
-        intr_disable();
-
-        if let Some(next_thread) = self.wait_queue.pop_front() {
-            thread_wakeup(next_thread);
-        }
-
-        self.holding_thread = None;
-        intr_enable();
     }
 
     pub fn is_locked(&self) -> bool {
-        self.holding_thread.is_some()
+        self.holding_thread.load(Acquire) != 0
     }
 
-    pub fn try_lock(&mut self) -> bool {
-        intr_disable();
-
-        if self.is_locked() {
-            intr_enable();
-            return false;
-        }
-
+    pub fn try_lock(&self) -> bool {
         let current_tid = unsafe {
             RUNNING_THREAD
                 .as_ref()
                 .expect("why is nothing running?")
                 .tid
         };
-
-        self.holding_thread = Some(current_tid);
-        intr_enable();
-        true
+        self.holding_thread
+            .compare_exchange(0, current_tid, AcqRel, Acquire)
+            .is_ok()
     }
 
     pub fn get_mut(&mut self) -> &mut T {
+        // SAFETY: no other references can exist, since we have a mut reference to self.
         unsafe { &mut *self.data.get() }
     }
 }
