@@ -106,7 +106,7 @@ impl<T> SleepMutex<T> {
 }
 
 impl<T: ?Sized> SleepMutex<T> {
-    #[must_use = "Mutex is released when guard falls out of scpe"]
+    #[must_use = "Mutex is released when guard falls out of scope."]
     pub fn lock(&self) -> SleepMutexGuard<T> {
         let current_tid = unsafe {
             RUNNING_THREAD
