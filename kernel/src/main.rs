@@ -25,8 +25,11 @@ pub mod vfs;
 
 extern crate alloc;
 
-use crate::block::block_core::block_init;
 use crate::drivers::ata::ata_core::ide_init;
+use crate::threading::scheduling::SCHEDULER;
+use crate::threading::thread_control_block::ThreadControlBlock;
+use alloc::boxed::Box;
+use core::ptr::NonNull;
 use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
@@ -73,17 +76,17 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         pic::init_pit();
         println!("PIT set up!");
 
-        println!("Setting up block layer");
-        let block_manager = block_init();
-        println!("Block layer set up!");
-
         println!("Initializing Thread System...");
         thread_system_initialization();
         println!("Finished Thread System initialization. Ready to start threading.");
 
-        println!("Setting up IDE");
-        let _block_manager = ide_init(block_manager, true);
-        println!("IDE set up!");
+        let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0);
+
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(Box::new(ide_tcb));
 
         println!("Mounting root filesystem...");
         // for now, we just use TempFS for the root filesystem

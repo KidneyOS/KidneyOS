@@ -317,7 +317,8 @@ impl AtaChannel {
             || (status & STA_BSY) != 0
         {
             self.set_is_ata(dev_num, false);
-            error != (ERR_AMNF | ERR_BBK)
+            // error != (ERR_AMNF | ERR_BBK)
+            false // simply ignore device
         } else {
             // PATA: 0x0  & 0x0
             // SATA: 0x3c & 0xc3

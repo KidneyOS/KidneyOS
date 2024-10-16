@@ -19,10 +19,12 @@ use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 pub type Pid = u16;
 pub type Tid = u16;
+pub type AtomicPid = AtomicU16;
+pub type AtomicTid = AtomicU16;
 
 // Current value marks the next available PID & TID values to use.
-static NEXT_UNRESERVED_PID: AtomicU16 = AtomicU16::new(0);
-static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
+static NEXT_UNRESERVED_PID: AtomicPid = AtomicPid::new(1);
+static NEXT_UNRESERVED_TID: AtomicTid = AtomicTid::new(1);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -45,11 +47,19 @@ pub enum ThreadStatus {
 
 pub fn allocate_pid() -> Pid {
     // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
+    let pid = NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid;
+    if pid == 0 {
+        panic!("PID overflow"); // TODO: handle overflow properly
+    }
+    pid
 }
 pub fn allocate_tid() -> Tid {
     // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
+    let tid = NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid;
+    if tid == 0 {
+        panic!("TID overflow");
+    }
+    tid
 }
 
 pub struct ProcessControlBlock {
