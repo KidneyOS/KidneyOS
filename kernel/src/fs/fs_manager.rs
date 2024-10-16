@@ -1,5 +1,6 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::sync::mutex::Mutex;
+use crate::threading::process_table::PROCESS_TABLE;
 use crate::threading::thread_control_block::Pid;
 use crate::threading::thread_control_block::ProcessControlBlock;
 use crate::user_program::syscall::Dirent;
@@ -194,7 +195,7 @@ fn temp_close<F: FileSystem>(
     open_file_count: &BTreeMap<INodeNum, NonZeroUsize>,
 ) {
     let inode = file.handle.inode();
-    if open_file_count.contains_key(&inode) {
+    if !open_file_count.contains_key(&inode) {
         fs.release(inode);
     }
     // prevent drop from running
@@ -226,15 +227,7 @@ impl<F: FileSystem + 'static> FileSystemManager<F> {
     }
 
     fn open_file_handle(&mut self, fd: ProcessFileDescriptor, handle: F::FileHandle) -> Result<()> {
-        match self.open_file_count.entry(handle.inode()) {
-            BTreeMapEntry::Occupied(mut o) => {
-                let count = o.get_mut();
-                *count = count.checked_add(1).expect("shouldn't overflow usize");
-            }
-            BTreeMapEntry::Vacant(v) => {
-                v.insert(NonZeroUsize::new(1).unwrap());
-            }
-        }
+        self.inc_ref(handle.inode());
         let _prev = self.open_files.insert(fd, handle);
         debug_assert!(_prev.is_none(), "duplicate fd");
         Ok(())
@@ -289,6 +282,10 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
         size: usize,
     ) -> Result<usize>;
     fn ftruncate(&mut self, file: ProcessFileDescriptor, size: u64) -> Result<()>;
+    /// increase reference count of inode (pretend there is an extra open file to it)
+    fn inc_ref(&mut self, inode: INodeNum);
+    /// decrease reference count of inode (pretend there is one fewer open file to it)
+    fn dec_ref(&mut self, inode: INodeNum);
 }
 
 /// get parent directory and name of absolute path
@@ -342,18 +339,11 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     }
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
         let handle = self.open_files.remove(&fd).ok_or(Error::BadFd)?;
-        let inode = handle.inode();
-        let ref_count = self.open_file_count.get_mut(&inode).unwrap();
-        if let Some(n) = NonZeroUsize::new(ref_count.get() - 1) {
-            *ref_count = n;
-            return Ok(());
-        }
-        self.open_file_count.remove(&inode);
-        self.fs.release(inode);
+        self.dec_ref(handle.inode());
         Ok(())
     }
     fn can_be_safely_unmounted(&self) -> bool {
-        self.open_files.is_empty() && self.mount_count == 0
+        self.open_file_count.is_empty() && self.mount_count == 0
     }
     fn sync(&mut self) -> Result<()> {
         self.fs.sync()
@@ -575,6 +565,35 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         self.fs.truncate(handle, size)
     }
+    fn inc_ref(&mut self, inode: INodeNum) {
+        match self.open_file_count.entry(inode) {
+            BTreeMapEntry::Occupied(mut o) => {
+                let count = o.get_mut();
+                *count = count
+                    .checked_add(1)
+                    .expect("shouldn't overflow usize (each open file requires ≥1 byte of memory)");
+            }
+            BTreeMapEntry::Vacant(v) => {
+                v.insert(NonZeroUsize::new(1).unwrap());
+            }
+        }
+    }
+    fn dec_ref(&mut self, inode: INodeNum) {
+        let Some(ref_count) = self.open_file_count.get_mut(&inode) else {
+            return;
+        };
+        match NonZeroUsize::new(ref_count.get() - 1) {
+            Some(n) => {
+                // other open files with the same inode still exist
+                *ref_count = n;
+            }
+            None => {
+                // all open files to this inode have been closed
+                self.open_file_count.remove(&inode);
+                self.fs.release(inode);
+            }
+        }
+    }
 }
 
 pub type FileSystemID = u16;
@@ -604,19 +623,19 @@ impl FileSystemList {
     ///
     /// panics if id is invalid.
     fn get(&self, id: FileSystemID) -> &dyn FileSystemManagerTrait {
-        self.0[id as usize]
-            .as_ref()
-            .expect("bad filesystem ID")
-            .as_ref()
+        match self.0[id as usize].as_ref() {
+            Some(fs) => fs.as_ref(),
+            None => panic!("bad filesystem ID: {id}"),
+        }
     }
     /// get mutable reference to filesystem with ID
     ///
     /// panics if id is invalid.
     fn get_mut(&mut self, id: FileSystemID) -> &mut dyn FileSystemManagerTrait {
-        self.0[id as usize]
-            .as_mut()
-            .expect("bad filesystem ID")
-            .as_mut()
+        match self.0[id as usize].as_mut() {
+            Some(fs) => fs.as_mut(),
+            None => panic!("bad filesystem ID: {id}"),
+        }
     }
     fn add<F: FileSystem + 'static>(
         &mut self,
@@ -695,19 +714,21 @@ impl RootFileSystem {
                     fs_root = self.file_systems.get(fs_id).root();
                     inode = ino;
                 }
-                continue;
+                // note: don't continue; here, we want to go to the parent folder in the parent file system
             }
             let fs = self.file_systems.get_mut(fs_id);
-            inode = fs.lookup(inode, component)?;
-            if let Some(child_fs) = fs.mount_point_at(inode) {
+            let child_inode = fs.lookup(inode, component)?;
+            if let Some(child_fs) = fs.mount_point_at(child_inode) {
                 // enter mount
                 fs_id = child_fs;
                 fs_root = self.file_systems.get(fs_id).root();
                 inode = fs_root;
                 continue;
             }
-            match fs.read_link(inode, &mut link_buf) {
-                Err(Error::NotLink) => {}
+            match fs.read_link(child_inode, &mut link_buf) {
+                Err(Error::NotLink) => {
+                    inode = child_inode;
+                }
                 Ok(link_dest) => {
                     (fs_id, inode) = self.resolve_path_relative_to(
                         (fs_id, inode),
@@ -954,10 +975,19 @@ impl RootFileSystem {
         assert_eq!(stderr, 2);
     }
     pub fn chdir(&mut self, process: &mut ProcessControlBlock, path: &Path) -> Result<()> {
+        if process.cwd_path != "/" {
+            // decrement reference count to previous cwd
+            let (prev_fs, prev_inode) = process.cwd;
+            self.file_systems.get_mut(prev_fs).dec_ref(prev_inode);
+        }
         let (fs_id, inode) = self.resolve_path(process, path)?;
-        if self.file_systems.get_mut(fs_id).inode_type(inode)? != INodeType::Directory {
+        let fs = self.file_systems.get_mut(fs_id);
+        if fs.inode_type(inode)? != INodeType::Directory {
             return Err(Error::NotDirectory);
         }
+        // increment reference count to new cwd (e.g. this prevents it from being unmounted)
+        fs.inc_ref(inode);
+
         process.cwd = (fs_id, inode);
         if path.starts_with('/') {
             // chdir to absolute path
@@ -1123,6 +1153,14 @@ impl RootFileSystem {
         for fd in fds {
             let _ = self.close(ProcessFileDescriptor { pid, fd });
         }
+        // decrement reference count to cwd
+        let (cwd_fs, cwd_inode) = unsafe { &PROCESS_TABLE }
+            .as_ref()
+            .unwrap()
+            .get(pid)
+            .expect("bad PID")
+            .cwd;
+        self.file_systems.get_mut(cwd_fs).dec_ref(cwd_inode);
     }
 }
 
