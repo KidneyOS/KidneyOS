@@ -135,9 +135,7 @@ impl TempFS {
         let TempINodeData::Directory(parent_dir) = &parent_inode.data else {
             panic!("Kernel should call stat to make sure this is a directory before removing something from it.");
         };
-        let inode_num = parent_dir
-            .inode_by_name(name)
-            .expect("tempfs consistency error");
+        let inode_num = parent_dir.inode_by_name(name).ok_or(Error::NotFound)?;
         let inode = self
             .inodes
             .get_mut(&inode_num)
