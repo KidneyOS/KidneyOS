@@ -274,4 +274,64 @@ pub unsafe fn getdents(fd: usize, output: *mut Dirent, size: usize) -> isize {
     }
 }
 
-// TODO: link, symlink, mount, unmount, rename, ftruncate
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn link(source: *const u8, dest: *const u8) -> isize {
+    let source = match get_cstr_from_user_space(source) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -ENOENT,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    let dest = match get_cstr_from_user_space(dest) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().link(running_process(), source, dest) {
+        Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn symlink(source: *const u8, dest: *const u8) -> isize {
+    let source = match get_cstr_from_user_space(source) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    let dest = match get_cstr_from_user_space(dest) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().symlink(running_process(), source, dest) {
+        Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn rename(source: *const u8, dest: *const u8) -> isize {
+    let source = match get_cstr_from_user_space(source) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -ENOENT,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    let dest = match get_cstr_from_user_space(dest) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().rename(running_process(), source, dest) {
+        Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
+
+// TODO: mount, unmount, ftruncate

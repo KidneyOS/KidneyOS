@@ -30,6 +30,8 @@
 
 #define EEXIST 17
 
+#define EXDEV 18
+
 #define ENOTDIR 20
 
 #define EISDIR 21
@@ -68,6 +70,8 @@
 
 #define SYS_WAITPID 7
 
+#define SYS_LINK 9
+
 #define SYS_UNLINK 10
 
 #define SYS_EXECVE 11
@@ -76,9 +80,13 @@
 
 #define SYS_SYNC 36
 
+#define SYS_RENAME 38
+
 #define SYS_MKDIR 39
 
 #define SYS_RMDIR 40
+
+#define SYS_SYMLINK 83
 
 #define SYS_FSTAT 108
 
@@ -151,6 +159,12 @@ int32_t mkdir(const int8_t *path);
 int32_t fstat(int32_t fd, struct Stat *statbuf);
 
 int32_t unlink(const int8_t *path);
+
+int32_t link(const int8_t *source, const int8_t *dest);
+
+int32_t symlink(const int8_t *source, const int8_t *dest);
+
+int32_t rename(const int8_t *source, const int8_t *dest);
 
 int32_t rmdir(const int8_t *path);
 

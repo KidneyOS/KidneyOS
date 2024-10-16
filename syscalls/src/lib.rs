@@ -10,7 +10,7 @@ pub struct Timespec {
     // TODO: Fill for nanosleep.
 }
 
-mod defs;
+pub mod defs;
 pub use defs::*;
 
 #[no_mangle]
@@ -148,6 +148,39 @@ pub extern "C" fn unlink(path: *const i8) -> i32 {
         asm!("
             int 0x80
         ", in("eax") SYS_UNLINK, in("ebx") path, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn link(source: *const i8, dest: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_LINK, in("ebx") source, in("ecx") dest, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn symlink(source: *const i8, dest: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_SYMLINK, in("ebx") source, in("ecx") dest, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn rename(source: *const i8, dest: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_RENAME, in("ebx") source, in("ecx") dest, lateout("eax") result);
     }
     result
 }

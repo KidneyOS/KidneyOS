@@ -54,6 +54,8 @@ pub enum Error {
     NotLink,
     /// Too many levels of symbolic links
     TooManyLevelsOfLinks,
+    /// Source and destination of link() lie in different mounted file systems.
+    HardLinkBetweenFileSystems,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -84,6 +86,9 @@ impl core::fmt::Display for Error {
             Self::NotMounted => write!(f, "not mounted"),
             Self::NotLink => write!(f, "not a link"),
             Self::TooManyLevelsOfLinks => write!(f, "too many levels of symbolic links"),
+            Self::HardLinkBetweenFileSystems => {
+                write!(f, "hard link between different file systems")
+            }
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
@@ -111,6 +116,7 @@ impl Error {
             Error::NotMounted => syscall::EINVAL,
             Error::NotLink => syscall::EINVAL,
             Error::TooManyLevelsOfLinks => syscall::ELOOP,
+            Error::HardLinkBetweenFileSystems => syscall::EXDEV,
             Error::IO(_) => syscall::EIO,
         }
     }

@@ -265,6 +265,15 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
     fn read_link<'a>(&mut self, inode: INodeNum, buf: &'a mut [u8]) -> Result<Cow<'a, Path>>;
     fn unlink(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
     fn rmdir(&mut self, parent: INodeNum, name: &Path) -> Result<()>;
+    fn link(&mut self, source: INodeNum, parent: INodeNum, name: &Path) -> Result<()>;
+    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<()>;
+    fn rename(
+        &mut self,
+        source_parent: INodeNum,
+        source_name: &Path,
+        dest_parent: INodeNum,
+        dest_name: &Path,
+    ) -> Result<()>;
     /// Read directory entries into `entries`.
     /// Returns the number of bytes read.
     /// Advances `offset` past the directory entries read.
@@ -508,6 +517,58 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
             return Err(Error::IO("failed to read directory entries".into()));
         }
         dir.getdents(offset, entries, size)
+    }
+    fn link(&mut self, source: INodeNum, parent: INodeNum, name: &Path) -> Result<()> {
+        if name.is_empty() || name == "." || name == ".." {
+            return Err(Error::Exists);
+        }
+        let mut source_handle = temp_open(&mut self.fs, source)?;
+        let source_info = self.fs.stat(&source_handle.handle)?;
+        if source_info.r#type == INodeType::Directory {
+            return Err(Error::IsDirectory);
+        }
+        let parent_handle = temp_open(&mut self.fs, parent);
+        let result = parent_handle.and_then(|mut parent_handle| {
+            let r = self
+                .fs
+                .link(&mut source_handle.handle, &mut parent_handle.handle, name);
+            temp_close(&mut self.fs, parent_handle, &self.open_file_count);
+            r
+        });
+        temp_close(&mut self.fs, source_handle, &self.open_file_count);
+        result?;
+        self.directories
+            .get_mut(&parent)
+            .unwrap()
+            .add(source, INodeType::File, name);
+        Ok(())
+    }
+    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<()> {
+        if name.is_empty() || name == "." || name == ".." {
+            return Err(Error::Exists);
+        }
+        let mut parent_handle = temp_open(&mut self.fs, parent)?;
+        let result = self.fs.symlink(link, &mut parent_handle.handle, name);
+        temp_close(&mut self.fs, parent_handle, &self.open_file_count);
+        let symlink_inode = result?;
+        self.directories
+            .get_mut(&parent)
+            .unwrap()
+            .add(symlink_inode, INodeType::Link, name);
+        Ok(())
+    }
+    fn rename(
+        &mut self,
+        source_parent: INodeNum,
+        source_name: &Path,
+        dest_parent: INodeNum,
+        dest_name: &Path,
+    ) -> Result<()> {
+        // perform   rename("a", "b")
+        // by doing  link("a", "b"), unlink("a")
+        let source_inode = self.lookup(source_parent, source_name)?;
+        self.link(source_inode, dest_parent, dest_name)?;
+        self.unlink(source_parent, source_name)
     }
 }
 
@@ -937,6 +998,56 @@ impl RootFileSystem {
         let (dirname, filename) = dirname_and_filename(path);
         let (fs_id, inode) = self.resolve_path(process, dirname)?;
         self.file_systems.get_mut(fs_id).rmdir(inode, filename)
+    }
+    pub fn link(
+        &mut self,
+        process: &ProcessControlBlock,
+        source: &Path,
+        dest: &Path,
+    ) -> Result<()> {
+        let (source_fs, inode) = self.resolve_path(process, source)?;
+        let (dest_dirname, dest_filename) = dirname_and_filename(dest);
+        let (parent_fs, parent_inode) = self.resolve_path(process, dest_dirname)?;
+        if parent_fs != source_fs {
+            return Err(Error::HardLinkBetweenFileSystems);
+        }
+        let fs = self.file_systems.get_mut(source_fs);
+        fs.link(inode, parent_inode, dest_filename)
+    }
+    pub fn symlink(
+        &mut self,
+        process: &ProcessControlBlock,
+        source: &Path,
+        dest: &Path,
+    ) -> Result<()> {
+        let (dest_dirname, dest_filename) = dirname_and_filename(dest);
+        let (parent_fs, parent_inode) = self.resolve_path(process, dest_dirname)?;
+        self.file_systems
+            .get_mut(parent_fs)
+            .symlink(source, parent_inode, dest_filename)
+    }
+    pub fn rename(
+        &mut self,
+        process: &ProcessControlBlock,
+        source: &Path,
+        dest: &Path,
+    ) -> Result<()> {
+        let (source_dirname, source_filename) = dirname_and_filename(source);
+        let (dest_dirname, dest_filename) = dirname_and_filename(dest);
+        let (source_parent_fs, source_parent_inode) = self.resolve_path(process, source_dirname)?;
+        let (dest_parent_fs, dest_parent_inode) = self.resolve_path(process, dest_dirname)?;
+        if source_parent_fs == dest_parent_fs {
+            let fs = self.file_systems.get_mut(source_parent_fs);
+            fs.rename(
+                source_parent_inode,
+                source_filename,
+                dest_parent_inode,
+                dest_filename,
+            )
+        } else {
+            // should probably handle this properly at some point…
+            Err(Error::HardLinkBetweenFileSystems)
+        }
     }
 
     /// Sync all filesystems to disk
