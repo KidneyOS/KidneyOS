@@ -88,6 +88,8 @@
 
 #define SYS_SYMLINK 83
 
+#define SYS_FTRUNCATE 93
+
 #define SYS_FSTAT 108
 
 #define SYS_LSEEK64 140
@@ -169,6 +171,8 @@ int32_t rename(const int8_t *source, const int8_t *dest);
 int32_t rmdir(const int8_t *path);
 
 int32_t getdents(int32_t fd, struct Dirent *output, uintptr_t size);
+
+int32_t ftruncate(int32_t fd, uint64_t size);
 
 int32_t sync(void);
 

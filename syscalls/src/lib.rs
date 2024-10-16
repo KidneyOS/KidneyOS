@@ -208,6 +208,20 @@ pub extern "C" fn getdents(fd: i32, output: *mut Dirent, size: usize) -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn ftruncate(fd: i32, size: u64) -> i32 {
+    let result;
+    #[allow(clippy::cast_possible_truncation)]
+    let size_lo = size as u32;
+    let size_hi = (size >> 32) as u32;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_FTRUNCATE, in("ebx") fd, in("ecx") size_lo, in("edx") size_hi, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn sync() -> i32 {
     let result;
     unsafe {

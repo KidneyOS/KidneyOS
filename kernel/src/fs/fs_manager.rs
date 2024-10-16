@@ -288,6 +288,7 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
         entries: *mut Dirent,
         size: usize,
     ) -> Result<usize>;
+    fn ftruncate(&mut self, file: ProcessFileDescriptor, size: u64) -> Result<()>;
 }
 
 /// get parent directory and name of absolute path
@@ -569,6 +570,10 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         let source_inode = self.lookup(source_parent, source_name)?;
         self.link(source_inode, dest_parent, dest_name)?;
         self.unlink(source_parent, source_name)
+    }
+    fn ftruncate(&mut self, fd: ProcessFileDescriptor, size: u64) -> Result<()> {
+        let handle = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        self.fs.truncate(handle, size)
     }
 }
 
@@ -1085,6 +1090,23 @@ impl RootFileSystem {
                 Ok(read_count)
             }
             _ => Err(Error::NotDirectory),
+        }
+    }
+
+    pub fn ftruncate(&mut self, fd: ProcessFileDescriptor, size: u64) -> Result<()> {
+        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        match file_info {
+            OpenFile::Regular { fs, offset, is_dir } => {
+                if *is_dir {
+                    return Err(Error::IsDirectory);
+                }
+                if *offset > size {
+                    *offset = size;
+                }
+                let fs = self.file_systems.get_mut(*fs);
+                fs.ftruncate(fd, size)
+            }
+            _ => Err(Error::IO("can't truncate special file".into())),
         }
     }
 

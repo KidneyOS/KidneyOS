@@ -334,4 +334,22 @@ pub unsafe fn rename(source: *const u8, dest: *const u8) -> isize {
     }
 }
 
-// TODO: mount, unmount, ftruncate
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when accessing running PCB is safe
+pub unsafe fn ftruncate(fd: usize, size_lo: usize, size_hi: usize) -> isize {
+    let Ok(fd) = FileDescriptor::try_from(fd) else {
+        return -EBADF;
+    };
+    let fd = ProcessFileDescriptor {
+        pid: running_process().pid,
+        fd,
+    };
+    let size = size_lo as u64 | (size_hi as u64) << 32;
+    match ROOT.lock().ftruncate(fd, size) {
+        Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
+
+// TODO: mount, unmount

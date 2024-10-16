@@ -63,6 +63,7 @@ pub const SYS_RENAME: usize = 0x26;
 pub const SYS_MKDIR: usize = 0x27;
 pub const SYS_RMDIR: usize = 0x28;
 pub const SYS_SYMLINK: usize = 0x53;
+pub const SYS_FTRUNCATE: usize = 0x5d;
 pub const SYS_FSTAT: usize = 0x6c;
 pub const SYS_LSEEK64: usize = 0x8c;
 pub const SYS_GETDENTS: usize = 0x8d;
