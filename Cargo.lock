@@ -107,6 +107,7 @@ dependencies = [
  "arbitrary-int",
  "bitbybit",
  "kidneyos-shared",
+ "kidneyos-syscalls",
  "lazy_static",
  "nom",
 ]
