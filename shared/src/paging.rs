@@ -47,14 +47,12 @@ impl DerefMut for PageDirectory {
 
 impl PageDirectory {
     fn page_table(
-        &mut self,
+        &self,
         page_directory_index: usize,
         phys_to_alloc_addr_offset: usize,
-    ) -> &mut PageTable {
+    ) -> *mut PageTable {
         let page_table_frame = self[page_directory_index].page_table_frame().value() as usize;
-        let page_table_addr = ((page_table_frame * size_of::<PageTable>())
-            + phys_to_alloc_addr_offset) as *mut PageTable;
-        unsafe { &mut *page_table_addr }
+        ((page_table_frame * size_of::<PageTable>()) + phys_to_alloc_addr_offset) as *mut PageTable
     }
 }
 
@@ -274,7 +272,7 @@ impl<A: Allocator> PageManager<A> {
                 page_directory[pdi] = page_directory[pdi].with_user_supervisor(true);
             }
 
-            page_directory.page_table(pdi, self.phys_to_alloc_addr_offset)
+            &mut *page_directory.page_table(pdi, self.phys_to_alloc_addr_offset)
         };
 
         assert!(
@@ -402,6 +400,70 @@ impl<A: Allocator> PageManager<A> {
         user: bool,
     ) {
         self.map_range(start, start, frames_len, write, user);
+    }
+
+    /// Returns whether `pointer` is valid for reads if `write = false`, and writes if `write = true`.
+    pub fn can_access(&self, pointer: usize, write: bool) -> bool {
+        let (pdi, pti) = virt_parts(pointer);
+
+        let page_directory = unsafe { self.root.as_ref() };
+
+        let entry = &page_directory.0[pdi];
+
+        // Entry is not present, don't bother looking any further.
+        if !entry.present() {
+            return false;
+        }
+
+        // Huge page, this point is mapped.
+        if entry.page_size() {
+            return !write || entry.read_write();
+        }
+
+        // A bit unsettling...
+        let page_table =
+            unsafe { &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset) };
+        let entry = &page_table.0[pti];
+        if !entry.present() {
+            return false;
+        }
+        !write || entry.read_write()
+    }
+
+    /// Returns whether `pointer..pointer+count` is valid for reads if `write = false`, and writes if `write = true`.
+    pub fn can_access_range(&self, pointer: usize, count: usize, write: bool) -> bool {
+        let Some(end) = pointer.checked_add(count) else {
+            return false;
+        };
+        // Align downwards.
+        let start = (pointer / PAGE_FRAME_SIZE) * PAGE_FRAME_SIZE;
+
+        // Check if each 4K page is mapped.
+        (start..end)
+            .step_by(PAGE_FRAME_SIZE)
+            .all(|ptr| self.can_access(ptr, write))
+    }
+
+    /// Returns true if this `pointer` is mapped in this PageManager.
+    ///
+    /// This doesn't return a &PageEntry because it would work strangely with huge pages.
+    pub fn is_mapped(&self, pointer: usize) -> bool {
+        self.can_access(pointer, false)
+    }
+
+    /// Returns true if `count` bytes after `pointer` are mapped in this PageManager.
+    pub fn is_range_mapped(&self, pointer: usize, count: usize) -> bool {
+        self.can_access_range(pointer, count, false)
+    }
+
+    /// Returns true if `pointer` is writeable in this PageManager.
+    pub fn is_writeable(&self, pointer: usize) -> bool {
+        self.can_access(pointer, true)
+    }
+
+    /// Returns true if `count` bytes after `pointer` are writeable in this PageManager.
+    pub fn is_range_writeable(&self, pointer: usize, count: usize) -> bool {
+        self.can_access_range(pointer, count, true)
     }
 }
 
