@@ -1170,17 +1170,20 @@ pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
 mod test {
     use super::*;
     use crate::vfs::tempfs::TempFS;
-    // fake PCB for testing
-    const PCB: ProcessControlBlock = ProcessControlBlock {
-        pid: 0,
-        child_tids: vec![],
-        wait_list: vec![],
-        exit_code: None,
-    };
-    // open file for fake PID of 1 for testing
+    fn test_pcb(root: &RootFileSystem) -> ProcessControlBlock {
+        ProcessControlBlock {
+            pid: 0,
+            child_tids: vec![],
+            wait_list: vec![],
+            exit_code: None,
+            cwd: root.get_root().unwrap(),
+            cwd_path: "/".into(),
+        }
+    }
+    // open file for fake PID of 0 with cwd / for testing
     fn open(root: &mut RootFileSystem, path: &Path, mode: Mode) -> Result<ProcessFileDescriptor> {
         let pid = 0;
-        let fd = root.open(&PCB, path, mode)?;
+        let fd = root.open(&test_pcb(root), path, mode)?;
         Ok(ProcessFileDescriptor { fd, pid })
     }
     #[test]
@@ -1202,17 +1205,18 @@ mod test {
         let mut root = RootFileSystem::new();
         let fs = TempFS::new();
         root.mount_root(fs).unwrap();
+        let pcb = test_pcb(&root);
         let fs2 = TempFS::new();
-        root.mkdir(&PCB, "/2").unwrap();
-        root.mount(&PCB, "/2", fs2).unwrap();
+        root.mkdir(&pcb, "/2").unwrap();
+        root.mount(&pcb, "/2", fs2).unwrap();
         let fs3 = TempFS::new();
-        root.mkdir(&PCB, "/2/3").unwrap();
-        root.mount(&PCB, "/2/3", fs3).unwrap();
+        root.mkdir(&pcb, "/2/3").unwrap();
+        root.mount(&pcb, "/2/3", fs3).unwrap();
         for path in ["/foo", "/2/foo", "/2/3/foo"] {
             let file = open(&mut root, path, Mode::CreateReadWrite).unwrap();
             // we shouldn't be allowed to unmount the FS file is contained in while it's open
             assert!(matches!(
-                root.unmount(&PCB, dirname_and_filename(path).0),
+                root.unmount(&pcb, dirname_and_filename(path).0),
                 Err(Error::FileSystemInUse)
             ));
             assert_eq!(root.write(file, b"test data").unwrap(), 9);
@@ -1224,10 +1228,10 @@ mod test {
             root.close(file).unwrap();
         }
         assert!(matches!(
-            root.unmount(&PCB, "/2"),
+            root.unmount(&pcb, "/2"),
             Err(Error::FileSystemInUse)
         ));
-        root.unmount(&PCB, "/2/3").unwrap();
-        root.unmount(&PCB, "/2").unwrap();
+        root.unmount(&pcb, "/2/3").unwrap();
+        root.unmount(&pcb, "/2").unwrap();
     }
 }
