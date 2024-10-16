@@ -8,13 +8,11 @@ use crate::block::block_core::{BlockSector, BlockType, BLOCK_MANAGER, BLOCK_SECT
 use crate::block::partitions::partition_core::partition_scan;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
-// use crate::interrupts::{intr_get_level, IntrLevel};
-use crate::sync::mutex::Mutex;
+use crate::interrupts::{intr_get_level, IntrLevel};
+use crate::sync::mutex::sleep::SleepMutex;
 use alloc::boxed::Box;
 use alloc::string::String;
-use alloc::vec::Vec;
 use kidneyos_shared::println;
-use lazy_static::lazy_static;
 
 // Commands ----------------------------------------------------------------------------------------
 // Reference: https://wiki.osdev.org/ATA_Command_Matrix
@@ -30,14 +28,10 @@ pub const ATA_IDENTIFY_DEVICE: u8 = 0xEC;
 
 /// Number of ATA channels
 const CHANNEL_CNT: usize = 2;
-lazy_static! {
-    /// A list of ATA channels
-    pub static ref CHANNELS: Vec<Mutex<AtaChannel>> = {
-        (0..CHANNEL_CNT)
-            .map(|i| Mutex::new(AtaChannel::new(i as u8)))
-            .collect()
-    };
-}
+pub static CHANNELS: [SleepMutex<AtaChannel>; CHANNEL_CNT] = [
+    SleepMutex::new(AtaChannel::new(0)),
+    SleepMutex::new(AtaChannel::new(1)),
+];
 
 // -------------------------------------------------------------------------------------------------
 
@@ -47,14 +41,13 @@ lazy_static! {
 ///
 /// This function must be called with interrupts enabled.
 pub fn ide_init() {
-    // TODO: Enabling interrupt will cause the mutex to never be unlocked. Figure out why.
-    // NOTE: For now, since everything is blocking, disabling interrupts won't harm
+    assert_eq!(
+        intr_get_level(),
+        IntrLevel::IntrOn,
+        "ide_init must be called with interrupts enabled"
+    );
 
-    // assert_eq!(
-    //     intr_get_level(),
-    //     IntrLevel::IntrOn,
-    //     "ide_init must be called with interrupts enabled"
-    // );
+    println!("Initializing IDE subsystem");
 
     let mut present: [[bool; 2]; 2] = [[false; 2]; 2];
 
@@ -83,6 +76,8 @@ pub fn ide_init() {
             }
         }
     }
+
+    println!("IDE subsystem initialized");
 }
 
 /// Sends an IDENTIFY DEVICE command to disk `dev_no` and reads the response. Registers the disk
@@ -91,35 +86,35 @@ pub fn ide_init() {
 /// # Safety
 ///
 /// This function must be called with interrupts enabled
-unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, block: bool) {
+unsafe fn identify_ata_device(c: &SleepMutex<AtaChannel>, dev_no: u8, block: bool) {
     let _index: usize;
-    let c: &mut AtaChannel = &mut channel.lock();
+    let channel: &mut AtaChannel = &mut c.lock();
     let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
 
     // Send the IDENTIFY DEVICE command, wait for an interrupt indicating the device's response
     // is ready, and read the data into our buffer.
-    c.select_device_wait(dev_no, block);
-    c.issue_pio_command(ATA_IDENTIFY_DEVICE);
-    c.sem_down();
+    channel.select_device_wait(dev_no, block);
+    channel.issue_pio_command(ATA_IDENTIFY_DEVICE);
+    channel.sem_down();
 
-    if !c.wait_while_busy(block) {
-        c.set_is_ata(dev_no, false);
+    if !channel.wait_while_busy(block) {
+        channel.set_is_ata(dev_no, false);
         // println!("channel {} device {} is not ata", c.channel_num, dev_no);
         return;
     }
-    c.read_sector(&mut id);
+    channel.read_sector(&mut id);
 
     // Calculate capacity.
     let capacity = usize::from_le_bytes(id[120..124].try_into().unwrap());
     let name = if dev_no == 0 {
-        c.get_d0_name()
+        channel.get_d0_name()
     } else {
-        c.get_d1_name()
+        channel.get_d1_name()
     };
     let name: String = name.iter().collect();
     println!(
         "channel: {} device: {} name: {} capacity: {}M",
-        c.get_channel_num(),
+        channel.get_channel_num(),
         dev_no,
         &name,
         capacity >> 11
@@ -132,6 +127,5 @@ unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, b
         Box::new(AtaDevice(dev_no)),
     );
 
-    channel.force_unlock();
     partition_scan(BLOCK_MANAGER.by_id(idx).unwrap());
 }

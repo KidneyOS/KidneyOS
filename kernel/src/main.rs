@@ -24,6 +24,10 @@ pub mod vfs;
 extern crate alloc;
 
 use crate::drivers::ata::ata_core::ide_init;
+use crate::threading::scheduling::SCHEDULER;
+use crate::threading::thread_control_block::ThreadControlBlock;
+use alloc::boxed::Box;
+use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
@@ -72,9 +76,13 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         thread_system_initialization();
         println!("Finished Thread System initialization. Ready to start threading.");
 
-        println!("Setting up IDE");
-        ide_init();
-        println!("IDE set up!");
+        let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0);
+
+        SCHEDULER
+            .as_mut()
+            .expect("No Scheduler set up!")
+            .push(Box::new(ide_tcb));
 
         thread_system_start(page_manager, INIT);
     }
