@@ -231,6 +231,28 @@ pub extern "C" fn sync() -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn unmount(path: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_UNMOUNT, in("ebx") path, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn mount(device: *const i8, target: *const i8, filesystem_type: *const i8) -> i32 {
+    let result;
+    unsafe {
+        asm!("
+            int 0x80
+        ", in("eax") SYS_MOUNT, in("ebx") device, in("ecx") target, in("edx") filesystem_type, lateout("eax") result);
+    }
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
     unsafe {
         asm!("

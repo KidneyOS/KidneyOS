@@ -32,6 +32,8 @@
 
 #define EXDEV 18
 
+#define ENODEV 19
+
 #define ENOTDIR 20
 
 #define EISDIR 21
@@ -77,6 +79,10 @@
 #define SYS_EXECVE 11
 
 #define SYS_CHDIR 12
+
+#define SYS_MOUNT 21
+
+#define SYS_UNMOUNT 22
 
 #define SYS_SYNC 36
 
@@ -175,6 +181,10 @@ int32_t getdents(int32_t fd, struct Dirent *output, uintptr_t size);
 int32_t ftruncate(int32_t fd, uint64_t size);
 
 int32_t sync(void);
+
+int32_t unmount(const int8_t *path);
+
+int32_t mount(const int8_t *device, const int8_t *target, const int8_t *filesystem_type);
 
 void waitpid(Pid pid, int32_t *stat, int32_t options);
 

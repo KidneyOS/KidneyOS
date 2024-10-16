@@ -1,33 +1,16 @@
 use crate::fs::{
     fs_manager::{Mode, SeekFrom, ROOT},
-    FileDescriptor, ProcessFileDescriptor,
+    running_process, running_process_mut, FileDescriptor, ProcessFileDescriptor,
 };
 use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_mut_slice_from_user_space,
     get_slice_from_user_space, CStrError,
 };
-use crate::threading::{
-    process_table::PROCESS_TABLE, thread_control_block::ProcessControlBlock, RUNNING_THREAD,
-};
 use crate::user_program::syscall::{
-    Dirent, Stat, EBADF, EFAULT, EINVAL, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END, SEEK_SET,
+    Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END,
+    SEEK_SET,
 };
-
-unsafe fn running_process() -> &'static ProcessControlBlock {
-    PROCESS_TABLE
-        .as_ref()
-        .unwrap()
-        .get(RUNNING_THREAD.as_ref().unwrap().as_ref().pid)
-        .unwrap()
-}
-
-unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
-    PROCESS_TABLE
-        .as_mut()
-        .unwrap()
-        .get_mut(RUNNING_THREAD.as_ref().unwrap().as_ref().pid)
-        .unwrap()
-}
+use crate::vfs::tempfs::TempFS;
 
 /// # Safety
 ///
@@ -352,4 +335,54 @@ pub unsafe fn ftruncate(fd: usize, size_lo: usize, size_hi: usize) -> isize {
     }
 }
 
-// TODO: mount, unmount
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn unmount(path: *const u8) -> isize {
+    let path = match get_cstr_from_user_space(path) {
+        Ok(path) => path,
+        Err(CStrError::BadUtf8) => return -ENOENT,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    match ROOT.lock().unmount(running_process(), path) {
+        Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
+
+/// # Safety
+///
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+pub unsafe fn mount(device: *const u8, target: *const u8, file_system_type: *const u8) -> isize {
+    let device = match get_cstr_from_user_space(device) {
+        Ok(d) => d,
+        Err(CStrError::BadUtf8) => return -ENOENT,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    let target = match get_cstr_from_user_space(target) {
+        Ok(d) => d,
+        Err(CStrError::BadUtf8) => return -EINVAL,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    let file_system_type = match get_cstr_from_user_space(file_system_type) {
+        Ok(d) => d,
+        Err(CStrError::BadUtf8) => return -ENODEV,
+        Err(CStrError::Fault) => return -EFAULT,
+    };
+    let mut root = ROOT.lock();
+    let process = running_process();
+    let result = match file_system_type {
+        "tmpfs" => {
+            if !device.is_empty() {
+                // should set device to empty string for tmpfs
+                return -EINVAL;
+            }
+            root.mount(process, target, TempFS::new())
+        }
+        _ => return -ENODEV,
+    };
+    match result {
+        Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
