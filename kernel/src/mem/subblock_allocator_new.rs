@@ -70,7 +70,32 @@ impl SubblockAllocator {
     }
 
     fn allocate(&mut self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-        todo!()
+        // TODO: Ignoring alignment for now
+        // TODO: Technically size may be 0, but we also ignore that for now
+        let subblock_size_index = get_best_subblock_size_idx(layout.size());
+        if subblock_size_index == SUBBLOCK_TYPE_COUNT {
+            // Requested size larger than largest subblock size, fall back to frame allocator
+            let frames_to_allocate = layout.size().div_ceil(PAGE_FRAME_SIZE);
+            let region = self.frame_allocator.alloc(frames_to_allocate)?;
+            let start_addr = region.as_ptr() as *mut u8;
+            let slice_ptr = NonNull::slice_from_raw_parts(
+                NonNull::new(start_addr).expect("start_addr shouldn't be null"),
+                layout.size(),
+            );
+            return Ok(slice_ptr);
+        }
+        // TODO: If there is space, allocate from the list
+
+        // No free space in existing frames, need a new frame
+        let new_frame = self.frame_allocator.alloc(1)?;
+        // TODO: Since we need to traverse the whole list anyway, we will be able
+        // to save a reference to the last node without additional overhead.
+        // For now we just take head as last_node.
+        let last_node = &mut self.lists[subblock_size_index].head;
+        last_node.frame_number = Some(
+            new_frame.as_ptr() as *const u8 as usize
+                - self.mem_start.as_ptr() as usize / PAGE_FRAME_SIZE,
+        );
     }
 
     unsafe fn deallocate(&mut self, ptr: NonNull<u8>, layout: Layout) {
