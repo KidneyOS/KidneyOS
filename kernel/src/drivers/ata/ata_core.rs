@@ -9,7 +9,7 @@ use crate::block::partitions::partition_core::partition_scan;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
 use crate::interrupts::{intr_get_level, IntrLevel};
-use crate::sync::mutex::Mutex;
+use crate::sync::mutex::sleep::SleepMutex;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -30,14 +30,10 @@ pub const ATA_IDENTIFY_DEVICE: u8 = 0xEC;
 
 /// Number of ATA channels
 const CHANNEL_CNT: usize = 2;
-lazy_static! {
-    /// A list of ATA channels
-    pub static ref CHANNELS: Vec<Mutex<AtaChannel>> = {
-        (0..CHANNEL_CNT)
-            .map(|i| Mutex::new(AtaChannel::new(i as u8)))
-            .collect()
-    };
-}
+pub static CHANNELS: [SleepMutex<AtaChannel>; CHANNEL_CNT] = [
+    SleepMutex::new(AtaChannel::new(0)),
+    SleepMutex::new(AtaChannel::new(1))
+];
 
 // -------------------------------------------------------------------------------------------------
 
@@ -92,7 +88,8 @@ pub fn ide_init() {
 /// # Safety
 ///
 /// This function must be called with interrupts enabled
-unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, block: bool) {
+// unsafe fn identify_ata_device(channel: &mut SleepMutex<AtaChannel>, dev_no: u8, block: bool) {
+unsafe fn identify_ata_device(channel: &SleepMutex<AtaChannel>, dev_no: u8, block: bool) {
     let _index: usize;
     let c: &mut AtaChannel = &mut channel.lock();
     let mut id: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
@@ -133,6 +130,6 @@ unsafe fn identify_ata_device(channel: &'static Mutex<AtaChannel>, dev_no: u8, b
         Box::new(AtaDevice(dev_no)),
     );
 
-    channel.force_unlock();
+    channel.unlock();
     partition_scan(BLOCK_MANAGER.by_id(idx).unwrap());
 }
