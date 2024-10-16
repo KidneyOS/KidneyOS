@@ -7,54 +7,43 @@ static void print(const char *s) {
     write(1, s, len);
 }
 
+int check(int status) {
+    if (status < 0) exit(status);
+    return status;
+}
+
 void _start() {
     const char *test_data = "test data";
     char buf[10] = {0};
     int status;
-    int fd = open("/foo", O_CREATE);
-    if (fd < 0) exit(fd);
-    status = write(fd, test_data, 9);
-    if (status < 0) exit(status);
-    status = close(fd);
-    if (status < 0) exit(status);
-    fd = open("/foo", 0);
-    status = lseek64(fd, 1, SEEK_SET);
-    if (status != 1) exit(status);
-    status = read(fd, buf, 10);
-    if (status != 8) exit(-1);
+    int fd = check(open("/foo", O_CREATE));
+    check(write(fd, test_data, 9));
+    check(close(fd));
+    fd = check(open("/foo", 0));
+    if (check(lseek64(fd, 1, SEEK_SET)) != 1) exit (-1);
+    if (check(read(fd, buf, 10)) != 8) exit(-1);
     for (int i = 0; i < 8; i++) {
         if (buf[i] != test_data[i + 1])
             exit(~(i << 8 | (uint8_t)buf[i]));
     }
-    if (fd < 0) exit(fd);
-    status = close(fd);
-    if (status < 0) exit(status);
-    status = mkdir("/d");
-    if (status < 0) exit(status);
-    status = chdir("/d");
-    if (status < 0) exit(status);
-    status = getcwd(buf, 3);
+    check(close(fd));
+    check(mkdir("/d"));
+    check(chdir("/d"));
+    check(getcwd(buf, 3));
     if (buf[0] != '/' || buf[1] != 'd' || buf[2] != 0) exit(-1);
-    if (status < 0) exit(status);
-    fd = open("file", O_CREATE);
-    if (fd < 0) exit(fd);
-    struct Stat statbuf;
-    status = fstat(fd, &statbuf);
-    status = close(fd);
-    if (status < 0) exit(status);
-    if (status < 0) exit(status);
-    if (statbuf.size != 0) exit(0xf0);
-    if (statbuf.type != S_REGULAR_FILE) exit(0xf1);
-    status = unlink("file");
-    if (status < 0) exit(status);
-    status = open("file", 0);
-    if (status != -ENOENT) exit(status == 0 ? -1 : status);
-    status = rmdir("/d");
-    if (status < 0) exit(status);
-    status = open("/d/new", O_CREATE);
-    if (status != -ENOENT) exit(status == 0 ? -1 : status);
-    status = sync();
-    if (status < 0) exit(status);
+    fd = check(open("file", O_CREATE));
+    struct Stat file_info = {0};
+    check(fstat(fd, &file_info));
+    check(close(fd));
+    if (file_info.size != 0) exit(0xf0);
+    if (file_info.type != S_REGULAR_FILE) exit(0xf1);
+    
+    check(unlink("/d/file"));
+    if (open("file", 0) != -ENOENT) exit(0xf2);
+    check(mkdir("/e"));
+    check(rmdir("/e"));
+    if (open("/e/new", O_CREATE) != -ENOENT) exit(0xf3);
+    check(sync());
     print("success!\n");
     exit(0);
 }
