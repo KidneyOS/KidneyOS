@@ -19,6 +19,7 @@ mod sync;
 mod threading;
 mod user_program;
 pub mod vfs;
+pub mod fs;
 
 extern crate alloc;
 
