@@ -12,6 +12,7 @@ use crate::interrupts::{intr_get_level, IntrLevel};
 use crate::sync::mutex::sleep::SleepMutex;
 use alloc::boxed::Box;
 use alloc::string::String;
+use lazy_static::lazy_static;
 use kidneyos_shared::println;
 
 // Commands ----------------------------------------------------------------------------------------
@@ -28,10 +29,13 @@ pub const ATA_IDENTIFY_DEVICE: u8 = 0xEC;
 
 /// Number of ATA channels
 const CHANNEL_CNT: usize = 2;
-pub static CHANNELS: [SleepMutex<AtaChannel>; CHANNEL_CNT] = [
-    SleepMutex::new(AtaChannel::new(0)),
-    SleepMutex::new(AtaChannel::new(1)),
-];
+
+lazy_static! {
+    pub static ref CHANNELS: [SleepMutex<AtaChannel>; CHANNEL_CNT] = [
+        SleepMutex::new(AtaChannel::new(0)),
+        SleepMutex::new(AtaChannel::new(1)),
+    ];
+}
 
 // -------------------------------------------------------------------------------------------------
 
