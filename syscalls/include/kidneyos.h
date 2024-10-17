@@ -18,16 +18,16 @@ typedef struct Timespec {
 
 void exit(uintptr_t code);
 
-void fork(void);
+Pid fork(void);
 
-void read(uint32_t fd, uint8_t *buffer, uintptr_t count);
+uintptr_t read(uint32_t fd, uint8_t *buffer, uintptr_t count);
 
-void waitpid(Pid pid, int32_t *stat, int32_t options);
+Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
-void execve(const int8_t *filename, const int8_t *const *argv, const int8_t *const *envp);
+int32_t execve(const int8_t *filename, const int8_t *const *argv, const int8_t *const *envp);
 
-void nanosleep(const struct Timespec *duration, struct Timespec *remainder);
+int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 
-void scheduler_yield(void);
+int32_t scheduler_yield(void);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */
