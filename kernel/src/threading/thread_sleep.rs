@@ -1,9 +1,6 @@
+use super::{scheduling::scheduler_yield_and_block, thread_control_block::ThreadStatus};
 use crate::system::SYSTEM;
 use crate::threading::process::Tid;
-use super::{
-    scheduling::scheduler_yield_and_block,
-    thread_control_block::ThreadStatus,
-};
 
 pub fn thread_sleep() {
     scheduler_yield_and_block();

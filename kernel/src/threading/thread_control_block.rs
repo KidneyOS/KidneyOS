@@ -1,4 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
@@ -12,7 +13,6 @@ use core::{
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-use crate::threading::process::{Pid, ProcessState, Tid};
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -53,7 +53,7 @@ impl ProcessControlBlock {
             wait_list: Vec::new(),
             exit_code: None,
         };
-        
+
         state.table.add(Box::new(pcb));
 
         pid
@@ -168,7 +168,7 @@ impl ThreadControlBlock {
         entry_instruction: NonNull<u8>,
         pid: Pid,
         page_manager: PageManager,
-        state: &mut ProcessState
+        state: &mut ProcessState,
     ) -> Self {
         let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
 
@@ -221,7 +221,12 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    pub fn new(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager, state: &mut ProcessState) -> Self {
+    pub fn new(
+        entry_instruction: NonNull<u8>,
+        pid: Pid,
+        mut page_manager: PageManager,
+        state: &mut ProcessState,
+    ) -> Self {
         let tid: Tid = state.allocate_tid();
 
         let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);

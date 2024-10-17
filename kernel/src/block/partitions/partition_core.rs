@@ -1,12 +1,10 @@
-use crate::block::block_core::{
-    Block, BlockOp, BlockSector, BlockType, BLOCK_SECTOR_SIZE,
-};
+use crate::block::block_core::{Block, BlockOp, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::system::unwrap_system_mut;
 use alloc::boxed::Box;
 use alloc::format;
 use kidneyos_shared::{eprintln, println};
-use crate::system::unwrap_system_mut;
 
 /// A partition table entry in the MBR.
 ///
@@ -386,9 +384,12 @@ fn found_partition(
             start,
         };
         unsafe {
-            unwrap_system_mut()
-                .block_manager
-                .register_block(b_type, name.as_ref(), size, Box::new(p));
+            unwrap_system_mut().block_manager.register_block(
+                b_type,
+                name.as_ref(),
+                size,
+                Box::new(p),
+            );
         }
     }
 }

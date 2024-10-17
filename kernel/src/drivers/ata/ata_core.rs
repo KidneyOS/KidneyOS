@@ -10,10 +10,10 @@ use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_device::AtaDevice;
 use crate::interrupts::{intr_get_level, IntrLevel};
 use crate::sync::mutex::sleep::SleepMutex;
+use crate::system::unwrap_system_mut;
 use alloc::boxed::Box;
 use alloc::string::String;
 use kidneyos_shared::println;
-use crate::system::unwrap_system_mut;
 // Commands ----------------------------------------------------------------------------------------
 // Reference: https://wiki.osdev.org/ATA_Command_Matrix
 
@@ -119,16 +119,15 @@ unsafe fn identify_ata_device(c: &SleepMutex<AtaChannel>, dev_no: u8, block: boo
         &name,
         capacity >> 11
     );
-    
+
     let block_manager = &mut unwrap_system_mut().block_manager;
 
-    let idx = block_manager
-        .register_block(
-            BlockType::Raw,
-            &name,
-            capacity as BlockSector,
-            Box::new(AtaDevice(dev_no)),
-        );
+    let idx = block_manager.register_block(
+        BlockType::Raw,
+        &name,
+        capacity as BlockSector,
+        Box::new(AtaDevice(dev_no)),
+    );
 
     partition_scan(block_manager.by_id(idx).unwrap());
 }

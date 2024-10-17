@@ -1,6 +1,7 @@
-use crate::{
-    threading::thread_sleep::{thread_sleep, thread_wakeup},
-};
+use crate::interrupts::mutex_irq::MutexIrq;
+use crate::system::{unwrap_system_mut, SYSTEM};
+use crate::threading::process::{AtomicTid, Tid};
+use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
 use core::sync::atomic::Ordering::{AcqRel, Acquire, Release};
 use core::{
@@ -8,9 +9,6 @@ use core::{
     fmt,
     ops::{Deref, DerefMut},
 };
-use crate::interrupts::mutex_irq::MutexIrq;
-use crate::system::{unwrap_system_mut, SYSTEM};
-use crate::threading::process::{AtomicTid, Tid};
 
 pub struct SleepMutex<T: ?Sized> {
     holding_thread: AtomicTid,

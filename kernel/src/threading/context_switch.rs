@@ -1,11 +1,9 @@
 use crate::interrupts::{intr_get_level, IntrLevel};
 use core::mem::offset_of;
 
-use alloc::boxed::Box;
+use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use crate::system::unwrap_system_mut;
-use super::{
-    thread_control_block::{ThreadControlBlock, ThreadStatus},
-};
+use alloc::boxed::Box;
 
 /// Public facing method to perform a context switch between two threads.
 /// # Safety
@@ -16,10 +14,15 @@ pub unsafe fn switch_threads(
     switch_to: Box<ThreadControlBlock>,
 ) {
     let threads = &mut unwrap_system_mut().threads;
-    
+
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
-    let switch_from = Box::into_raw(threads.running_thread.take().expect("Why is nothing running!?"));
+    let switch_from = Box::into_raw(
+        threads
+            .running_thread
+            .take()
+            .expect("Why is nothing running!?"),
+    );
     let switch_to = Box::into_raw(switch_to);
 
     // Ensure we are switching to a valid thread.

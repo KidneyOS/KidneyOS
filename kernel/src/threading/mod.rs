@@ -5,6 +5,8 @@ pub mod thread_control_block;
 pub mod thread_functions;
 pub mod thread_sleep;
 
+use crate::system::unwrap_system_mut;
+use crate::threading::scheduling::Scheduler;
 use crate::user_program::elf::Elf;
 use crate::{
     interrupts::{intr_enable, intr_get_level, IntrLevel},
@@ -13,8 +15,6 @@ use crate::{
 };
 use alloc::boxed::Box;
 use thread_control_block::ThreadControlBlock;
-use crate::system::unwrap_system_mut;
-use crate::threading::scheduling::Scheduler;
 
 pub struct ThreadState {
     pub running_thread: Option<Box<ThreadControlBlock>>,
@@ -38,7 +38,7 @@ pub fn create_thread_state() -> ThreadState {
 /// Thread system must have been previously enabled.
 pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) -> ! {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
-    
+
     unsafe {
         // Acquiring mutable reference to system here...
         // ... so we can discard it before we enable interrupts.
@@ -50,7 +50,8 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         // This thread also does not need to enter the `run_thread` function.
         // SAFETY: The kernel thread's stack will be set up by the context switch following.
         // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
-        let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager, &mut system.process);
+        let kernel_tcb =
+            ThreadControlBlock::new_kernel_thread(kernel_page_manager, &mut system.process);
 
         let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
 

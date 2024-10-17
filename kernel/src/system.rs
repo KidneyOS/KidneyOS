@@ -6,7 +6,7 @@ use crate::threading::ThreadState;
 pub struct SystemState {
     pub threads: ThreadState,
     pub process: ProcessState,
-    
+
     pub block_manager: BlockManager,
 }
 

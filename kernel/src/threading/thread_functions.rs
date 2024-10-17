@@ -1,4 +1,5 @@
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
+use crate::system::{unwrap_system_mut, SYSTEM};
 use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
@@ -9,7 +10,6 @@ use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
 };
-use crate::system::{unwrap_system_mut, SYSTEM};
 
 /// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 /// No arguments allowed for now.
@@ -29,7 +29,10 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // SAFETY: Interrupts must be off.
     unsafe {
         let threads = &mut SYSTEM.as_mut().expect("System not initialized.").threads;
-        let mut current_thread = threads.running_thread.take().expect("Why is nothing running!?");
+        let mut current_thread = threads
+            .running_thread
+            .take()
+            .expect("Why is nothing running!?");
         current_thread.set_exit_code(exit_code);
 
         // Replace and yield.
