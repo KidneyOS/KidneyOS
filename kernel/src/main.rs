@@ -24,14 +24,12 @@ pub mod vfs;
 extern crate alloc;
 
 use crate::drivers::ata::ata_core::ide_init;
-use crate::sync::semaphore::Semaphore;
-use crate::threading::scheduling::{scheduler_yield_and_continue, SCHEDULER};
+use crate::threading::scheduling::{SCHEDULER};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
-use lazy_static::lazy_static;
 use mem::KernelAllocator;
 use threading::{thread_system_initialization, thread_system_start};
 
