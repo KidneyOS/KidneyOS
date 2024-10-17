@@ -1,5 +1,15 @@
 PROGRAMS := exit example_c example_rust
 
+programs/syscall/syscall: programs/syscall/syscall.o
+	$(LD) -o $@ $^
+
+programs/syscall/syscall.o: programs/syscall/syscall.S
+	$(AS) -o $@ $<
+
+.PHONY: clean
+clean::
+	rm -f programs/syscall/syscall programs/syscall/syscall.o
+
 .PHONY: programs
 programs: $(PROGRAMS)
 

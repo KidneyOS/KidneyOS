@@ -1,16 +1,8 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::threading::scheduling::scheduler_yield_and_continue;
-use crate::threading::thread_functions;
+use crate::threading::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
+use crate::threading::{thread_functions, RUNNING_THREAD};
 use kidneyos_shared::println;
-
-pub const SYS_EXIT: usize = 0x1;
-pub const SYS_FORK: usize = 0x2;
-pub const SYS_READ: usize = 0x3;
-pub const SYS_WAITPID: usize = 0x7;
-pub const SYS_EXECVE: usize = 0x0b;
-pub const SYS_NANOSLEEP: usize = 0xa2;
-pub const SYS_SCHED_YIELD: usize = 0x9e;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -26,24 +18,65 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             thread_functions::exit_thread(arg0 as i32);
         }
         SYS_FORK => {
-            todo!("fork syscall")
+            todo!("fork not implemented");
+            // // TODO: fix the virtual address already allocated error
+            // let running_tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing Running!?") };
+            // let parent_tid = running_tcb.tid;
+            //
+            // // TODO: fix cloning of TCB
+            // let child_tcb = (**running_tcb).clone();
+            // let child_tid = child_tcb.tid as usize;
+            //
+            // if parent_tid == running_tcb.tid {
+            //     child_tid
+            // } else {
+            //     // Still gettng an error that the page table is being dropped while loaded here
+            //     println!("{}", child_tcb.page_manager.is_loaded());
+            //     intr_disable();
+            //     unsafe {
+            //         SCHEDULER
+            //             .as_mut()
+            //             .expect("Scheduler not set up!").push(Box::new(child_tcb))
+            //     };
+            //     intr_enable();
+            //     0
+            // }
         }
         SYS_READ => {
-            todo!("read syscall")
+            println!("(syscall) starting read");
+
+            scheduler_yield_and_block();
+
+            // Should only reach here if read is completed
+            println!("(syscall) completed read");
+            2048
         }
         SYS_WAITPID => {
-            todo!("waitpid syscall")
+            todo!("waitpid syscall");
         }
         SYS_EXECVE => {
-            todo!("execv syscall")
+            todo!("execv syscall");
         }
         SYS_NANOSLEEP => {
-            todo!("nanosleep syscall")
+            todo!("nanosleep syscall");
         }
         SYS_SCHED_YIELD => {
             scheduler_yield_and_continue();
             0
         }
+        SYS_GETPID => {
+            let tcb = unsafe { RUNNING_THREAD.as_mut().expect("Why is nothing running?") };
+            tcb.pid as usize
+        }
         _ => 1,
     }
 }
+
+pub const SYS_EXIT: usize = 0x1;
+pub const SYS_FORK: usize = 0x2;
+pub const SYS_READ: usize = 0x3;
+pub const SYS_WAITPID: usize = 0x7;
+pub const SYS_EXECVE: usize = 0xb;
+pub const SYS_NANOSLEEP: usize = 0xa2;
+pub const SYS_SCHED_YIELD: usize = 0x9e;
+pub const SYS_GETPID: usize = 0x14;
