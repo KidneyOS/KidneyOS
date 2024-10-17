@@ -24,7 +24,7 @@ pub mod vfs;
 extern crate alloc;
 
 use crate::drivers::ata::ata_core::ide_init;
-use crate::threading::scheduling::{SCHEDULER};
+use crate::threading::scheduling::SCHEDULER;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
