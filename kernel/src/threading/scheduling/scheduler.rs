@@ -1,5 +1,6 @@
 use super::super::ThreadControlBlock;
-use crate::{alloc::boxed::Box, threading::thread_control_block::Tid};
+use alloc::boxed::Box;
+use crate::threading::process::Tid;
 
 pub trait Scheduler {
     fn new() -> Self

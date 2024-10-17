@@ -1,7 +1,7 @@
 use super::super::ThreadControlBlock;
 use super::scheduler::Scheduler;
-use crate::threading::thread_control_block::Tid;
 use alloc::{boxed::Box, collections::VecDeque};
+use crate::threading::process::Tid;
 
 pub struct FIFOScheduler {
     ready_queue: VecDeque<Box<ThreadControlBlock>>,

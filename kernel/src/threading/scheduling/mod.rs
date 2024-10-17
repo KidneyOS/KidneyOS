@@ -7,18 +7,14 @@ pub use scheduler::Scheduler;
 use alloc::boxed::Box;
 
 use crate::interrupts::{intr_get_level, mutex_irq::hold_interrupts, IntrLevel};
-
+use crate::system::unwrap_system_mut;
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 
-pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
-
-pub fn initialize_scheduler() {
+pub fn create_scheduler() -> Box<dyn Scheduler> {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // SAFETY: Interrupts should be off.
-    unsafe {
-        SCHEDULER = Some(Box::new(FIFOScheduler::new()));
-    }
+    Box::new(FIFOScheduler::new())
 }
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
@@ -28,7 +24,7 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
     // SAFETY: Threads and Scheduler must be initialized and active.
     // Interrupts must be disabled.
     unsafe {
-        let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
+        let scheduler = unwrap_system_mut().threads.scheduler.as_mut();
 
         while let Some(switch_to) = scheduler.pop() {
             // Check if the thread is not blocked.
