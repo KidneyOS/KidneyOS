@@ -28,7 +28,7 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // Get the current thread.
     // SAFETY: Interrupts must be off.
     unsafe {
-        let threads = &mut SYSTEM.as_mut().expect("System not initialized.").threads;
+        let threads = &mut unwrap_system_mut().threads;
         let mut current_thread = threads
             .running_thread
             .take()
