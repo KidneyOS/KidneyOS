@@ -6,6 +6,7 @@ use core::{
 };
 
 use alloc::boxed::Box;
+use bitvec::slice::BitSlice;
 
 use crate::mem::frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
 use crate::mem::FrameAllocator;
@@ -73,6 +74,7 @@ impl SubblockAllocator {
         // TODO: Ignoring alignment for now
         // TODO: Technically size may be 0, but we also ignore that for now
         let subblock_size_index = get_best_subblock_size_idx(layout.size());
+        let subblock_size = SUBBLOCK_SIZES[subblock_size_index];
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
             // Requested size larger than largest subblock size, fall back to frame allocator
             let frames_to_allocate = layout.size().div_ceil(PAGE_FRAME_SIZE);
@@ -84,6 +86,8 @@ impl SubblockAllocator {
             );
             return Ok(slice_ptr);
         }
+
+        // Requested size can fit in a subblock
         // TODO: If there is space, allocate from the list
 
         // No free space in existing frames, need a new frame
@@ -96,6 +100,40 @@ impl SubblockAllocator {
             new_frame.as_ptr() as *const u8 as usize
                 - self.mem_start.as_ptr() as usize / PAGE_FRAME_SIZE,
         );
+
+        // number of bytes the bitmap will take up, rounded up to the nearest byte
+        let bitmap_size = (PAGE_FRAME_SIZE / subblock_size).div_ceil(8);
+        if get_best_subblock_size_idx(bitmap_size) == subblock_size_index {
+            // The best subblock size for the bitmap is the same as that for the
+            // requested memory, so we can use the same frame.
+            let bitmap;
+            unsafe {
+                bitmap = BitSlice::<_, _>::from_slice_mut(slice::from_raw_parts_mut(
+                    new_frame.as_ptr() as *mut u8,
+                    bitmap_size,
+                ));
+            }
+            bitmap.fill(false);
+            // First subblock is used for the bitmap
+            bitmap.set(0, true);
+            // Second subblock is the requested memory
+            bitmap.set(1, true);
+
+            let next_subblock_ptr;
+            unsafe {
+                next_subblock_ptr = (new_frame.as_ptr() as *mut u8).add(subblock_size);
+                return Ok(NonNull::slice_from_raw_parts(
+                    NonNull::new_unchecked(next_subblock_ptr),
+                    layout.size(),
+                ));
+            }
+        } else {
+            // The best subblock size for the bitmap is NOT the same as that for the
+            // requested memory. We need to recursively call `allocate`.
+            // TODO: Since our smallest subblock size is already word-aligned, we
+            // shouldn't need to worry about alignment of the bitmap here.
+            let bitmap_ptr = self.allocate(Layout::from_size_align(bitmap_size, 1).unwrap())?;
+        }
     }
 
     unsafe fn deallocate(&mut self, ptr: NonNull<u8>, layout: Layout) {
