@@ -1,5 +1,5 @@
 use crate::interrupts::mutex_irq::MutexIrq;
-use crate::system::{unwrap_system, unwrap_system_mut, SYSTEM};
+use crate::system::{unwrap_system, unwrap_system_mut};
 use crate::threading::process::{AtomicTid, Tid};
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
