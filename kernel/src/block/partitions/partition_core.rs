@@ -1,8 +1,7 @@
-use crate::block::block_core::{
-    Block, BlockOp, BlockSector, BlockType, BLOCK_MANAGER, BLOCK_SECTOR_SIZE,
-};
+use crate::block::block_core::{Block, BlockOp, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::system::unwrap_system_mut;
 use alloc::boxed::Box;
 use alloc::format;
 use kidneyos_shared::{eprintln, println};
@@ -122,14 +121,16 @@ struct Partition {
 
 impl BlockOp for Partition {
     unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
-        BLOCK_MANAGER
+        unwrap_system_mut()
+            .block_manager
             .by_id(self.block_idx)
             .unwrap()
             .read(sector + self.start, buf)
     }
 
     unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
-        BLOCK_MANAGER
+        unwrap_system_mut()
+            .block_manager
             .by_id(self.block_idx)
             .unwrap()
             .write(sector + self.start, buf)
@@ -383,7 +384,12 @@ fn found_partition(
             start,
         };
         unsafe {
-            BLOCK_MANAGER.register_block(b_type, name.as_ref(), size, Box::new(p));
+            unwrap_system_mut().block_manager.register_block(
+                b_type,
+                name.as_ref(),
+                size,
+                Box::new(p),
+            );
         }
     }
 }
