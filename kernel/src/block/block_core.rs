@@ -135,7 +135,7 @@ impl Block {
 
         let mut r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioRead, 0, 0, None);
         self.scheduler.enqueue(&mut r);
-        self.scheduler.wait()
+        unsafe { self.scheduler.wait() }
     }
 
     /// Reads sector `sector` from the block device into `buf`, which must have room for
@@ -183,7 +183,7 @@ impl Block {
 
         let mut r = BioReq::new(sector, buf.as_ptr() as *mut u8, BioOp::BioWrite, 0, 0, None);
         self.scheduler.enqueue(&mut r);
-        self.scheduler.wait()
+        unsafe { self.scheduler.wait() }
     }
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns

@@ -24,10 +24,10 @@ impl BioScheduler for NoopScheduler {
         self.queue.push(r.clone());
     }
 
-    fn wait(&mut self) -> Result<(), BlockError> {
+    unsafe fn wait(&mut self) -> Result<(), BlockError> {
         let r = self.queue.pop().unwrap();
 
-        let block = unsafe { BLOCK_MANAGER.by_id(self.block) }.unwrap();
+        let block = BLOCK_MANAGER.by_id(self.block).unwrap();
 
         // Perform the operation
         if r.op == BioOp::BioRead {
