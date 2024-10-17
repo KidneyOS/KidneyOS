@@ -14,9 +14,8 @@ $(DEBUG_OUTPUT): src
 	cargo build
 
 $(RELEASE_OUTPUT): src
-	cargo build
+	cargo build --release
 
 .PHONY: clean
 clean:
 	cargo clean
-
