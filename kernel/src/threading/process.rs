@@ -22,8 +22,8 @@ pub struct ProcessState {
 pub fn create_process_state() -> ProcessState {
     ProcessState {
         table: Default::default(),
-        next_tid: AtomicU16::default(),
-        next_pid: AtomicU16::default(),
+        next_tid: AtomicU16::new(1),
+        next_pid: AtomicU16::new(1),
     }
 }
 
