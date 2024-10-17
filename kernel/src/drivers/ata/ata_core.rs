@@ -12,8 +12,8 @@ use crate::interrupts::{intr_get_level, IntrLevel};
 use crate::sync::mutex::sleep::SleepMutex;
 use alloc::boxed::Box;
 use alloc::string::String;
-use lazy_static::lazy_static;
 use kidneyos_shared::println;
+use lazy_static::lazy_static;
 
 // Commands ----------------------------------------------------------------------------------------
 // Reference: https://wiki.osdev.org/ATA_Command_Matrix

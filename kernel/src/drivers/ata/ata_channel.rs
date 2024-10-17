@@ -581,6 +581,9 @@ impl AtaChannel {
     }
 
     pub fn sem_try_down(&self) -> bool {
-        self.completion_wait.try_acquire().map(|x| x.forget()).is_some()
+        self.completion_wait
+            .try_acquire()
+            .map(|x| x.forget())
+            .is_some()
     }
 }

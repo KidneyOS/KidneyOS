@@ -1,37 +1,37 @@
 #![allow(unused)]
 
 use crate::sync::mutex::TicketMutex;
-use alloc::collections::VecDeque;
-use alloc::sync::Arc;
-use arbitrary_int::Number;
-use crate::threading::RUNNING_THREAD;
 use crate::threading::scheduling::SCHEDULER;
 use crate::threading::thread_control_block::{ThreadStatus, Tid};
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
+use crate::threading::RUNNING_THREAD;
+use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+use arbitrary_int::Number;
 
 pub struct SemaphorePermit {
     forgotten: bool,
-    inner: Arc<TicketMutex<SemaphoreInner>>
+    inner: Arc<TicketMutex<SemaphoreInner>>,
 }
 
 struct SemaphoreInner {
     value: i32,
-    queue: VecDeque<Tid>
+    queue: VecDeque<Tid>,
 }
 
 // Sleep Semaphore
 pub struct Semaphore {
-    inner: Arc<TicketMutex<SemaphoreInner>>
+    inner: Arc<TicketMutex<SemaphoreInner>>,
 }
 
 impl SemaphorePermit {
     fn new(inner: Arc<TicketMutex<SemaphoreInner>>) -> Self {
         Self {
             forgotten: false,
-            inner
+            inner,
         }
     }
-    
+
     pub fn forget(mut self) {
         self.forgotten = true;
 
@@ -42,7 +42,7 @@ impl SemaphorePermit {
 impl SemaphoreInner {
     fn post(&mut self) {
         self.value += 1;
-        
+
         // Wake one thread.
         if let Some(tid) = self.queue.pop_front() {
             thread_wakeup(tid)
@@ -56,14 +56,14 @@ impl Semaphore {
             inner: Arc::new(TicketMutex::new(SemaphoreInner {
                 value,
                 queue: VecDeque::new(),
-            }))
+            })),
         }
     }
-    
+
     pub fn post(&self) {
         self.inner.lock().post()
     }
-    
+
     #[must_use]
     pub fn acquire(&self) -> SemaphorePermit {
         loop {
@@ -74,7 +74,7 @@ impl Semaphore {
                 if inner.value > 0 {
                     inner.value -= 1;
 
-                    return SemaphorePermit::new(self.inner.clone())
+                    return SemaphorePermit::new(self.inner.clone());
                 }
 
                 let running_tid = unsafe {
@@ -89,7 +89,7 @@ impl Semaphore {
                     inner.queue.push_back(running_tid);
                 }
             }
-            
+
             thread_sleep();
         }
     }
@@ -97,10 +97,10 @@ impl Semaphore {
     #[must_use]
     pub fn try_acquire(&self) -> Option<SemaphorePermit> {
         let mut inner = self.inner.lock();
-        
+
         if inner.value > 0 {
             inner.value -= 1;
-            
+
             Some(SemaphorePermit::new(self.inner.clone()))
         } else {
             None
