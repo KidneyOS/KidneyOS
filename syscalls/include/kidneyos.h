@@ -13,7 +13,8 @@
 typedef uint16_t Pid;
 
 typedef struct Timespec {
-
+  int64_t tv_sec;
+  int64_t tv_nsec;
 } Timespec;
 
 void exit(uintptr_t code);
@@ -29,5 +30,7 @@ void execve(const int8_t *filename, const int8_t *const *argv, const int8_t *con
 void nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 
 void scheduler_yield(void);
+
+void clock_gettime(int32_t clk_id, struct Timespec *tp);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

@@ -6,8 +6,8 @@ type Pid = u16;
 
 #[repr(C)]
 pub struct Timespec {
-    // ... unsized ...
-    // TODO: Fill for nanosleep.
+    pub tv_sec: i64,
+    pub tv_nsec: i64,
 }
 
 #[no_mangle]
@@ -85,3 +85,15 @@ pub extern "C" fn scheduler_yield() {
         );
     }
 }
+
+#[no_mangle]
+pub extern "C" fn clock_gettime(clk_id: i32, tp: *mut Timespec) {
+    unsafe {
+        asm!(
+            "
+            mov eax, 0x109
+            int 0x80
+        ", in("ebx") clk_id, in("ecx") tp);
+    }
+}
+
