@@ -50,10 +50,25 @@ pub const MAX_MOUNT_POINTS: u16 = 256;
 pub const MAX_LEVEL_OF_LINKS: usize = 32;
 
 struct Directory {
+    /// map from directory entry IDs to directory entries
+    ///
+    /// We need this IDs in order for readdir to work properly. Specifically we have to guarantee that
+    /// if entries are added/removed from the directory between calls to getdents, then other unrelated entries
+    /// are never skipped over or repeated.
+    ///
+    /// We accomplish this by assigning an ID to each directory entry. These IDs are always increasing,
+    /// and the "offset" member of a directory fd is the next ID it will read.
+    ///
+    /// If this is `None`, that means the directory entries haven't been scanned yet.
+    /// This scanning is done in [`FileSystemManagerTrait`].
     entries: Option<BTreeMap<u64, OwnedDirEntry>>,
+    /// map from paths to directory entry IDs
     lookup: BTreeMap<OwnedPath, u64>,
+    /// next directory entry ID to hand out
     id: u64,
+    /// inode number of parent directory (needed to resolve ..)
     parent: INodeNum,
+    /// File system that is mounted to this directory, if any.
     mount: Option<FileSystemID>,
 }
 
@@ -167,10 +182,15 @@ impl Directory {
 /// Manages a single file system
 struct FileSystemManager<F: FileSystem> {
     fs: F,
+    /// Location where this file system is mounted, or `None` if this is the root file system.
     mount_point: Option<(FileSystemID, INodeNum)>,
+    /// Number of open files pointing to inodes.
     open_file_count: BTreeMap<INodeNum, NonZeroUsize>,
+    /// VFS file handles for each file descriptor
     open_files: BTreeMap<ProcessFileDescriptor, F::FileHandle>,
+    /// Cached directory entries
     directories: BTreeMap<INodeNum, Directory>,
+    /// Number of mount points in this file system.
     mount_count: u32,
 }
 
@@ -184,11 +204,17 @@ impl<F: FileSystem> Drop for TempOpen<F> {
     }
 }
 
+/// Temporarily open a file.
+///
+/// The return value *must not be dropped* --- it should instead be passed to `temp_close`.
+///
+/// (This is difficult to do with a destructor because of borrowing rules)
 fn temp_open<F: FileSystem>(fs: &mut F, inode: INodeNum) -> Result<TempOpen<F>> {
     let handle = fs.open(inode)?;
     Ok(TempOpen { handle })
 }
 
+/// Close a file opened with [`temp_open`].
 fn temp_close<F: FileSystem>(
     fs: &mut F,
     file: TempOpen<F>,
@@ -238,7 +264,9 @@ impl<F: FileSystem + 'static> FileSystemManager<F> {
 /// FileHandle type). So we need a new trait to be able to create dynamic objects
 /// which can use different file systems.
 trait FileSystemManagerTrait: 'static + Send + Sync {
+    /// Get root inode
     fn root(&self) -> INodeNum;
+    /// Get location where this FS is mounted, or `None` if this is the root FS.
     fn mount_point(&self) -> Option<(FileSystemID, INodeNum)>;
     fn lookup(&mut self, dir: INodeNum, entry: &Path) -> Result<INodeNum>;
     fn open(&mut self, inode: INodeNum, fd: ProcessFileDescriptor) -> Result<()>;
@@ -598,6 +626,7 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
 
 pub type FileSystemID = u16;
 
+/// Metadata for an open file
 #[derive(Debug)]
 enum OpenFile {
     /// regular file/directory
@@ -608,7 +637,7 @@ enum OpenFile {
     },
     /// standard output
     StdOut,
-    /// /dev/null (discards reads/writes)
+    /// `/dev/null` (discards reads/writes)
     Null,
 }
 
