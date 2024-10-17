@@ -1,5 +1,5 @@
 use crate::interrupts::mutex_irq::MutexIrq;
-use crate::system::{unwrap_system_mut, SYSTEM};
+use crate::system::{unwrap_system, unwrap_system_mut, SYSTEM};
 use crate::threading::process::{AtomicTid, Tid};
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
@@ -138,9 +138,7 @@ impl<T: ?Sized> SleepMutex<T> {
 
     fn unlock(&self) {
         let running_tid = unsafe {
-            SYSTEM
-                .as_ref()
-                .expect("System not initialized")
+            unwrap_system()
                 .threads
                 .running_thread
                 .as_ref()
@@ -170,9 +168,7 @@ impl<T: ?Sized> SleepMutex<T> {
 
     pub fn try_lock(&self) -> bool {
         let current_tid = unsafe {
-            SYSTEM
-                .as_ref()
-                .expect("System not initialized")
+            unwrap_system()
                 .threads
                 .running_thread
                 .as_ref()
