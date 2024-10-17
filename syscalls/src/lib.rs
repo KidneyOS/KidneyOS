@@ -13,10 +13,13 @@ pub struct Timespec {
 #[no_mangle]
 pub extern "C" fn exit(code: usize) {
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x1
             int 0x80
-        ", in("ebx") code);
+            ",
+            in("ebx") code,
+        );
     }
 }
 
@@ -29,8 +32,8 @@ pub extern "C" fn fork() -> Pid {
             "
             mov eax, 0x2
             int 0x80
-            mov {}, eax
-        ", out(reg) result
+            ", 
+            lateout("eax") result,
         );
     }
     result as Pid
@@ -40,11 +43,16 @@ pub extern "C" fn fork() -> Pid {
 pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> usize {
     let result: usize;
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x3
             int 0x80
-            mov {}, eax
-        ", out(reg) result, in("ebx") fd, in("ecx") buffer, in("edx") count);
+            ", 
+            in("ebx") fd,
+            in("ecx") buffer,
+            in("edx") count,
+            lateout("eax") result,
+        );
     }
     result
 }
@@ -54,11 +62,16 @@ pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> usize {
 pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
     let result: i32;
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x7
             int 0x80
-            mov {}, eax
-        ", out(reg) result, in("ebx") pid, in("ecx") stat, in("edx") options);
+            ", 
+            in("ebx") pid,
+            in("ecx") stat,
+            in("edx") options,
+            lateout("eax") result,
+        );
     }
     result as Pid
 }
@@ -71,11 +84,16 @@ pub extern "C" fn execve(
 ) -> i32 {
     let result: i32;
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x7
             int 0x80
-            mov {}, eax
-        ", out(reg) result, in("ebx") filename, in("ecx") argv, in("edx") envp);
+            ", 
+            in("ebx") filename,
+            in("ecx") argv,
+            in("edx") envp,
+            lateout("eax") result,
+        );
     }
     result
 }
@@ -86,11 +104,15 @@ pub extern "C" fn execve(
 pub extern "C" fn nanosleep(duration: *const Timespec, remainder: *mut Timespec) -> i32 {
     let result: i32;
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0xA2
             int 0x80
-            mov {}, eax
-        ", out(reg) result, in("ebx") duration, in("ecx") remainder);
+            ", 
+            in("ebx") duration,
+            in("ecx") remainder,
+            lateout("eax") result,
+        );
     }
     result
 }
@@ -103,8 +125,8 @@ pub extern "C" fn scheduler_yield() -> i32 {
             "
             mov eax, 0x9E
             int 0x80
-            mov {}, eax
-        ", out(reg) result
+            ", 
+            lateout("eax") result,
         );
     }
     result
