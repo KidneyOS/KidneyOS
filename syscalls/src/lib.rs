@@ -64,7 +64,11 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
 }
 
 #[no_mangle]
-pub extern "C" fn execve(filename: *const i8, argv: *const *const i8, envp: *const *const i8) -> i32 {
+pub extern "C" fn execve(
+    filename: *const i8,
+    argv: *const *const i8,
+    envp: *const *const i8,
+) -> i32 {
     let result: i32;
     unsafe {
         asm!("
