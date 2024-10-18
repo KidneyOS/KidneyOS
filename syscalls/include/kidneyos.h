@@ -24,7 +24,7 @@ uintptr_t read(uint32_t fd, uint8_t *buffer, uintptr_t count);
 
 Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
-int32_t execve(const int8_t *filename, const int8_t *const *argv, const int8_t *const *envp);
+void execve(const uint8_t *elf_bytes, uintptr_t byte_count);
 
 int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 

@@ -76,6 +76,8 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
     result as Pid
 }
 
+// Temporarily defining execve as (elf_bytes: *const u8, count: usize) while FS comes together.
+/*
 #[no_mangle]
 pub extern "C" fn execve(
     filename: *const i8,
@@ -84,9 +86,8 @@ pub extern "C" fn execve(
 ) -> i32 {
     let result: i32;
     unsafe {
-        asm!(
-            "
-            mov eax, 0x7
+        asm!("
+            mov eax, 0x0b
             int 0x80
             ", 
             in("ebx") filename,
@@ -96,6 +97,17 @@ pub extern "C" fn execve(
         );
     }
     result
+}
+*/
+
+#[no_mangle]
+pub extern "C" fn execve(elf_bytes: *const u8, byte_count: usize) {
+    unsafe {
+        asm!("
+            mov eax, 0x0b
+            int 0x80
+        ", in("ebx") elf_bytes, in("ecx") byte_count)
+    }
 }
 
 // Seems to reference __kernel_timespec as the inputs for this syscall.
