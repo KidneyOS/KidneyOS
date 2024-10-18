@@ -1,5 +1,5 @@
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
-use crate::system::{unwrap_system_mut};
+use crate::system::unwrap_system_mut;
 use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
