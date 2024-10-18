@@ -89,7 +89,7 @@ pub extern "C" fn execve(
         asm!("
             mov eax, 0x0b
             int 0x80
-            ", 
+            ",
             in("ebx") filename,
             in("ecx") argv,
             in("edx") envp,
