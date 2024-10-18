@@ -62,6 +62,8 @@ pub fn allocate_tid() -> Tid {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
+    // The Pid of the process' parent
+    pub ppid: Pid,
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
@@ -72,10 +74,11 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create() -> Pid {
+    pub fn create(parent_pid: Pid) -> Pid {
         let pid = allocate_pid();
         let pcb = Self {
             pid,
+            ppid: parent_pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
@@ -121,7 +124,7 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = ProcessControlBlock::create();
+        let pid: Pid = ProcessControlBlock::create(0);
 
         let mut page_manager = PageManager::default();
 

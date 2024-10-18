@@ -1,6 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
+use crate::threading::process_table::PROCESS_TABLE;
 use crate::threading::scheduling::{
     scheduler_yield_and_continue, scheduler_yield_and_die, SCHEDULER,
 };
@@ -15,8 +16,11 @@ pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;
 pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0x0b;
+pub const SYS_GETPID: usize = 0x14;
 pub const SYS_NANOSLEEP: usize = 0xa2;
+pub const SYS_GETPPID: usize = 0x40;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
+
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -66,8 +70,18 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             scheduler_yield_and_die();
         }
+        SYS_GETPID => {
+            let tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing running?").as_ref() };
+            tcb.pid as isize
+        }
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")
+        }
+        SYS_GETPPID => {
+            let tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing running?").as_ref() };
+            let process_table = unsafe { PROCESS_TABLE.as_ref().expect("Process table does not exist.").as_ref() };
+            let pcb = process_table.get(tcb.pid).unwrap();
+            pcb.ppid as isize
         }
         SYS_SCHED_YIELD => {
             scheduler_yield_and_continue();
