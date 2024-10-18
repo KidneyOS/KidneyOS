@@ -1,5 +1,5 @@
 use super::{scheduling::scheduler_yield_and_block, thread_control_block::ThreadStatus};
-use crate::system::{unwrap_system_mut};
+use crate::system::unwrap_system_mut;
 use crate::threading::process::Tid;
 
 pub fn thread_sleep() {
