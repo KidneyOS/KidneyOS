@@ -17,21 +17,24 @@ mod interrupts;
 pub mod mem;
 mod paging;
 mod sync;
+mod system;
 mod threading;
 mod user_program;
 pub mod vfs;
 
 extern crate alloc;
 
+use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
-use crate::threading::scheduling::SCHEDULER;
+use crate::system::{SystemState, SYSTEM};
+use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
-use threading::{thread_system_initialization, thread_system_start};
+use threading::{create_thread_state, thread_system_start};
 
 #[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -73,16 +76,23 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("PIT set up!");
 
         println!("Initializing Thread System...");
-        thread_system_initialization();
+        let mut threads = create_thread_state();
+        let mut process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
 
         let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0);
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0, &mut process);
 
-        SCHEDULER
-            .as_mut()
-            .expect("No Scheduler set up!")
-            .push(Box::new(ide_tcb));
+        let block_manager = BlockManager::default();
+
+        threads.scheduler.push(Box::new(ide_tcb));
+
+        SYSTEM = Some(SystemState {
+            threads,
+            process,
+
+            block_manager,
+        });
 
         thread_system_start(page_manager, INIT);
     }
