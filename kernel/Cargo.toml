@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 arbitrary-int = "1.2.7"
-bitbybit = "1.3.0"
+bitfield = "0.17.0"
 
 nom = { version = "7.1.3", default-features = false }
 
