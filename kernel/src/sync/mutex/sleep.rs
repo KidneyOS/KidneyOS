@@ -1,7 +1,11 @@
-use crate::interrupts::mutex_irq::MutexIrq;
-use crate::system::{unwrap_system, unwrap_system_mut};
-use crate::threading::process::{AtomicTid, Tid};
-use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
+use crate::{
+    interrupts::mutex_irq::MutexIrq,
+    threading::{
+        thread_control_block::{AtomicTid, Tid},
+        thread_sleep::{thread_sleep, thread_wakeup},
+        RUNNING_THREAD,
+    },
+};
 use alloc::collections::VecDeque;
 use core::sync::atomic::Ordering::{AcqRel, Acquire, Release};
 use core::{
@@ -105,9 +109,7 @@ impl<T: ?Sized> SleepMutex<T> {
     #[must_use = "Mutex is released when guard falls out of scope."]
     pub fn lock(&self) -> SleepMutexGuard<T> {
         let current_tid = unsafe {
-            unwrap_system_mut()
-                .threads
-                .running_thread
+            RUNNING_THREAD
                 .as_ref()
                 .expect("why is nothing running?")
                 .tid
@@ -138,9 +140,7 @@ impl<T: ?Sized> SleepMutex<T> {
 
     fn unlock(&self) {
         let running_tid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
+            RUNNING_THREAD
                 .as_ref()
                 .expect("why is nothing running?")
                 .tid
@@ -168,9 +168,7 @@ impl<T: ?Sized> SleepMutex<T> {
 
     pub fn try_lock(&self) -> bool {
         let current_tid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
+            RUNNING_THREAD
                 .as_ref()
                 .expect("why is nothing running?")
                 .tid

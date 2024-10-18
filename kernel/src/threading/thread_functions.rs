@@ -1,5 +1,8 @@
-use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
-use crate::system::{unwrap_system_mut};
+use super::{
+    scheduling::SCHEDULER,
+    thread_control_block::{ThreadControlBlock, ThreadStatus},
+    RUNNING_THREAD,
+};
 use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
@@ -28,15 +31,11 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // Get the current thread.
     // SAFETY: Interrupts must be off.
     unsafe {
-        let threads = &mut unwrap_system_mut().threads;
-        let mut current_thread = threads
-            .running_thread
-            .take()
-            .expect("Why is nothing running!?");
+        let mut current_thread = RUNNING_THREAD.take().expect("Why is nothing running!?");
         current_thread.set_exit_code(exit_code);
 
         // Replace and yield.
-        threads.running_thread = Some(current_thread);
+        RUNNING_THREAD = Some(current_thread);
         scheduler_yield_and_die();
     }
 }
@@ -46,7 +45,6 @@ unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
 ) -> ! {
-    let threads = &mut unwrap_system_mut().threads;
     let mut switched_to = Box::from_raw(switched_to);
 
     // We assume that switched_from had its status changed already.
@@ -58,7 +56,7 @@ unsafe extern "C" fn run_thread(
     let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
 
     // Reschedule our threads.
-    threads.running_thread = Some(switched_to);
+    RUNNING_THREAD = Some(switched_to);
 
     let mut switched_from = Box::from_raw(switched_from);
 
@@ -68,9 +66,12 @@ unsafe extern "C" fn run_thread(
         // Page manager must be loaded to be dropped.
         switched_from.page_manager.load();
         drop(switched_from);
-        threads.running_thread.as_ref().unwrap().page_manager.load();
+        RUNNING_THREAD.as_ref().unwrap().page_manager.load();
     } else {
-        threads.scheduler.push(switched_from);
+        SCHEDULER
+            .as_mut()
+            .expect("Scheduler not set up!")
+            .push(switched_from);
     }
 
     // Our scheduler will operate without interrupts.
@@ -107,7 +108,7 @@ unsafe extern "C" fn run_thread(
             code_sel = const USER_CODE_SELECTOR,
             eip = in(reg) eip.as_ptr(),
             options(noreturn),
-        )
+        );
     }
 }
 
@@ -140,7 +141,7 @@ unsafe extern "C" fn prepare_thread() -> i32 {
         "#,
         sym run_thread,
         options(noreturn)
-    )
+    );
 }
 
 /// The context for a use within context_switch.
