@@ -1,12 +1,10 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
-use crate::threading::process_table::PROCESS_TABLE;
-use crate::threading::scheduling::{
-    scheduler_yield_and_continue, scheduler_yield_and_die, SCHEDULER,
-};
+use crate::system::{unwrap_system_mut, unwrap_system};
+use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
-use crate::threading::{thread_functions, RUNNING_THREAD};
+use crate::threading::thread_functions;
 use crate::user_program::elf::Elf;
 use alloc::boxed::Box;
 use kidneyos_shared::println;
@@ -46,15 +44,11 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         SYS_EXECVE => {
             let thread = unsafe {
-                RUNNING_THREAD
+                unwrap_system_mut()
+                    .threads
+                    .running_thread
                     .as_ref()
                     .expect("A syscall was called without a running thread.")
-            };
-
-            let scheduler = unsafe {
-                SCHEDULER
-                    .as_mut()
-                    .expect("A syscall was called without a scheduler.")
             };
 
             let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
@@ -64,22 +58,28 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let Some(elf) = elf else { return -1 };
 
-            let control = ThreadControlBlock::new_from_elf(elf);
+            let system = unsafe { unwrap_system_mut() };
+            let control = ThreadControlBlock::new_from_elf(elf, &mut system.process);
 
-            scheduler.push(Box::new(control));
+            unsafe {
+                unwrap_system_mut()
+                    .threads
+                    .scheduler
+                    .push(Box::new(control));
+            }
 
             scheduler_yield_and_die();
         }
         SYS_GETPID => {
-            let tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing running?").as_ref() };
+            let tcb = unsafe { unwrap_system().threads.running_thread.as_ref().expect("why is nothing running?").as_ref() };
             tcb.pid as isize
         }
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")
         }
         SYS_GETPPID => {
-            let tcb = unsafe { RUNNING_THREAD.as_ref().expect("Why is nothing running?").as_ref() };
-            let process_table = unsafe { PROCESS_TABLE.as_ref().expect("Process table does not exist.").as_ref() };
+            let tcb = unsafe { unwrap_system().threads.running_thread.as_ref().expect("why is nothing running?").as_ref() };
+            let process_table = unsafe { &unwrap_system().process.table };
             let pcb = process_table.get(tcb.pid).unwrap();
             pcb.ppid as isize
         }
