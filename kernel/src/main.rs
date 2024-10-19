@@ -21,6 +21,7 @@ extern crate alloc;
 
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+
 use threading::{thread_system_initialization, thread_system_start};
 
 #[cfg_attr(target_os = "none", global_allocator)]
