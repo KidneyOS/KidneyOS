@@ -25,3 +25,10 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+# Build these packages with optimizations even in
+# debug builds, to speed up tests.
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3

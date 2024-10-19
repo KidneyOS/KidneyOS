@@ -13,6 +13,7 @@
 
 mod block;
 mod drivers;
+pub mod fs;
 mod interrupts;
 pub mod mem;
 mod paging;
