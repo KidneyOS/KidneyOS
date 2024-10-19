@@ -79,6 +79,18 @@ impl fmt::Write for VideoMemoryWriter {
         for b in s.as_bytes() {
             if self.cursor >= video_memory.len() {
                 video_memory.copy_within(VIDEO_MEMORY_COLS..VIDEO_MEMORY_SIZE, 0);
+
+                // Clear previous line.
+                let start = VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS;
+                let end = VIDEO_MEMORY_SIZE;
+
+                for i in start..end {
+                    video_memory[i] = Character {
+                        ascii: b' ',
+                        attribute: self.attribute,
+                    };
+                }
+
                 self.cursor = VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS;
             }
 
