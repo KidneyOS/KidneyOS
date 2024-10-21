@@ -1,0 +1,20 @@
+[package]
+name = "rush"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+kidneyos-syscalls = { path="../../syscalls" }
+
+[workspace]
+
+# Avoid eh_personality issues with binaries in this workspace.
+# Profiles are ignored when specified outside the root Cargo.toml.
+# https://os.phil-opp.com/freestanding-rust-binary/
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
