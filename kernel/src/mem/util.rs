@@ -1,4 +1,3 @@
-use crate::threading::RUNNING_THREAD;
 use core::mem::size_of;
 use kidneyos_shared::mem::OFFSET as KMEM_OFFSET;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
@@ -11,7 +10,6 @@ pub enum CStrError {
 /// # Safety
 ///
 /// TODO: This isn't safe currently, as there may be mut references to the running thread.
-/// Really, we should make RUNNING_THREAD use a mutex or something.
 unsafe fn can_access_range<T>(start: *const T, count: usize, write: bool) -> bool {
     let start = start as usize;
     let Some(bytes) = count.checked_mul(size_of::<T>()) else {
@@ -26,7 +24,9 @@ unsafe fn can_access_range<T>(start: *const T, count: usize, write: bool) -> boo
     if end >= KMEM_OFFSET {
         return false;
     }
-    RUNNING_THREAD
+    crate::system::unwrap_system()
+        .threads
+        .running_thread
         .as_ref()
         .expect("A syscall was called without a running thread.")
         .page_manager

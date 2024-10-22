@@ -1,5 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::threading::process_table::PROCESS_TABLE;
+use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
@@ -11,16 +11,8 @@ use alloc::vec::Vec;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
-    sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-
-pub type Pid = u16;
-pub type Tid = u16;
-
-// Current value marks the next available PID & TID values to use.
-static NEXT_UNRESERVED_PID: AtomicU16 = AtomicU16::new(0);
-static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -41,15 +33,6 @@ pub enum ThreadStatus {
     Dying,
 }
 
-pub fn allocate_pid() -> Pid {
-    // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
-}
-pub fn allocate_tid() -> Tid {
-    // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
-}
-
 pub struct ProcessControlBlock {
     pub pid: Pid,
     // The TIDs of this process' children threads
@@ -62,17 +45,16 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create() -> Pid {
-        let pid = allocate_pid();
+    pub fn create(state: &mut ProcessState) -> Pid {
+        let pid = state.allocate_pid();
         let pcb = Self {
             pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
         };
-        unsafe {
-            PROCESS_TABLE.as_mut().unwrap().add(Box::new(pcb));
-        }
+
+        state.table.add(Box::new(pcb));
 
         pid
     }
@@ -103,7 +85,7 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-    pub fn new_from_elf(elf: Elf) -> ThreadControlBlock {
+    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> ThreadControlBlock {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
@@ -111,7 +93,7 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = ProcessControlBlock::create();
+        let pid: Pid = ProcessControlBlock::create(state);
 
         let mut page_manager = PageManager::default();
 
@@ -178,6 +160,7 @@ impl ThreadControlBlock {
                 .expect("fail to create PCB entry point"),
             pid,
             page_manager,
+            state,
         )
     }
 
@@ -185,8 +168,9 @@ impl ThreadControlBlock {
         entry_instruction: NonNull<u8>,
         pid: Pid,
         page_manager: PageManager,
+        state: &mut ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, pid, page_manager);
+        let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -206,8 +190,8 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid) -> Self {
-        let mut new_thread = Self::new(eip, pid, PageManager::default());
+    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid, state: &mut ProcessState) -> Self {
+        let mut new_thread = Self::new(eip, pid, PageManager::default(), state);
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -237,8 +221,13 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    pub fn new(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
-        let tid: Tid = allocate_tid();
+    pub fn new(
+        entry_instruction: NonNull<u8>,
+        pid: Pid,
+        mut page_manager: PageManager,
+        state: &mut ProcessState,
+    ) -> Self {
+        let tid: Tid = state.allocate_tid();
 
         let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
 
@@ -298,15 +287,15 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager) -> Self {
+    pub fn new_kernel_thread(page_manager: PageManager, state: &mut ProcessState) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             user_stack: NonNull::dangling(),
-            tid: allocate_tid(),
-            pid: allocate_pid(),
+            tid: state.allocate_tid(),
+            pid: state.allocate_pid(),
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,
