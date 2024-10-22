@@ -84,8 +84,8 @@ impl fmt::Write for VideoMemoryWriter {
                 let start = VIDEO_MEMORY_SIZE - VIDEO_MEMORY_COLS;
                 let end = VIDEO_MEMORY_SIZE;
 
-                for i in start..end {
-                    video_memory[i] = Character {
+                for c in &mut video_memory[start..end] {
+                    *c = Character {
                         ascii: b' ',
                         attribute: self.attribute,
                     };
