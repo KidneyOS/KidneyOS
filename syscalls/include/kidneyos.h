@@ -144,6 +144,8 @@ typedef struct Timespec {
 
 } Timespec;
 
+Pid fork(void);
+
 void exit(uintptr_t code);
 
 int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
