@@ -1,11 +1,8 @@
 pub mod fs_manager;
 pub mod syscalls;
 use crate::fs::fs_manager::Mode;
-use crate::threading::{
-    process_table::PROCESS_TABLE,
-    thread_control_block::{Pid, ProcessControlBlock},
-    RUNNING_THREAD,
-};
+use crate::system::{unwrap_system, unwrap_system_mut};
+use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::vfs::{Path, Result};
 use alloc::{vec, vec::Vec};
 
@@ -18,24 +15,19 @@ pub struct ProcessFileDescriptor {
 }
 
 unsafe fn running_process() -> &'static ProcessControlBlock {
-    PROCESS_TABLE
-        .as_ref()
-        .unwrap()
-        .get(RUNNING_THREAD.as_ref().unwrap().as_ref().pid)
-        .unwrap()
+    let system = unwrap_system();
+    let pid = system.threads.running_thread.as_ref().unwrap().pid;
+    system.process.table.get(pid).unwrap()
 }
 
 unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
-    PROCESS_TABLE
-        .as_mut()
-        .unwrap()
-        .get_mut(RUNNING_THREAD.as_ref().unwrap().as_ref().pid)
-        .unwrap()
+    let system = unwrap_system_mut();
+    let pid = system.threads.running_thread.as_ref().unwrap().pid;
+    system.process.table.get_mut(pid).unwrap()
 }
 
 /// Read entire contents of file to kernel memory.
 pub fn read_file(path: &Path) -> Result<Vec<u8>> {
-    // technically UB if other mut references to RUNNING_THREAD exist. we should really use a mutex for RUNNING_THREAD…
     let process = unsafe { running_process() };
     let mut root = fs_manager::ROOT.lock();
     let fd = root.open(process, path, Mode::ReadWrite)?;

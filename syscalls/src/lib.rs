@@ -16,23 +16,29 @@ pub use defs::*;
 #[no_mangle]
 pub extern "C" fn exit(code: usize) {
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x1
             int 0x80
-        ", in("ebx") code);
+            ",
+            in("ebx") code,
+        );
     }
 }
 
-#[no_mangle]
-pub extern "C" fn fork() {
+#[allow(clippy::cast_possible_truncation)]
+pub extern "C" fn fork() -> Pid {
+    let result: i32;
     unsafe {
         asm!(
             "
             mov eax, 0x2
             int 0x80
-        "
+            ", 
+            lateout("eax") result,
         );
     }
+    result as Pid
 }
 
 #[no_mangle]
@@ -253,45 +259,87 @@ pub extern "C" fn mount(device: *const i8, target: *const i8, filesystem_type: *
 }
 
 #[no_mangle]
-pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) {
-    unsafe {
-        asm!("
-            mov eax, 0x8c
-            int 0x80
-        ", in("ebx") pid, in("ecx") stat, in("edx") options);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn execve(filename: *const i8, argv: *const *const i8, envp: *const *const i8) {
+#[allow(clippy::cast_possible_truncation)]
+pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
+    let result: i32;
     unsafe {
         asm!("
             mov eax, 0x7
             int 0x80
-        ", in("ebx") filename, in("ecx") argv, in("edx") envp);
+            ", 
+            in("ebx") pid,
+            in("ecx") stat,
+            in("edx") options,
+            lateout("eax") result,
+        );
+    }
+    result as Pid
+}
+
+// Temporarily defining execve as (elf_bytes: *const u8, count: usize) while FS comes together.
+/*
+#[no_mangle]
+pub extern "C" fn execve(
+    filename: *const i8,
+    argv: *const *const i8,
+    envp: *const *const i8,
+) -> i32 {
+    let result: i32;
+    unsafe {
+        asm!("
+            mov eax, 0x0b
+            int 0x80
+            ",
+            in("ebx") filename,
+            in("ecx") argv,
+            in("edx") envp,
+            lateout("eax") result,
+        );
+    }
+    result
+}
+*/
+
+#[no_mangle]
+pub extern "C" fn execve(elf_bytes: *const u8, byte_count: usize) {
+    unsafe {
+        asm!("
+            mov eax, 0x0b
+            int 0x80
+        ", in("ebx") elf_bytes, in("ecx") byte_count)
     }
 }
 
 // Seems to reference __kernel_timespec as the inputs for this syscall.
 // Not sure if we have this implemented.
 #[no_mangle]
-pub extern "C" fn nanosleep(duration: *const Timespec, remainder: *mut Timespec) {
+pub extern "C" fn nanosleep(duration: *const Timespec, remainder: *mut Timespec) -> i32 {
+    let result: i32;
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0xA2
             int 0x80
-        ", in("ebx") duration, in("ecx") remainder);
+            ", 
+            in("ebx") duration,
+            in("ecx") remainder,
+            lateout("eax") result,
+        );
     }
+    result
 }
 
 #[no_mangle]
-pub extern "C" fn scheduler_yield() {
+pub extern "C" fn scheduler_yield() -> i32 {
+    let result: i32;
     unsafe {
         asm!(
             "
             mov eax, 0x9E
             int 0x80
-        "
+            ", 
+            lateout("eax") result,
         );
     }
+    result
 }

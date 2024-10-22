@@ -279,8 +279,9 @@ impl<'a> Elf<'a> {
 
             program_headers.push(program_header);
 
-            (program_header_bytes, _) =
-                take(header.program_header_entry_size)(program_header_bytes)?;
+            let (next, _) = take(header.program_header_entry_size)(program_header_bytes)?;
+
+            program_header_bytes = next;
         }
 
         Ok((

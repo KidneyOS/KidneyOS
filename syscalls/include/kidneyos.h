@@ -146,8 +146,6 @@ typedef struct Timespec {
 
 void exit(uintptr_t code);
 
-void fork(void);
-
 int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 
 int32_t write(int32_t fd, const uint8_t *buffer, uintptr_t count);
@@ -186,12 +184,12 @@ int32_t unmount(const int8_t *path);
 
 int32_t mount(const int8_t *device, const int8_t *target, const int8_t *filesystem_type);
 
-void waitpid(Pid pid, int32_t *stat, int32_t options);
+Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
-void execve(const int8_t *filename, const int8_t *const *argv, const int8_t *const *envp);
+void execve(const uint8_t *elf_bytes, uintptr_t byte_count);
 
-void nanosleep(const struct Timespec *duration, struct Timespec *remainder);
+int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 
-void scheduler_yield(void);
+int32_t scheduler_yield(void);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

@@ -185,6 +185,7 @@ impl fmt::Display for Block {
 }
 
 /// Maintain a list of blocks
+#[derive(Default)]
 pub struct BlockManager {
     /// All the block devices
     all_blocks: Vec<Block>,
@@ -261,9 +262,4 @@ impl fmt::Display for BlockManager {
         }
         Ok(())
     }
-}
-
-/// Initialize the block layer
-pub fn block_init() -> BlockManager {
-    BlockManager::new()
 }
