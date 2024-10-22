@@ -4,17 +4,21 @@ use crate::block::block_core::{Block, BLOCK_SECTOR_SIZE};
 use crate::vfs::{
     DirEntries, Error, FileInfo, INodeNum, INodeType, Path, RawDirEntry, Result, SimpleFileSystem,
 };
+use kidneyos_shared::println;
 
+pub const VSFS_BLOCK_SIZE: usize = 4096;  // same block size in bytes as the vsfs disk images
+pub const VSFS_MAGIC: u64 = 0xC5C369A4C5C369A4;  // same magic number from the vsfs disk images
 
 
 #[derive(Debug, Clone, Copy)]
-struct SuperBlock {
-    total_inodes: u32,
-    total_blocks: u32,
-    inode_bitmap_block: u32,
-    data_bitmap_block: u32,
-    inode_table_block: u32,
-    data_block_start: u32, // TODO: add magic number
+pub struct SuperBlock {
+    pub magic_number: u64,  // Must match VSFS_MAGIC
+    pub fs_size: u64,  // File system size in bytes.
+    pub num_inodes: u32,  // Total number of inodes (set by mkfs).
+    pub free_inodes: u32,  // Number of available inodes.
+    pub num_blocks: u32,  // File system size in blocks.
+    pub free_blocks: u32,  // Number of available blocks.
+    pub data_start: u32,  // First block after inode table.
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -22,10 +26,12 @@ struct Inode {
     size: u32,               // File size in bytes.
     block_pointers: [u32; 12],  // Direct pointers to data blocks.
     indirect_pointer: u32,    // Pointer to an indirect block.
-    permissions: u16,         // File permissions.
-    uid: u16,                 // User ID.
-    gid: u16,                 // Group ID.
+    blocks: u32,             // Number of blocks in the file.
     link_count: u16,          // Number of links to this inode.
+
+    // permissions: u16,         // File permissions.
+    // uid: u16,                 // User ID.
+    // gid: u16,                 // Group ID.
 }
 
 struct Bitmap {
@@ -58,24 +64,93 @@ impl Bitmap {
 }
 
 // Define the VSFS struct that will hold the superblock, bitmaps, and data blocks
-struct VSFS {
-    superblock: SuperBlock,
+pub struct VSFS {
+    pub superblock: SuperBlock,
     inode_bitmap: Bitmap,
     data_bitmap: Bitmap,
     inodes: Vec<Inode>,
     data_blocks: Vec<Vec<u8>>,  // Example representation of data blocks in memory
     block: Block,
+    root_inode: INodeNum,
 }
 
 impl VSFS {
-    // pub fn new(mut block: Block) -> Result<Self> {
+    pub fn new(mut block: Block) -> Result<Self> {
+        // Read the superblock from the first block
+        let mut superblock = SuperBlock {
+            magic_number: 0,
+            fs_size: 0,
+            num_inodes: 0,
+            free_inodes: 0,
+            num_blocks: 0,
+            free_blocks: 0,
+            data_start: 0,
+        };
 
-    // }
+        let mut first_sector = [0; 512];
+        block.read(0, &mut first_sector)?;
+
+        // Parse the superblock from the first sector
+        superblock.magic_number = u64::from_le_bytes(first_sector[0..8].try_into().unwrap());
+
+        // Check if the magic number matches
+        if superblock.magic_number != VSFS_MAGIC {
+            return Err(Error::Unsupported);
+        } 
+
+        superblock.fs_size = u64::from_le_bytes(first_sector[8..16].try_into().unwrap());
+        superblock.num_inodes = u32::from_le_bytes(first_sector[16..20].try_into().unwrap());
+        superblock.free_inodes = u32::from_le_bytes(first_sector[20..24].try_into().unwrap());
+        superblock.num_blocks = u32::from_le_bytes(first_sector[24..28].try_into().unwrap());
+        superblock.free_blocks = u32::from_le_bytes(first_sector[28..32].try_into().unwrap());
+        superblock.data_start = u32::from_le_bytes(first_sector[32..36].try_into().unwrap());
+
+
+        // // Read the inode bitmap
+        let mut inode_bitmap = Bitmap::new(superblock.num_inodes);
+        // block.read(superblock.inode_bitmap_block, &mut inode_bitmap.bits)?;
+
+        // // Read the data bitmap
+        let mut data_bitmap = Bitmap::new(superblock.num_blocks);
+        // block.read(superblock.data_bitmap_block, &mut data_bitmap.bits)?;
+
+        // // Read the inode table
+        let mut inodes = vec![Inode {
+            size: 0,
+            block_pointers: [0; 12],
+            indirect_pointer: 0,
+            blocks: 0,
+            link_count: 0,
+        }; superblock.num_inodes as usize];
+        // block.read(superblock.inode_table_block, unsafe { core::slice::from_raw_parts_mut(inodes.as_mut_ptr() as *mut u8, core::mem::size_of::<Inode>() * inodes.len()) })?;
+
+        // // Read the data blocks
+        let mut data_blocks = Vec::new();
+        // for i in superblock.data_block_start..superblock.total_blocks {
+        //     let mut data = vec![0; BLOCK_SECTOR_SIZE as usize];
+        //     block.read(i, &mut data)?;
+        //     data_blocks.push(data);
+        // }
+
+        // Create the root inode (TODO?)
+        let root_inode = 0;
+        
+        Ok(Self {
+            superblock,
+            inode_bitmap,
+            data_bitmap,
+            inodes,
+            data_blocks,
+            block,
+            root_inode,
+        })
+        
+    }
 }
 
 impl SimpleFileSystem for VSFS {
     fn root(&self) -> INodeNum {
-        todo!()
+        self.root_inode
     }
 
     fn open(&mut self, inode: INodeNum) -> Result<()> {
