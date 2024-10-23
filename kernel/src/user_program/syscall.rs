@@ -1,7 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
-use crate::system::{unwrap_system_mut, unwrap_system};
+use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system, unwrap_system_mut};
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
@@ -14,7 +14,9 @@ pub const SYS_FORK: usize = 0x2;
 pub const SYS_READ: usize = 0x3;
 pub const SYS_WAITPID: usize = 0x7;
 pub const SYS_EXECVE: usize = 0x0b;
+pub const SYS_GETPID: usize = 0x14;
 pub const SYS_NANOSLEEP: usize = 0xa2;
+pub const SYS_GETPPID: usize = 0x40;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
 
 /// This function is responsible for processing syscalls made by user programs.
@@ -31,10 +33,19 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             thread_functions::exit_thread(arg0 as i32);
         }
         SYS_FORK => {
-            let system = unsafe { unwrap_system() };
-            let pid = system.threads.running_thread.as_ref().unwrap().pid;
-            let pcb = system.process.table.get(pid).unwrap();
-            0
+            let system = unsafe { unwrap_system_mut() };
+            let running_thread = system.threads.running_thread.as_ref().unwrap();
+
+            let new_tcb = running_thread.new_from_fork(&mut system.process);
+            let child_pid = new_tcb.pid;
+
+            system.threads.scheduler.push(Box::new(new_tcb));
+
+            if running_thread_pid() == child_pid {
+                0
+            } else {
+                child_pid as isize
+            }
         }
         SYS_READ => {
             todo!("read syscall")
@@ -70,9 +81,11 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             scheduler_yield_and_die();
         }
+        SYS_GETPID => running_thread_pid() as isize,
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")
         }
+        SYS_GETPPID => running_thread_ppid() as isize,
         SYS_SCHED_YIELD => {
             scheduler_yield_and_continue();
             0

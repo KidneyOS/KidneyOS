@@ -1,4 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use kidneyos_shared::sizes::KB;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
@@ -19,12 +21,12 @@ use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 // Windows: https://techcommunity.microsoft.com/t5/windows-blog-archive/pushing-the-limits-of-windows-processes-and-threads/ba-p/723824
 pub const KERNEL_THREAD_STACK_FRAMES: usize = 2;
 const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
-pub const USER_THREAD_STACK_FRAMES: usize = 4 * 1024;
+pub const USER_THREAD_STACK_FRAMES: usize = KB >> 2;
 pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
 #[allow(unused)]
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum ThreadStatus {
     Invalid,
     Running,
@@ -35,6 +37,8 @@ pub enum ThreadStatus {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
+    // The Pid of the process' parent
+    pub ppid: Pid,
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
@@ -45,10 +49,11 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &mut ProcessState) -> Pid {
+    pub fn create(state: &mut ProcessState, parent_pid: Pid) -> Pid {
         let pid = state.allocate_pid();
         let pcb = Self {
             pid,
+            ppid: parent_pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
@@ -93,7 +98,15 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = ProcessControlBlock::create(state);
+        let ppid = unsafe {
+            unwrap_system()
+                .threads
+                .running_thread
+                .as_ref()
+                .map_or(0, |_| running_thread_ppid())
+        };
+
+        let pid: Pid = ProcessControlBlock::create(state, ppid);
 
         let mut page_manager = PageManager::default();
 
@@ -164,10 +177,36 @@ impl ThreadControlBlock {
         )
     }
 
-    pub fn new_from_fork(state: &mut ProcessState) -> ThreadControlBlock {
-        let pid: Pid = ProcessControlBlock::create(state);
+    pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
+        let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
+        let tid: Tid = state.allocate_tid();
 
         let mut page_manager = PageManager::default();
+        let (kernel_stack, _, user_stack) = Self::map_stacks(&mut page_manager);
+
+        let new_tcb = Self {
+            kernel_stack,
+            user_stack,
+            page_manager,
+            pid,
+            tid,
+            status: ThreadStatus::Ready,
+            ..*self
+        };
+
+        unsafe {
+            copy_nonoverlapping(
+                self.kernel_stack.as_ptr(),
+                new_tcb.kernel_stack.as_ptr(),
+                KERNEL_THREAD_STACK_SIZE,
+            );
+            copy_nonoverlapping(
+                self.user_stack.as_ptr(),
+                new_tcb.user_stack.as_ptr(),
+                USER_THREAD_STACK_SIZE,
+            )
+        }
+        new_tcb
     }
 
     pub fn new_with_page_manager(

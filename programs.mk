@@ -19,6 +19,10 @@ execve:
 	# We don't want to export CARGO_TARGET_DIR to our destination make.
 	unset CARGO_TARGET_DIR && cd programs/execve && make
 
+fork:
+	# We don't want to export CARGO_TARGET_DIR to our destination make.
+	unset CARGO_TARGET_DIR && cd programs/fork && make
+
 .PHONY: clean
 clean::
 	cd programs/exit && make clean
@@ -26,3 +30,4 @@ clean::
 	# We don't want to export CARGO_TARGET_DIR to our destination make.
 	unset CARGO_TARGET_DIR && cd programs/example_rust && make clean
 	unset CARGO_TARGET_DIR && cd programs/execve && make clean
+	unset CARGO_TARGET_DIR && cd programs/fork && make clean
