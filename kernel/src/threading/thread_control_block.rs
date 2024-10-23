@@ -1,4 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -96,7 +97,15 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = ProcessControlBlock::create(state, 0);
+        let ppid = unsafe {
+            unwrap_system()
+                .threads
+                .running_thread
+                .as_ref()
+                .map_or(0, |_| running_thread_ppid())
+        };
+
+        let pid: Pid = ProcessControlBlock::create(state, ppid);
 
         let mut page_manager = PageManager::default();
 

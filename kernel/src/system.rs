@@ -1,5 +1,5 @@
 use crate::block::block_core::BlockManager;
-use crate::threading::process::{ProcessState, Pid};
+use crate::threading::process::{Pid, ProcessState};
 use crate::threading::ThreadState;
 
 // Synchronizing this primitive in a safe way is hard.

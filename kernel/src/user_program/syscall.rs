@@ -1,7 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
-use crate::system::{unwrap_system_mut, running_thread_pid, running_thread_ppid};
+use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
@@ -69,15 +69,11 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             scheduler_yield_and_die();
         }
-        SYS_GETPID => {
-            running_thread_pid() as isize
-        }
+        SYS_GETPID => running_thread_pid() as isize,
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")
         }
-        SYS_GETPPID => {
-            running_thread_ppid() as isize
-        }
+        SYS_GETPPID => running_thread_ppid() as isize,
         SYS_SCHED_YIELD => {
             scheduler_yield_and_continue();
             0
