@@ -182,9 +182,10 @@ impl ThreadControlBlock {
         let tid: Tid = state.allocate_tid();
 
         let mut page_manager = PageManager::default();
-        let (kernel_stack, _, user_stack) = Self::map_stacks(&mut page_manager);
+        let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
 
-        let new_tcb = Self {
+        let new_tcb: ThreadControlBlock = Self {
+            kernel_stack_pointer,
             kernel_stack,
             user_stack,
             page_manager,

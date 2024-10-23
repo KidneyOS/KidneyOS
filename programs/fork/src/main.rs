@@ -7,10 +7,10 @@ pub extern "C" fn _start() -> ! {
     let p = kidneyos_syscalls::fork();
 
     if p == 0 {
-        kidneyos_syscalls::
         kidneyos_syscalls::exit(1);
     } else {
-        kidneyos_syscalls::exit(100);
+        // Parent will exit with the pid of its child
+        kidneyos_syscalls::exit(p as usize);
     }
 
     loop {}

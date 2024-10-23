@@ -28,6 +28,10 @@ void execve(const uint8_t *elf_bytes, uintptr_t byte_count);
 
 int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 
+Pid getpid(void);
+
+Pid getppid(void);
+
 int32_t scheduler_yield(void);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */
