@@ -1,8 +1,8 @@
 pub mod fs_manager;
 pub mod syscalls;
 use crate::fs::fs_manager::Mode;
-use crate::system::{unwrap_system, unwrap_system_mut};
-use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
+use crate::system::running_process;
+use crate::threading::process::Pid;
 use crate::vfs::{Path, Result};
 use alloc::{vec, vec::Vec};
 
@@ -12,18 +12,6 @@ pub type FileDescriptor = i16;
 pub struct ProcessFileDescriptor {
     pub pid: Pid,
     pub fd: FileDescriptor,
-}
-
-unsafe fn running_process() -> &'static ProcessControlBlock {
-    let system = unwrap_system();
-    let pid = system.threads.running_thread.as_ref().unwrap().pid;
-    system.process.table.get(pid).unwrap()
-}
-
-unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
-    let system = unwrap_system_mut();
-    let pid = system.threads.running_thread.as_ref().unwrap().pid;
-    system.process.table.get_mut(pid).unwrap()
 }
 
 /// Read entire contents of file to kernel memory.

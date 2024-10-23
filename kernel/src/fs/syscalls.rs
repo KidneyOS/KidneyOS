@@ -1,11 +1,12 @@
 use crate::fs::{
     fs_manager::{Mode, SeekFrom, ROOT},
-    running_process, running_process_mut, FileDescriptor, ProcessFileDescriptor,
+    FileDescriptor, ProcessFileDescriptor,
 };
 use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_mut_slice_from_user_space,
     get_slice_from_user_space, CStrError,
 };
+use crate::system::{running_process, running_process_mut};
 use crate::user_program::syscall::{
     Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END,
     SEEK_SET,

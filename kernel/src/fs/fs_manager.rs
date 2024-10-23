@@ -1,5 +1,6 @@
-use crate::fs::{running_process, FileDescriptor, ProcessFileDescriptor};
+use crate::fs::{FileDescriptor, ProcessFileDescriptor};
 use crate::sync::mutex::Mutex;
+use crate::system::unwrap_system;
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
 use crate::vfs::{
@@ -1181,8 +1182,10 @@ impl RootFileSystem {
             let _ = self.close(ProcessFileDescriptor { pid, fd });
         }
         // decrement reference count to cwd
-        let (cwd_fs, cwd_inode) = unsafe { running_process() }.cwd;
-        self.file_systems.get_mut(cwd_fs).dec_ref(cwd_inode);
+        if let Some(pcb) = unsafe { unwrap_system() }.process.table.get(pid) {
+            let (cwd_fs, cwd_inode) = pcb.cwd;
+            self.file_systems.get_mut(cwd_fs).dec_ref(cwd_inode);
+        }
     }
 }
 

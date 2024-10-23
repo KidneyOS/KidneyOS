@@ -2,7 +2,7 @@
 
 use core::arch::asm;
 
-type Pid = u16;
+pub type Pid = u16;
 
 #[repr(C)]
 pub struct Timespec {
