@@ -2,6 +2,7 @@
 // These are in a separate file so that both the kernel code and userspace libc can include/use them.
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct Stat {
     pub inode: u32,
     pub nlink: u32,
@@ -10,6 +11,7 @@ pub struct Stat {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct Dirent {
     /// Opaque offset value to be used with seekdir.
     pub offset: u64,
