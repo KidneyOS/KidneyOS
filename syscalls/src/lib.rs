@@ -58,7 +58,6 @@ pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> usize {
 }
 
 #[no_mangle]
-#[allow(clippy::cast_possible_truncation)]
 pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
     let result: i32;
     unsafe {
@@ -73,7 +72,7 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
             lateout("eax") result,
         );
     }
-    result as Pid
+    result.try_into().expect("Invalid pid")
 }
 
 // Temporarily defining execve as (elf_bytes: *const u8, count: usize) while FS comes together.
@@ -127,6 +126,36 @@ pub extern "C" fn nanosleep(duration: *const Timespec, remainder: *mut Timespec)
         );
     }
     result
+}
+
+#[no_mangle]
+pub extern "C" fn getpid() -> Pid {
+    let result: i32;
+    unsafe {
+        asm!(
+            "
+            mov eax 0x14
+            int 0x80
+            ",
+            lateout("eax") result
+        )
+    }
+    result.try_into().expect("Invalid pid")
+}
+
+#[no_mangle]
+pub extern "C" fn getppid() -> Pid {
+    let result: i32;
+    unsafe {
+        asm!(
+            "
+            mov eax 0x40
+            int 0x80
+            ",
+            lateout("eax") result
+        )
+    }
+    result.try_into().expect("Invalid pid")
 }
 
 #[no_mangle]
