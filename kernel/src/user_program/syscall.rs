@@ -1,7 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
-use crate::system::unwrap_system_mut;
+use crate::system::{unwrap_system_mut, unwrap_system};
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
@@ -31,7 +31,10 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             thread_functions::exit_thread(arg0 as i32);
         }
         SYS_FORK => {
-            todo!("fork syscall")
+            let system = unsafe { unwrap_system() };
+            let pid = system.threads.running_thread.as_ref().unwrap().pid;
+            let pcb = system.process.table.get(pid).unwrap();
+            0
         }
         SYS_READ => {
             todo!("read syscall")

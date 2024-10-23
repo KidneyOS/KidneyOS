@@ -164,6 +164,12 @@ impl ThreadControlBlock {
         )
     }
 
+    pub fn new_from_fork(state: &mut ProcessState) -> ThreadControlBlock {
+        let pid: Pid = ProcessControlBlock::create(state);
+
+        let mut page_manager = PageManager::default();
+    }
+
     pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
         pid: Pid,
