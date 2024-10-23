@@ -80,6 +80,8 @@
 
 #define SYS_CHDIR 12
 
+#define SYS_GETPID 20
+
 #define SYS_MOUNT 21
 
 #define SYS_UNMOUNT 22
@@ -91,6 +93,8 @@
 #define SYS_MKDIR 39
 
 #define SYS_RMDIR 40
+
+#define SYS_GETPPID 64
 
 #define SYS_SYMLINK 83
 
@@ -113,6 +117,8 @@
 #define S_SYMLINK 2
 
 #define S_DIRECTORY 3
+
+typedef uint16_t Pid;
 
 typedef struct Stat {
   uint32_t inode;
@@ -138,15 +144,13 @@ typedef struct Dirent {
   uint8_t name[0];
 } Dirent;
 
-typedef uint16_t Pid;
-
 typedef struct Timespec {
 
 } Timespec;
 
-Pid fork(void);
-
 void exit(uintptr_t code);
+
+Pid fork(void);
 
 int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 

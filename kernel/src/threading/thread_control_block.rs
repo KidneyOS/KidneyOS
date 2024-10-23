@@ -1,4 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -37,6 +38,8 @@ pub enum ThreadStatus {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
+    // The Pid of the process' parent
+    pub ppid: Pid,
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
@@ -50,13 +53,14 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &mut ProcessState) -> Pid {
+    pub fn create(state: &mut ProcessState, parent_pid: Pid) -> Pid {
         let pid = state.allocate_pid();
         let mut root = crate::fs::fs_manager::ROOT.lock();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
         let pcb = Self {
             pid,
+            ppid: parent_pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
@@ -103,7 +107,15 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = ProcessControlBlock::create(state);
+        let ppid = unsafe {
+            unwrap_system()
+                .threads
+                .running_thread
+                .as_ref()
+                .map_or(0, |_| running_thread_ppid())
+        };
+
+        let pid: Pid = ProcessControlBlock::create(state, ppid);
 
         let mut page_manager = PageManager::default();
 

@@ -27,6 +27,7 @@ pub extern "C" fn exit(code: usize) {
 }
 
 #[allow(clippy::cast_possible_truncation)]
+#[no_mangle]
 pub extern "C" fn fork() -> Pid {
     let result: i32;
     unsafe {

@@ -1,5 +1,5 @@
 use crate::block::block_core::BlockManager;
-use crate::threading::process::ProcessState;
+use crate::threading::process::{Pid, ProcessState};
 use crate::threading::thread_control_block::ProcessControlBlock;
 use crate::threading::ThreadState;
 
@@ -44,4 +44,30 @@ pub unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
     let system = unwrap_system_mut();
     let pid = system.threads.running_thread.as_ref().unwrap().pid;
     system.process.table.get_mut(pid).unwrap()
+}
+
+pub fn running_thread_pid() -> Pid {
+    let tcb = unsafe {
+        unwrap_system()
+            .threads
+            .running_thread
+            .as_ref()
+            .expect("Why is nothing running?")
+            .as_ref()
+    };
+    tcb.pid
+}
+
+pub fn running_thread_ppid() -> Pid {
+    let tcb = unsafe {
+        unwrap_system()
+            .threads
+            .running_thread
+            .as_ref()
+            .expect("Why is nothing running?")
+            .as_ref()
+    };
+    let process_table = unsafe { &unwrap_system().process.table };
+    let pcb = process_table.get(tcb.pid).unwrap();
+    pcb.ppid
 }
