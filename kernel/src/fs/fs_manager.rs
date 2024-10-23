@@ -133,7 +133,7 @@ impl Directory {
     unsafe fn getdents(
         &self,
         offset: &mut u64,
-        mut output: *mut Dirent,
+        output: *mut Dirent,
         mut size: usize,
     ) -> Result<usize> {
         let entries = self
@@ -141,6 +141,7 @@ impl Directory {
             .as_ref()
             .expect("Directory::getdents called before directory entries were scanned");
         let mut bytes_read = 0;
+        let mut output: *mut u8 = output.cast();
         for entry in entries.range(*offset..) {
             let off = *entry.0;
             let r#type = entry.1.r#type;
@@ -164,8 +165,12 @@ impl Directory {
                 name: [],
             };
             unsafe {
-                output.write(dirent);
-                let name_ptr: *mut u8 = output.add(core::mem::offset_of!(Dirent, name)).cast();
+                let dirent_ptr: *mut Dirent = output.cast();
+                assert!(dirent_ptr.is_aligned());
+                dirent_ptr.write(dirent);
+                let name_ptr: *mut u8 = dirent_ptr
+                    .cast::<u8>()
+                    .add(core::mem::offset_of!(Dirent, name));
                 name_ptr.copy_from_nonoverlapping(name.as_ptr(), name.len());
                 name_ptr.add(name.len()).write(0); // null terminator
             }
