@@ -58,6 +58,7 @@ pub extern "C" fn read(fd: u32, buffer: *mut u8, count: usize) -> usize {
 }
 
 #[no_mangle]
+#[allow(clippy::cast_possible_truncation)]
 pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
     let result: i32;
     unsafe {
