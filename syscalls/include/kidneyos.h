@@ -34,4 +34,8 @@ Pid getppid(void);
 
 int32_t scheduler_yield(void);
 
+bool wifexited(int32_t status);
+
+int32_t wifexitstatus(int32_t status);
+
 #endif  /* KIDNEYOS_SYSCALLS_H */

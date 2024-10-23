@@ -1,6 +1,7 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::system::{running_thread_ppid, unwrap_system};
+use crate::system::{running_thread_ppid, unwrap_system, unwrap_system_mut};
 use crate::threading::process::{Pid, ProcessState, Tid};
+use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
@@ -9,12 +10,12 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use kidneyos_shared::sizes::KB;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use kidneyos_shared::sizes::KB;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -388,6 +389,16 @@ impl ThreadControlBlock {
             ThreadStatus::Dying,
             "A thread must be dying to be reaped."
         );
+
+        let system = unsafe { unwrap_system_mut() };
+        let process_table = &system.process.table;
+        let pcb = process_table.get(self.pid).unwrap();
+
+        while pcb.wait_list.is_empty() {
+            thread_sleep()
+        }
+
+        pcb.wait_list.iter().for_each(|pid| thread_wakeup(*pid));
 
         // Most of the TCB is dropped automatically.
         // But the stack must be manually deallocated.

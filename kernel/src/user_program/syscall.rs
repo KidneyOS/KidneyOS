@@ -1,10 +1,13 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
+use crate::mem::util::get_mut_from_user_space;
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
+use crate::threading::process::Pid;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
+use crate::threading::thread_sleep::thread_sleep;
 use crate::user_program::elf::Elf;
 use alloc::boxed::Box;
 use kidneyos_shared::println;
@@ -50,7 +53,31 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             todo!("read syscall")
         }
         SYS_WAITPID => {
-            todo!("waitpid syscall")
+            let wait_pid = match arg0 {
+                0 => running_thread_pid(),
+                _ => arg0 as Pid,
+            };
+
+            let status_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut i32) } {
+                Some(ptr) => ptr,
+                None => return -1,
+            };
+
+            let system = unsafe { unwrap_system_mut() };
+            let running_tcb = system.threads.running_thread.as_ref().unwrap();
+
+            if let Some(parnet_pcb) = system.process.table.get_mut(wait_pid) {
+                parnet_pcb.wait_list.push(running_tcb.pid);
+                let parent_pid = parnet_pcb.pid;
+
+                thread_sleep();
+
+                *status_ptr = (parnet_pcb.exit_code.unwrap() & 0xff) << 8;
+                parent_pid as isize
+            } else {
+                // Parent TID not found
+                -1
+            }
         }
         SYS_EXECVE => {
             let thread = unsafe {

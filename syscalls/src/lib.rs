@@ -175,3 +175,13 @@ pub extern "C" fn scheduler_yield() -> i32 {
     }
     result
 }
+
+#[no_mangle]
+pub extern "C" fn wifexited(status: i32) -> bool {
+    ((status >> 8) & 0xff) == 0
+}
+
+#[no_mangle]
+pub extern "C" fn wifexitstatus(status: i32) -> i32 {
+    (status >> 8) & 0xff
+}
