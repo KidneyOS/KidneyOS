@@ -1,5 +1,5 @@
 use crate::block::block_core::BlockManager;
-use crate::threading::process::ProcessState;
+use crate::threading::process::{Pid, ProcessState};
 use crate::threading::ThreadState;
 
 // Synchronizing this primitive in a safe way is hard.
@@ -21,4 +21,30 @@ pub unsafe fn unwrap_system() -> &'static SystemState {
 // SAFETY: SYSTEM references cannot be accessed simultaneously on different threads.
 pub unsafe fn unwrap_system_mut() -> &'static mut SystemState {
     SYSTEM.as_mut().expect("System not initialized.")
+}
+
+pub fn running_thread_pid() -> Pid {
+    let tcb = unsafe {
+        unwrap_system()
+            .threads
+            .running_thread
+            .as_ref()
+            .expect("Why is nothing running?")
+            .as_ref()
+    };
+    tcb.pid
+}
+
+pub fn running_thread_ppid() -> Pid {
+    let tcb = unsafe {
+        unwrap_system()
+            .threads
+            .running_thread
+            .as_ref()
+            .expect("Why is nothing running?")
+            .as_ref()
+    };
+    let process_table = unsafe { &unwrap_system().process.table };
+    let pcb = process_table.get(tcb.pid).unwrap();
+    pcb.ppid
 }
