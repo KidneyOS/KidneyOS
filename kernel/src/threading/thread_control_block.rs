@@ -390,16 +390,6 @@ impl ThreadControlBlock {
             "A thread must be dying to be reaped."
         );
 
-        let system = unsafe { unwrap_system_mut() };
-        let process_table = &system.process.table;
-        let pcb = process_table.get(self.pid).unwrap();
-
-        while pcb.wait_list.is_empty() {
-            thread_sleep()
-        }
-
-        pcb.wait_list.iter().for_each(|pid| thread_wakeup(*pid));
-
         // Most of the TCB is dropped automatically.
         // But the stack must be manually deallocated.
         // However, the first TCB is the kernel stack and not treated as such.

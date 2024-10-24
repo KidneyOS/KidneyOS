@@ -47,9 +47,10 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
 }
 
 const INIT: &[u8] =
-    include_bytes!("../../programs/fork/target/i686-unknown-linux-gnu/release/fork").as_slice();
+    include_bytes!("../../programs/waitpid/target/i686-unknown-linux-gnu/release/waitpid").as_slice();
 // ../../programs/execve/target/i686-unknown-linux-gnu/release/execve
 // ../../programs/fork/target/i686-unknown-linux-gnu/release/fork
+// ../../programs/waitpid/target/i686-unknown-linux-gnu/release/waitpid
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {

@@ -1,4 +1,6 @@
+use super::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_block};
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
+use super::thread_sleep::thread_wakeup;
 use crate::system::unwrap_system_mut;
 use crate::{
     interrupts::{intr_disable, intr_enable},
@@ -24,6 +26,20 @@ pub type ThreadFunction = unsafe extern "C" fn() -> i32;
 pub fn exit_thread(exit_code: i32) -> ! {
     // We will never return here so do not need to re-enable interrupts from here.
     intr_disable();
+
+    let system = unsafe { unwrap_system_mut() };
+    let process_table = &system.process.table;
+    let pcb = process_table.get(system.threads.running_thread.as_ref().unwrap().pid).unwrap();
+
+    // Currently we just immediately yield the thread, in the future this could be set up to
+    // Put the thread on the sleep queue (although with the current sleep queue implementation
+    // that would not provide any performence benifits).
+    while pcb.wait_list.is_empty() {
+        // TODO: This puts the thread's status as 'Ready', however by now it is a zombie thread.
+        scheduler_yield_and_continue()
+    }
+
+    pcb.wait_list.iter().for_each(|pid| thread_wakeup(*pid));
 
     // Get the current thread.
     // SAFETY: Interrupts must be off.
