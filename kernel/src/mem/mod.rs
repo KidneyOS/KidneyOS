@@ -244,6 +244,10 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 / PAGE_FRAME_SIZE,
         ) else {
             // Evict page for swapping
+<<<<<<< HEAD
+=======
+            
+>>>>>>> 5853e29 (Merged main into branch)
 
             halt!("Out of virtual memory!");
         };
