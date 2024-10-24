@@ -4,7 +4,8 @@ include_guard = "KIDNEYOS_SYSCALLS_H"
 
 no_includes = true
 sys_includes = [
-    "stdint.h"
+    "stdint.h",
+    "stdbool.h",
 ]
 
 header = """

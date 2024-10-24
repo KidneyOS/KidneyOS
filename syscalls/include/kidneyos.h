@@ -9,6 +9,7 @@
 #define KIDNEYOS_SYSCALLS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define O_CREATE 64
 
@@ -201,5 +202,9 @@ Pid getpid(void);
 Pid getppid(void);
 
 int32_t scheduler_yield(void);
+
+bool wifexited(int32_t status);
+
+int32_t wifexitstatus(int32_t status);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */
