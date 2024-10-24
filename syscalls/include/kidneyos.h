@@ -13,7 +13,8 @@
 typedef uint16_t Pid;
 
 typedef struct Timespec {
-
+  int64_t tv_sec;
+  int64_t tv_nsec;
 } Timespec;
 
 void exit(uintptr_t code);
@@ -33,5 +34,7 @@ Pid getpid(void);
 Pid getppid(void);
 
 int32_t scheduler_yield(void);
+
+int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

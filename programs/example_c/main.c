@@ -1,5 +1,8 @@
 #include <kidneyos.h>
 
 void _start() {
-    exit(1);
+    Timespec ts;
+
+    clock_gettime(0, &ts);
+    exit(0);
 }

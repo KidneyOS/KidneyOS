@@ -1,11 +1,13 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::mem::user::check_and_copy_user_memory;
+use crate::mem::util::get_mut_from_user_space;
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
 use crate::user_program::elf::Elf;
+use crate::user_program::time::{current_time, rtc_time, Timespec, CLOCK_REALTIME, CLOCK_MONOTONIC};
 use alloc::boxed::Box;
 use kidneyos_shared::println;
 
@@ -18,6 +20,7 @@ pub const SYS_GETPID: usize = 0x14;
 pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_GETPPID: usize = 0x40;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
+pub const SYS_CLOCK_GETTIME: usize = 0x109;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -76,6 +79,21 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_GETPPID => running_thread_ppid() as isize,
         SYS_SCHED_YIELD => {
             scheduler_yield_and_continue();
+            0
+        }
+        SYS_CLOCK_GETTIME => {
+            let timespec = match arg0 {
+                CLOCK_REALTIME => current_time(),
+                CLOCK_MONOTONIC => rtc_time(),
+                _ => return -1, // Only supporting realtime and monotonic for now
+            };
+
+            let timespec_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut Timespec) } {
+                Some(ptr) => ptr,
+                None => return -1,
+            };
+
+            *timespec_ptr = timespec;
             0
         }
         _ => 1,
