@@ -120,6 +120,10 @@
 
 #define S_DIRECTORY 3
 
+#define CLOCK_REALTIME 0
+
+#define CLOCK_MONOTONIC 1
+
 typedef uint16_t Pid;
 
 typedef struct Stat {

@@ -11,9 +11,7 @@ use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
 use crate::user_program::elf::Elf;
-use crate::user_program::time::{
-    current_time, rtc_time, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME,
-};
+use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
@@ -95,20 +93,20 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         SYS_CLOCK_GETTIME => {
             let timespec = match arg0 {
-                CLOCK_REALTIME => current_time(),
-                CLOCK_MONOTONIC => rtc_time(),
+                CLOCK_REALTIME => get_rtc(),
+                CLOCK_MONOTONIC => get_tsc(),
                 _ => return -1, // Only supporting realtime and monotonic for now
             };
 
-            let timespec_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut Timespec) } {
-                Some(ptr) => ptr,
-                None => return -1,
+            let Some(timespec_ptr) = (unsafe { get_mut_from_user_space(arg1 as *mut Timespec) })
+            else {
+                return -1;
             };
 
+            println!("{:?}", timespec);
             *timespec_ptr = timespec;
             0
         }
-        _ => 1,
         _ => -ENOSYS,
     }
 }

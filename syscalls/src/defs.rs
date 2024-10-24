@@ -82,3 +82,6 @@ pub const SYS_CLOCK_GETTIME: usize = 0x109;
 pub const S_REGULAR_FILE: u8 = 1;
 pub const S_SYMLINK: u8 = 2;
 pub const S_DIRECTORY: u8 = 3;
+
+pub const CLOCK_REALTIME: usize = 0;
+pub const CLOCK_MONOTONIC: usize = 1;
