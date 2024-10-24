@@ -4,30 +4,25 @@ use kidneyos_shared::eprintln;
 use kidneyos_shared::serial::inb;
 
 pub fn on_ide_interrupt(vec_no: u8) {
-    for (i, chan) in CHANNELS.iter().enumerate() {
-        unsafe {
-            if chan.is_locked() {
-                chan.force_unlock();
-            }
-        }
-        let c = &mut chan.lock();
+    for (i, c) in CHANNELS.iter().enumerate() {
+        let channel = &mut c.lock();
 
         // Check if interrupt is from this channel
-        if vec_no == c.get_irq() {
+        if vec_no == channel.get_irq() {
             // Check if channel is expecting an interrupt
-            if c.is_expect_interrupt() {
+            if channel.is_expect_interrupt() {
                 // Acknowledge the interrupt
                 unsafe {
-                    inb(c.reg_status());
+                    inb(channel.reg_status());
                 }
                 // Wake up the waiting thread
-                c.sem_up();
+                channel.sem_up();
             } else {
                 // Spurious interrupt
                 eprintln!(
                     "IDE: Spurious interrupt on channel {} ({})",
                     i,
-                    String::from_iter(c.get_name())
+                    String::from_iter(channel.get_name())
                 );
             }
         }

@@ -12,6 +12,7 @@ nom = { version = "7.1.3", default-features = false }
 kidneyos-shared.path = "../shared"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 zerocopy = { version = "0.7.35", features = ["derive"] }
+kidneyos-syscalls.path = "../syscalls"
 
 [features]
 default = ["ticket_mutex"]

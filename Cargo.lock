@@ -139,6 +139,7 @@ dependencies = [
  "bitbybit",
  "flate2",
  "kidneyos-shared",
+ "kidneyos-syscalls",
  "lazy_static",
  "nom",
  "zerocopy",
