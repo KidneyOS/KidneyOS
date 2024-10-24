@@ -10,6 +10,7 @@ mod test {
     use std::env;
     use std::io::Read;
     use crate::block;
+    use crate::block::block_core::BLOCK_SECTOR_SIZE;
     use crate::block::block_core::test::block_from_file;
     use crate::fs::vsfs::vsfs::VSFS_BLOCK_SIZE;
 
@@ -85,6 +86,26 @@ mod test {
         println!("File system size in blocks: {}", vsfs.superblock.num_blocks);
         println!("Number of available blocks: {}", vsfs.superblock.free_blocks);
         println!("First block after inode table: {}", vsfs.superblock.data_start);
+
+        // print the length of data blocks
+        println!("Number of data blocks: {}", vsfs.data_blocks.len());        
+
+        // print out the data blocks
+        for i in 0..vsfs.data_blocks.len() {
+            if (vsfs.data_blocks[i].iter().find(|&&x| x != 0).is_some()) {
+                //println!("Data block {}: {:?}", i, &vsfs.data_blocks[i][0..BLOCK_SECTOR_SIZE]);
+                // print the length of data block
+                //println!("Data block length: {}", vsfs.data_blocks[i].len());
+            }                
+        }
+
+        // print out the inode bitmap
+        //println!("Inode bitmap: {:?}", vsfs.inode_bitmap.bits);
+        println!("Inode bitmap length: {}", vsfs.inode_bitmap.bits.len());
+
+        // print out the data bitmap
+        println!("Data bitmap: {:?}", vsfs.data_bitmap.bits);
+        println!("Data bitmap length: {}", vsfs.data_bitmap.bits.len());
         
         // Return error always for now
         Err(Error)
