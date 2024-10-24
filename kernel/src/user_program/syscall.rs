@@ -1,5 +1,9 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::fs::syscalls::{
+    chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
+    rename, rmdir, symlink, sync, unlink, unmount, write,
+};
 use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
@@ -10,17 +14,7 @@ use crate::user_program::elf::Elf;
 use crate::user_program::time::{current_time, rtc_time, Timespec, CLOCK_REALTIME, CLOCK_MONOTONIC};
 use alloc::boxed::Box;
 use kidneyos_shared::println;
-
-pub const SYS_EXIT: usize = 0x1;
-pub const SYS_FORK: usize = 0x2;
-pub const SYS_READ: usize = 0x3;
-pub const SYS_WAITPID: usize = 0x7;
-pub const SYS_EXECVE: usize = 0x0b;
-pub const SYS_GETPID: usize = 0x14;
-pub const SYS_NANOSLEEP: usize = 0xa2;
-pub const SYS_GETPPID: usize = 0x40;
-pub const SYS_SCHED_YIELD: usize = 0x9e;
-pub const SYS_CLOCK_GETTIME: usize = 0x109;
+pub use kidneyos_syscalls::defs::*;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -38,9 +32,25 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_FORK => {
             todo!("fork syscall")
         }
-        SYS_READ => {
-            todo!("read syscall")
-        }
+        SYS_OPEN => unsafe { open(arg0 as _, arg1) },
+        SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) },
+        SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) },
+        SYS_LSEEK64 => unsafe { lseek64(arg0, arg1 as _, arg2 as _) },
+        SYS_CLOSE => unsafe { close(arg0) },
+        SYS_CHDIR => unsafe { chdir(arg0 as _) },
+        SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) },
+        SYS_MKDIR => unsafe { mkdir(arg0 as _) },
+        SYS_RMDIR => unsafe { rmdir(arg0 as _) },
+        SYS_FSTAT => unsafe { fstat(arg0 as _, arg1 as _) },
+        SYS_UNLINK => unsafe { unlink(arg0 as _) },
+        SYS_GETDENTS => unsafe { getdents(arg0, arg1 as _, arg2 as _) },
+        SYS_LINK => unsafe { link(arg0 as _, arg1 as _) },
+        SYS_SYMLINK => unsafe { symlink(arg0 as _, arg1 as _) },
+        SYS_RENAME => unsafe { rename(arg0 as _, arg1 as _) },
+        SYS_FTRUNCATE => unsafe { ftruncate(arg0 as _, arg1 as _, arg2 as _) },
+        SYS_UNMOUNT => unsafe { unmount(arg0 as _) },
+        SYS_MOUNT => unsafe { mount(arg0 as _, arg1 as _, arg2 as _) },
+        SYS_SYNC => sync(),
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }
@@ -97,5 +107,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             0
         }
         _ => 1,
+        _ => -ENOSYS,
     }
 }
