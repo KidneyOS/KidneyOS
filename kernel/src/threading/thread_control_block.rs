@@ -182,7 +182,9 @@ impl ThreadControlBlock {
         let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
         let tid: Tid = state.allocate_tid();
 
-        let mut page_manager = PageManager::default();
+        let mut page_manager = self.page_manager.clone();
+        unsafe { page_manager.zero_page_table() }
+
         let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
 
         let new_tcb: ThreadControlBlock = Self {

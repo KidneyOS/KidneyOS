@@ -6,7 +6,7 @@ use crate::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
     },
-    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
+    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE}, println,
 };
 use arbitrary_int::{u10, u12, u20};
 use bitbybit::bitfield;
@@ -439,6 +439,24 @@ impl<A: Allocator> PageManager<A> {
         (start..pointer + count)
             .step_by(PAGE_FRAME_SIZE)
             .all(|ptr| self.is_mapped(ptr))
+    }
+
+    /// Marks every pte entry as invalid so it can be re-mapped
+    ///
+    /// # Safety
+    ///
+    /// This should never be called on any already-mapped page table
+    /// Currently it should only be used to re-map a new process on fork
+    pub unsafe fn zero_page_table(&mut self) {
+        let page_directory = &mut self.root.as_mut();
+
+        for pdi in 0..PAGE_DIRECTORY_LEN {
+            if !page_directory[pdi].present() {
+                continue;
+            }
+            let page_table = page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
+            *page_table = PageTable::default();
+        }
     }
 }
 
