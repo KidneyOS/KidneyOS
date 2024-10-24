@@ -20,6 +20,7 @@ mod sync;
 mod system;
 mod threading;
 mod user_program;
+mod swapping;
 pub mod vfs;
 
 extern crate alloc;
@@ -34,10 +35,7 @@ use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
-<<<<<<< HEAD
-=======
 
->>>>>>> 22548d3 (Fixed main.rs merge issues)
 use threading::{create_thread_state, thread_system_start};
 
 #[cfg_attr(not(test), global_allocator)]
@@ -73,6 +71,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Setting up GDTR");
         global_descriptor_table::load();
         println!("GDTR set up!");
+        
+        println!("Setting up swap space");
+        // TODO: Global Swap Space ptr
+        println!("Swap space initialized!");
+
 
         println!("Setting up PIT");
         pic::pic_remap(pic::PIC1_OFFSET, pic::PIC2_OFFSET);
