@@ -22,6 +22,7 @@ RAW_TRAMPOLINE := $(ARTIFACT_DIR)/libkidneyos_trampoline.a
 TRAMPOLINE_DIR := build/trampoline
 TRAMPOLINE := $(TRAMPOLINE_DIR)/libkidneyos_trampoline.a
 ISO := build/kidneyos.iso
+ATADISK := gpt_fat16_50MiB.img
 
 .PHONY: default
 default: $(ISO)
@@ -58,7 +59,7 @@ $(RAW_TRAMPOLINE): trampoline/Cargo.toml Cargo.lock
 $(TRAMPOLINE_DIR)/libkidneyos_trampoline: $(RAW_TRAMPOLINE)
 	rm -rf $@
 	mkdir -p $@
-	ar x $< --output=$@
+	i686-unknown-linux-gnu-ar x $< --output=$@
 
 $(TRAMPOLINE_DIR)/libkidneyos_trampoline_unlocalized.o: $(TRAMPOLINE_DIR)/libkidneyos_trampoline
 	i686-unknown-linux-gnu-ld -r -o $@ $</*.o
@@ -85,13 +86,22 @@ build/isofiles/boot/grub/grub.cfg: build-support/grub.cfg
 $(ISO): build/isofiles/boot/kernel.bin build/isofiles/boot/grub/grub.cfg
 	grub-mkrescue -o $@ build/isofiles
 
+# Disk Image
+.PHONY: disk
+disk:
+	@echo "Generating disk image: $(ATADISK)"
+	./scripts/generate-disk.bash -s 50MiB -f fat16
+
 # Running
 
 .PHONY: run-bochs
 run-bochs: $(ISO)
 	bochs -q -f bochsrc.txt
 
-QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
+# QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
+QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) \
+			  -drive format=raw,file=${ATADISK},if=ide \
+			  -boot d
 
 .PHONY: run-qemu
 run-qemu: $(ISO)
@@ -105,6 +115,16 @@ run-qemu-gdb: $(ISO) build/kernel.sym
 run-qemu-ng: $(ISO)
 	# NOTE: You can quit with Ctrl-A X
 	qemu-system-i386 -nographic $(QEMU_FLAGS)
+
+# Docs
+
+.PHONY: docs
+docs:
+	mdbook build docs
+
+.PHONY: docs-serve
+docs-serve:
+	mdbook serve docs
 
 # Misc
 

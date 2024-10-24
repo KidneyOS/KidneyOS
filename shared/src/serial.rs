@@ -29,6 +29,56 @@ pub unsafe fn inb(port: u16) -> u8 {
     res
 }
 
+/// Wrapper for assembly function insw - input from port to string.
+///
+/// Input word from I/O port specified in DX into memory location specified in ES:EDI.
+///
+/// # Safety
+///
+/// * The caller must ensure that the port is a valid port to read from.
+/// * They also need to ensure the buffer is valid and has enough space to store the data.
+pub unsafe fn insw(port: u16, buffer: *mut u8, count: usize) {
+    asm!(
+    // Save EDI to restore it after the insw instruction.
+    "push edi",
+    // Load the buffer address into EDI.
+    "mov edi, eax",
+    // Invoke `insw` instruction.
+    "rep insw",
+    // Restore EDI.
+    "pop edi",
+    in("dx") port,
+    in("eax") buffer,
+    in("ecx") count,
+    options(nostack, preserves_flags)
+    );
+}
+
+/// Wrapper for assembly function outsw - output string to port.
+///
+/// Output word from memory location specified in DS:ESI to I/O port specified in DX
+///
+/// # Safety
+///
+/// The caller must ensure that the port is a valid port to write to.
+/// They also need to ensure the buffer is valid and has appropriate size to write to the port.
+pub unsafe fn outsw(port: u16, buffer: *const u8, count: usize) {
+    asm!(
+    // Save ESI to restore it after the outsw instruction.
+    "push esi",
+    // Load the buffer address into ESI.
+    "mov esi, eax",
+    // Invoke `outsw` instruction.
+    "rep outsw",
+    // Restore ESI.
+    "pop esi",
+    in("dx") port,
+    in("eax") buffer,
+    in("ecx") count,
+    options(nostack, preserves_flags)
+    );
+}
+
 impl SerialWriter {
     fn ensure_initialized(&mut self) {
         if self.initialized {

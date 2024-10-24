@@ -1,7 +1,17 @@
 mod buddy_allocator;
 mod frame_allocator;
+<<<<<<< HEAD
 mod swapping;
 mod page_replacement;
+=======
+<<<<<<< HEAD
+pub mod user;
+pub mod util;
+=======
+mod swapping;
+mod page_replacement;
+>>>>>>> aa99864 (Swapping and replacement skeleton functions)
+>>>>>>> refs/remotes/origin/feat/swapping
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
@@ -152,6 +162,9 @@ impl KernelAllocator {
         };
     }
 
+    /// # Safety
+    ///
+    /// TODO
     pub unsafe fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
         let KernelAllocatorState::Initialized {
             frame_allocator, ..
@@ -163,6 +176,9 @@ impl KernelAllocator {
         frame_allocator.alloc(frames)
     }
 
+    /// # Safety
+    ///
+    /// TODO
     pub unsafe fn frame_dealloc(&mut self, ptr: NonNull<u8>) {
         let KernelAllocatorState::Initialized {
             frame_allocator, ..
@@ -236,6 +252,10 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 / PAGE_FRAME_SIZE,
         ) else {
             // Evict page for swapping
+<<<<<<< HEAD
+=======
+            
+>>>>>>> refs/remotes/origin/feat/swapping
 
             halt!("Out of virtual memory!");
         };

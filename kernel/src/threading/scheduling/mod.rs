@@ -6,19 +6,15 @@ pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 
-use crate::sync::intr::{hold_interrupts, intr_get_level, IntrLevel};
-
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
+use crate::interrupts::{intr_get_level, mutex_irq::hold_interrupts, IntrLevel};
+use crate::system::unwrap_system_mut;
 
-pub static mut SCHEDULER: Option<Box<dyn Scheduler>> = None;
-
-pub fn initialize_scheduler() {
+pub fn create_scheduler() -> Box<dyn Scheduler> {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // SAFETY: Interrupts should be off.
-    unsafe {
-        SCHEDULER = Some(Box::new(FIFOScheduler::new()));
-    }
+    Box::new(FIFOScheduler::new())
 }
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
@@ -28,13 +24,21 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
     // SAFETY: Threads and Scheduler must be initialized and active.
     // Interrupts must be disabled.
     unsafe {
-        let scheduler = SCHEDULER.as_mut().expect("No Scheduler set up!");
-        let switch_to_option = scheduler.pop();
+        let scheduler = unwrap_system_mut().threads.scheduler.as_mut();
 
-        // Do not switch to ourselves.
-        if let Some(switch_to) = switch_to_option {
-            // Switch to this other thread.
-            switch_threads(status_for_current_thread, switch_to);
+        while let Some(switch_to) = scheduler.pop() {
+            // Check if the thread is not blocked.
+            match switch_to.as_ref().status {
+                ThreadStatus::Blocked => {
+                    // If the thread is blocked, push it back onto the scheduler.
+                    scheduler.push(switch_to);
+                }
+                _ => {
+                    // Do not switch to ourselves.
+                    switch_threads(status_for_current_thread, switch_to);
+                    break;
+                }
+            }
         }
     }
 

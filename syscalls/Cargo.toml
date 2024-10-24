@@ -1,0 +1,12 @@
+[package]
+name = "kidneyos-syscalls"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[build-dependencies]
+cbindgen = { version = "0.27.0", default-features = false }
+
+[lints]
+workspace = true

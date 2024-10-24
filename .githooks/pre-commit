@@ -5,3 +5,11 @@ set -euo pipefail
 make -f programs.mk
 cargo clippy --target i686-unknown-linux-gnu -- -D warnings
 cargo fmt -- --quiet --check
+
+# Skipping either of thse checks is OK if the tool isn't installed.
+if command -v mdsh >/dev/null; then
+  scripts/check-mdsh.bash
+fi
+if command -v shellcheck >/dev/null; then
+  shellcheck .githooks/pre-commit scripts/*sh
+fi

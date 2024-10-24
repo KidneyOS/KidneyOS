@@ -1,33 +1,55 @@
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
 #![feature(allocator_api)]
 #![feature(asm_const)]
 #![feature(btreemap_alloc)]
+#![feature(error_in_core)]
 #![feature(naked_functions)]
 #![feature(non_null_convenience)]
 #![feature(offset_of)]
 #![feature(slice_ptr_get)]
-#![cfg_attr(target_os = "none", no_std)]
-#![cfg_attr(not(test), no_main)]
 #![feature(negative_impls)]
+#![feature(pointer_is_aligned)]
 
-mod interrupt_descriptor_table;
-mod mem;
+mod block;
+mod drivers;
+mod interrupts;
+pub mod mem;
 mod paging;
 mod sync;
+mod system;
 mod threading;
-mod timer;
 mod user_program;
+pub mod vfs;
 
 extern crate alloc;
 
+use crate::block::block_core::BlockManager;
+use crate::drivers::ata::ata_core::ide_init;
+use crate::system::{SystemState, SYSTEM};
+use crate::threading::process::create_process_state;
+use crate::threading::thread_control_block::ThreadControlBlock;
+use alloc::boxed::Box;
+use core::ptr::NonNull;
+use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+<<<<<<< HEAD
 
 use threading::{thread_system_initialization, thread_system_start};
+=======
+<<<<<<< HEAD
+use threading::{create_thread_state, thread_system_start};
+=======
+>>>>>>> refs/remotes/origin/feat/swapping
 
-#[cfg_attr(target_os = "none", global_allocator)]
+use threading::{thread_system_initialization, thread_system_start};
+>>>>>>> aa99864 (Swapping and replacement skeleton functions)
+
+#[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
-#[cfg(target_os = "none")]
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(args: &core::panic::PanicInfo) -> ! {
     kidneyos_shared::eprintln!("{}", args);
@@ -47,7 +69,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         KERNEL_ALLOCATOR.init(mem_upper);
 
         println!("Setting up IDTR");
-        interrupt_descriptor_table::load();
+        idt::load();
         println!("IDTR set up!");
 
         println!("Enabling paging");
@@ -59,13 +81,29 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("GDTR set up!");
 
         println!("Setting up PIT");
-        timer::pic_remap(timer::PIC1_OFFSET, timer::PIC2_OFFSET);
-        timer::init_pit();
+        pic::pic_remap(pic::PIC1_OFFSET, pic::PIC2_OFFSET);
+        pic::init_pit();
         println!("PIT set up!");
 
         println!("Initializing Thread System...");
-        thread_system_initialization();
+        let mut threads = create_thread_state();
+        let mut process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
+
+        let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0, &mut process);
+
+        let block_manager = BlockManager::default();
+
+        threads.scheduler.push(Box::new(ide_tcb));
+
+        SYSTEM = Some(SystemState {
+            threads,
+            process,
+
+            block_manager,
+        });
+
         thread_system_start(page_manager, INIT);
     }
 }

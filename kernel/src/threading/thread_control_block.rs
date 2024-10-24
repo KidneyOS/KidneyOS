@@ -1,26 +1,18 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::threading::process::{Pid, ProcessState, Tid};
+use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     paging::{PageManager, PageManagerDefault},
-    user_program::{
-        elf_loader::parse_elf,
-        virtual_memory_area::{VmAreaStruct, VmFlags},
-    },
+    user_program::elf::Elf,
     KERNEL_ALLOCATOR,
 };
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
-    sync::atomic::{AtomicU16, Ordering},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-
-pub type Pid = u16;
-pub type Tid = u16;
-
-// Current value marks the next available PID & TID values to use.
-static NEXT_UNRESERVED_PID: AtomicU16 = AtomicU16::new(0);
-static NEXT_UNRESERVED_TID: AtomicU16 = AtomicU16::new(0);
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -41,15 +33,6 @@ pub enum ThreadStatus {
     Dying,
 }
 
-pub fn allocate_pid() -> Pid {
-    // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_PID.fetch_add(1, Ordering::SeqCst) as Pid
-}
-pub fn allocate_tid() -> Tid {
-    // SAFETY: Atomically accesses a shared variable.
-    NEXT_UNRESERVED_TID.fetch_add(1, Ordering::SeqCst) as Tid
-}
-
 pub struct ProcessControlBlock {
     pub pid: Pid,
     // The TIDs of this process' children threads
@@ -62,74 +45,18 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(elf_data: &[u8]) -> ThreadControlBlock {
-        let pid: Pid = allocate_pid();
-
-        let (entrypoint, vm_areas) =
-            parse_elf(elf_data).expect("init process's ELF data was malformed");
-
-        let mut page_manager = PageManager::default();
-        for VmAreaStruct {
-            vm_start,
-            vm_end,
-            offset,
-            // TODO: Consider all the flags. For those we can support, implement
-            // it. For those we can't, throw an error if they're set in such a
-            // way that the program might not work correctly.
-            flags: VmFlags { write, .. },
-        } in vm_areas
-        {
-            let len = vm_end - vm_start;
-            let frames = len.div_ceil(PAGE_FRAME_SIZE);
-
-            unsafe {
-                // TODO: Save this physical address somewhere so we can deallocate
-                // it when dropping the thread.
-                let kernel_virt_addr = KERNEL_ALLOCATOR
-                    .frame_alloc(frames)
-                    .expect("no more frames...")
-                    .cast::<u8>()
-                    .as_ptr();
-                let phys_addr = kernel_virt_addr.sub(OFFSET);
-
-                // TODO: Throw an error if this range overlaps any previously mapped
-                // ranges, since `map_range` requires that the input range has not
-                // already been mapped.
-
-                // Map the physical address obtained by the allocation above to the
-                // virtual address assigned by the ELF header.
-                page_manager.map_range(
-                    phys_addr as usize,
-                    vm_start,
-                    frames * PAGE_FRAME_SIZE,
-                    write,
-                    true,
-                );
-
-                // Load so we can write to the virtual addresses mapped above.
-                copy_nonoverlapping(&elf_data[offset] as *const u8, kernel_virt_addr, len);
-
-                // Zero the sliver of addresses between the end of the region, and
-                // the end of the region we had to map due to page
-                write_bytes(kernel_virt_addr.add(len), 0, frames * PAGE_FRAME_SIZE - len);
-            }
-        }
-
-        let mut new_pcb = Self {
+    pub fn create(state: &mut ProcessState) -> Pid {
+        let pid = state.allocate_pid();
+        let pcb = Self {
             pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
         };
-        let new_tcb = ThreadControlBlock::new_with_elf(
-            NonNull::new(entrypoint as *mut u8).expect("fail to create PCB entry point"),
-            pid,
-            page_manager,
-        );
-        new_pcb.child_tids.push(new_tcb.tid);
 
-        new_tcb
+        state.table.add(Box::new(pcb));
+
+        pid
     }
 }
 
@@ -158,9 +85,113 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
+    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> ThreadControlBlock {
+        // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
+        let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
+
+        if elf.header.architecture != ElfArchitecture::X86 && executable {
+            panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
+        }
+
+        let pid: Pid = ProcessControlBlock::create(state);
+
+        let mut page_manager = PageManager::default();
+
+        for program_header in elf.program_headers {
+            if program_header.program_type != ElfProgramType::Load {
+                continue;
+            }
+
+            // Some ELF files have off-alignment segments (off 4KB).
+            // We need to pad this space with zeroes.
+            let segment_virtual_frame_start =
+                program_header.virtual_address as usize / PAGE_FRAME_SIZE;
+            let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
+            let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
+            let segment_padded_size = segment_padding + program_header.data.len();
+
+            let frames = segment_padded_size.div_ceil(PAGE_FRAME_SIZE);
+
+            unsafe {
+                // TODO: Save this physical address somewhere so we can deallocate
+                // it when dropping the thread.
+                let kernel_virt_addr = KERNEL_ALLOCATOR
+                    .frame_alloc(frames)
+                    .expect("no more frames...")
+                    .cast::<u8>()
+                    .as_ptr();
+                let phys_addr = kernel_virt_addr.sub(OFFSET);
+
+                // TODO: Throw an error if this range overlaps any previously mapped
+                // ranges, since `map_range` requires that the input range has not
+                // already been mapped.
+
+                // Map the physical address obtained by the allocation above to the
+                // virtual address assigned by the ELF header.
+                page_manager.map_range(
+                    phys_addr as usize,
+                    segment_virtual_start,
+                    frames * PAGE_FRAME_SIZE,
+                    program_header.writable,
+                    true,
+                );
+
+                write_bytes(kernel_virt_addr, 0, segment_padded_size);
+
+                // Load so we can write to the virtual addresses mapped above.
+                copy_nonoverlapping(
+                    program_header.data.as_ptr(),
+                    kernel_virt_addr.add(segment_padding),
+                    program_header.data.len(),
+                );
+
+                // Zero the sliver of addresses between the end of the region, and
+                // the end of the region we had to map due to page
+                write_bytes(
+                    kernel_virt_addr.add(segment_padded_size),
+                    0,
+                    frames * PAGE_FRAME_SIZE - segment_padded_size,
+                );
+            }
+        }
+
+        ThreadControlBlock::new_with_page_manager(
+            NonNull::new(elf.header.program_entry as *mut u8)
+                .expect("fail to create PCB entry point"),
+            pid,
+            page_manager,
+            state,
+        )
+    }
+
+    pub fn new_with_page_manager(
+        entry_instruction: NonNull<u8>,
+        pid: Pid,
+        page_manager: PageManager,
+        state: &mut ProcessState,
+    ) -> Self {
+        let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
+
+        // Now, we must build the stack frames for our new thread.
+        let switch_threads_context = new_thread
+            .allocate_stack_space(size_of::<SwitchThreadsContext>())
+            .expect("No Stack Space!");
+
+        // SAFETY: Manually setting stack bytes a la C.
+        unsafe {
+            *switch_threads_context
+                .as_ptr()
+                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+        }
+
+        // Our thread can now be run via the `switch_threads` method.
+        new_thread.status = ThreadStatus::Ready;
+        new_thread
+    }
+
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid) -> Self {
-        let mut new_thread = Self::new(eip, pid, PageManager::default());
+    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid, state: &mut ProcessState) -> Self {
+        let mut new_thread = Self::new(eip, pid, PageManager::default(), state);
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -190,32 +221,13 @@ impl ThreadControlBlock {
         new_thread
     }
 
-    pub fn new_with_elf(
+    pub fn new(
         entry_instruction: NonNull<u8>,
         pid: Pid,
-        page_manager: PageManager,
+        mut page_manager: PageManager,
+        state: &mut ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, pid, page_manager);
-
-        // Now, we must build the stack frames for our new thread.
-        let switch_threads_context = new_thread
-            .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
-
-        // SAFETY: Manually setting stack bytes a la C.
-        unsafe {
-            *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
-        }
-
-        // Our thread can now be run via the `switch_threads` method.
-        new_thread.status = ThreadStatus::Ready;
-        new_thread
-    }
-
-    pub fn new(entry_instruction: NonNull<u8>, pid: Pid, mut page_manager: PageManager) -> Self {
-        let tid: Tid = allocate_tid();
+        let tid: Tid = state.allocate_tid();
 
         let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
 
@@ -275,15 +287,15 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager) -> Self {
+    pub fn new_kernel_thread(page_manager: PageManager, state: &mut ProcessState) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             user_stack: NonNull::dangling(),
-            tid: allocate_tid(),
-            pid: allocate_pid(),
+            tid: state.allocate_tid(),
+            pid: state.allocate_pid(),
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,

@@ -1,5 +1,3 @@
-pub mod intr;
-#[allow(unused)]
-pub mod irq;
-#[allow(unused)]
+#[allow(dead_code)]
 pub mod mutex;
+pub mod semaphore;
