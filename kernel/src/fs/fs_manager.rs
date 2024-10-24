@@ -158,7 +158,7 @@ impl Directory {
                 return Err(Error::IO("file name too long".into()));
             };
             let dirent = Dirent {
-                offset: off,
+                offset: off as i64,
                 inode,
                 reclen,
                 r#type: r#type.to_u8(),

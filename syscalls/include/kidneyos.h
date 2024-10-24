@@ -131,7 +131,7 @@ typedef struct Dirent {
   /**
    * Opaque offset value to be used with seekdir.
    */
-  uint64_t offset;
+  int64_t offset;
   uint32_t inode;
   /**
    * Length of this directory entry in bytes.

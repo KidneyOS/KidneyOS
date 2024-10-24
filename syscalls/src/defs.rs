@@ -14,7 +14,7 @@ pub struct Stat {
 #[derive(Clone, Copy, Debug)]
 pub struct Dirent {
     /// Opaque offset value to be used with seekdir.
-    pub offset: u64,
+    pub offset: i64,
     pub inode: u32,
     /// Length of this directory entry in bytes.
     pub reclen: u16,
