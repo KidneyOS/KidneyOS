@@ -5,6 +5,8 @@ pub mod util;
 mod swapping;
 mod page_replacement;
 
+
+
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
 use core::{
@@ -245,9 +247,12 @@ unsafe impl GlobalAlloc for KernelAllocator {
         ) else {
             // Evict page for swapping
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
             
 >>>>>>> 5853e29 (Merged main into branch)
+=======
+>>>>>>> d4b6367 (Fixed merge issues with mod.rs)
 
             halt!("Out of virtual memory!");
         };
