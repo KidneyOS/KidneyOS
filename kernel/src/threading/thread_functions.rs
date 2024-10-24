@@ -1,4 +1,4 @@
-use super::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_block};
+use super::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use super::thread_sleep::thread_wakeup;
 use crate::system::unwrap_system_mut;
@@ -29,7 +29,9 @@ pub fn exit_thread(exit_code: i32) -> ! {
 
     let system = unsafe { unwrap_system_mut() };
     let process_table = &system.process.table;
-    let pcb = process_table.get(system.threads.running_thread.as_ref().unwrap().pid).unwrap();
+    let pcb = process_table
+        .get(system.threads.running_thread.as_ref().unwrap().pid)
+        .unwrap();
 
     // Currently we just immediately yield the thread, in the future this could be set up to
     // Put the thread on the sleep queue (although with the current sleep queue implementation
