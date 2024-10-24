@@ -1,10 +1,7 @@
 mod buddy_allocator;
 mod frame_allocator;
-mod swapping;
-mod page_replacement;
 pub mod user;
 pub mod util;
-
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
