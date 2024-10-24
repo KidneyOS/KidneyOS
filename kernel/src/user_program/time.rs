@@ -82,16 +82,16 @@ pub fn get_rtc() -> Timespec {
         // Wait for the RTC to not be updating
         asm!(
             "2:",
-            "mov al, 0x0A",   // Load RTC register A
-            "out 0x70, al",   // Output to address 0x70
-            "in al, 0x71",    // Read from RTC register A
-            "test al, 0x80",  // Check if update is in progress (bit 7)
-            "jne 2b",         // Loop if update is in progress
+            "mov al, 0x0A",  // Load RTC register A
+            "out 0x70, al",  // Output to address 0x70
+            "in al, 0x71",   // Read from RTC register A
+            "test al, 0x80", // Check if update is in progress (bit 7)
+            "jne 2b",        // Loop if update is in progress
         );
 
         // seconds
         asm!(
-            "mov al, 0x00",   
+            "mov al, 0x00",
             "out 0x70, al",
             "in al, 0x71",
             out("al") seconds
@@ -99,7 +99,7 @@ pub fn get_rtc() -> Timespec {
 
         // minutes
         asm!(
-            "mov al, 0x02",   
+            "mov al, 0x02",
             "out 0x70, al",
             "in al, 0x71",
             out("al") minutes
@@ -107,7 +107,7 @@ pub fn get_rtc() -> Timespec {
 
         // hours
         asm!(
-            "mov al, 0x04",   
+            "mov al, 0x04",
             "out 0x70, al",
             "in al, 0x71",
             out("al") hours
@@ -115,7 +115,7 @@ pub fn get_rtc() -> Timespec {
 
         // day of month
         asm!(
-            "mov al, 0x07",   
+            "mov al, 0x07",
             "out 0x70, al",
             "in al, 0x71",
             out("al") day
@@ -123,7 +123,7 @@ pub fn get_rtc() -> Timespec {
 
         // month
         asm!(
-            "mov al, 0x08",   
+            "mov al, 0x08",
             "out 0x70, al",
             "in al, 0x71",
             out("al") month
@@ -131,7 +131,7 @@ pub fn get_rtc() -> Timespec {
 
         // year
         asm!(
-            "mov al, 0x09",   
+            "mov al, 0x09",
             "out 0x70, al",
             "in al, 0x71",
             out("al") year
@@ -144,6 +144,6 @@ pub fn get_rtc() -> Timespec {
 
     Timespec {
         tv_sec: unix_time,
-        tv_nsec: 0,       
+        tv_nsec: 0,
     }
 }
