@@ -51,8 +51,7 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
 }
 
 const INIT: &[u8] =
-    include_bytes!("../../programs/fork/target/i686-unknown-linux-gnu/release/fork")
-        .as_slice();
+    include_bytes!("../../programs/fork/target/i686-unknown-linux-gnu/release/fork").as_slice();
 // ../../programs/execve/target/i686-unknown-linux-gnu/release/execve
 // ../../programs/fork/target/i686-unknown-linux-gnu/release/fork
 // ../../programs/waitpid/target/i686-unknown-linux-gnu/release/waitpid

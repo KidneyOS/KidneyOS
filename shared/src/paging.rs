@@ -6,7 +6,7 @@ use crate::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
     },
-    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE}, println,
+    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
 };
 use arbitrary_int::{u10, u12, u20};
 use bitbybit::bitfield;

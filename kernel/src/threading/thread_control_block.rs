@@ -1,7 +1,6 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::system::{running_thread_ppid, unwrap_system, unwrap_system_mut};
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
-use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     fs::fs_manager::FileSystemID,
