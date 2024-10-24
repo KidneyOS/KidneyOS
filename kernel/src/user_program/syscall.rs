@@ -11,7 +11,9 @@ use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
 use crate::user_program::elf::Elf;
-use crate::user_program::time::{current_time, rtc_time, Timespec, CLOCK_REALTIME, CLOCK_MONOTONIC};
+use crate::user_program::time::{
+    current_time, rtc_time, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME,
+};
 use alloc::boxed::Box;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
