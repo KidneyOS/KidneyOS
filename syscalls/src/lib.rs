@@ -130,6 +130,38 @@ pub extern "C" fn nanosleep(duration: *const Timespec, remainder: *mut Timespec)
 }
 
 #[no_mangle]
+#[allow(clippy::cast_possible_truncation)]
+pub extern "C" fn getpid() -> Pid {
+    let result: i32;
+    unsafe {
+        asm!(
+            "
+            mov eax, 0x14
+            int 0x80
+            ",
+            lateout("eax") result
+        )
+    }
+    result as Pid
+}
+
+#[no_mangle]
+#[allow(clippy::cast_possible_truncation)]
+pub extern "C" fn getppid() -> Pid {
+    let result: i32;
+    unsafe {
+        asm!(
+            "
+            mov eax, 0x40
+            int 0x80
+            ",
+            lateout("eax") result
+        )
+    }
+    result as Pid
+}
+
+#[no_mangle]
 pub extern "C" fn scheduler_yield() -> i32 {
     let result: i32;
     unsafe {
