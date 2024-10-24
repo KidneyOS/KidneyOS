@@ -1,13 +1,13 @@
 #![allow(unused)]
 
 use crate::sync::mutex::TicketMutex;
-use crate::threading::scheduling::SCHEDULER;
-use crate::threading::thread_control_block::{ThreadStatus, Tid};
+use crate::threading::thread_control_block::{ThreadStatus};
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
-use crate::threading::RUNNING_THREAD;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use arbitrary_int::Number;
+use crate::system::unwrap_system;
+use crate::threading::process::Tid;
 
 pub struct SemaphorePermit {
     forgotten: bool,
@@ -78,7 +78,9 @@ impl Semaphore {
                 }
 
                 let running_tid = unsafe {
-                    RUNNING_THREAD
+                    unwrap_system()
+                        .threads
+                        .running_thread
                         .as_ref()
                         .expect("why is nothing running?")
                         .tid
