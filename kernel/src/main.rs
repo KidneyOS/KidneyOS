@@ -34,6 +34,10 @@ use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+<<<<<<< HEAD
+=======
+
+>>>>>>> 22548d3 (Fixed main.rs merge issues)
 use threading::{create_thread_state, thread_system_start};
 
 #[cfg_attr(not(test), global_allocator)]
