@@ -10,9 +10,11 @@
 #![feature(slice_ptr_get)]
 #![feature(negative_impls)]
 #![feature(pointer_is_aligned)]
+#![feature(inline_const)]
 
 mod block;
 mod drivers;
+pub mod fs;
 mod interrupts;
 pub mod mem;
 mod paging;
@@ -31,10 +33,12 @@ use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
+use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
 use threading::{create_thread_state, thread_system_start};
+use vfs::tempfs::TempFS;
 
 #[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -93,6 +97,13 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
             block_manager,
         });
+
+        println!("Mounting root filesystem...");
+        // for now, we just use TempFS for the root filesystem
+        ROOT.lock()
+            .mount_root(TempFS::new())
+            .expect("Couldn't mount root FS");
+        println!("Root mounted!");
 
         thread_system_start(page_manager, INIT);
     }
