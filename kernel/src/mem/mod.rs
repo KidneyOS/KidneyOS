@@ -1,17 +1,10 @@
 mod buddy_allocator;
 mod frame_allocator;
-<<<<<<< HEAD
 mod swapping;
 mod page_replacement;
-=======
-<<<<<<< HEAD
 pub mod user;
 pub mod util;
-=======
-mod swapping;
-mod page_replacement;
->>>>>>> aa99864 (Swapping and replacement skeleton functions)
->>>>>>> refs/remotes/origin/feat/swapping
+
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
@@ -252,10 +245,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 / PAGE_FRAME_SIZE,
         ) else {
             // Evict page for swapping
-<<<<<<< HEAD
-=======
-            
->>>>>>> refs/remotes/origin/feat/swapping
 
             halt!("Out of virtual memory!");
         };
