@@ -61,12 +61,10 @@ impl ProcessTable {
         self.content.remove(&pid)
     }
 
-    #[allow(dead_code)]
     pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
         self.content.get(&pid).map(|pcb| &**pcb)
     }
 
-    #[allow(dead_code)]
     pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {
         self.content.get_mut(&pid).map(|pcb| &mut **pcb)
     }
