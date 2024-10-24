@@ -322,7 +322,7 @@ impl SimpleFileSystem for FatFS {
     fn create(&mut self, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
-    fn mkdir(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
+    fn mkdir(&mut self, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
     fn unlink(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
@@ -411,7 +411,7 @@ impl SimpleFileSystem for FatFS {
     fn link(&mut self, _source: INodeNum, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
-    fn symlink(&mut self, _link: &Path, _parent: INodeNum, _name: &Path) -> Result<()> {
+    fn symlink(&mut self, _link: &Path, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
     fn readlink(&mut self, _link: INodeNum) -> Result<String> {

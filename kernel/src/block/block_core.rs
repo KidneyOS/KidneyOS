@@ -79,7 +79,7 @@ pub struct Block {
     /// The type of block
     block_type: BlockType,
     /// The block driver
-    driver: Box<dyn BlockOp>,
+    driver: Box<dyn BlockOp + Send + Sync + 'static>,
 
     /// The size of the block device in sectors
     block_size: BlockSector,
@@ -216,7 +216,7 @@ impl BlockManager {
         block_type: BlockType,
         block_name: &str,
         block_size: BlockSector,
-        driver: Box<dyn BlockOp>,
+        driver: Box<dyn BlockOp + 'static + Send + Sync>,
     ) -> usize {
         self.all_blocks.push(Block {
             index: self.max_index,
@@ -271,8 +271,8 @@ pub mod test {
     fn seek_offset(sector: BlockSector) -> SeekFrom {
         SeekFrom::Start(sector as u64 * BLOCK_SECTOR_SIZE as u64)
     }
-    struct FileBlockOps<T: Seek + Read + Write>(T);
-    impl<T: Seek + Read + Write> BlockOp for FileBlockOps<T> {
+    struct FileBlockOps<T: Seek + Read + Write + Send + Sync + 'static>(T);
+    impl<T: Seek + Read + Write + Send + Sync + 'static> BlockOp for FileBlockOps<T> {
         unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
             self.0.seek(seek_offset(sector)).unwrap();
             self.0.read_exact(buf).unwrap();
@@ -285,7 +285,7 @@ pub mod test {
         }
     }
     // create a block device from a file, for testing
-    pub fn block_from_file<T: Seek + Read + Write + 'static>(mut file: T) -> Block {
+    pub fn block_from_file<T: Seek + Read + Write + Send + Sync + 'static>(mut file: T) -> Block {
         let size = file.seek(SeekFrom::End(0)).unwrap();
         Block {
             index: 0,
