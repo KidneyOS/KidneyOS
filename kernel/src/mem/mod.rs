@@ -13,7 +13,7 @@ use core::{
 };
 use frame_allocator::FrameAllocatorSolution;
 use kidneyos_shared::{
-    mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
+    mem::{mem_addr_types::VirtAddr, virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
 };
@@ -43,11 +43,11 @@ where
 
     /// Allocate the specified number of frames if possible, returning a range
     /// of indices for the allocated frames.
-    fn alloc(&mut self, frames: usize) -> Option<Range<usize>>;
+    fn alloc(&mut self, frames: usize) -> Option<Range<VirtAddr>>;
 
     /// Deallocate the previously allocated range of frames that begins at
     /// start.
-    fn dealloc(&mut self, start: usize);
+    fn dealloc(&mut self, start: VirtAddr);
 }
 
 struct FrameAllocatorWrapper<A: Allocator> {
@@ -76,7 +76,7 @@ impl<A: Allocator> FrameAllocatorWrapper<A> {
     }
 
     pub fn dealloc(&mut self, ptr: NonNull<u8>) {
-        let start = (ptr.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
+        let start = (ptr.as_ptr() as VirtAddr - self.start.as_ptr() as VirtAddr) / PAGE_FRAME_SIZE;
         self.frame_allocator.dealloc(start);
     }
 }
@@ -127,7 +127,7 @@ impl KernelAllocator {
         };
 
         // "Upper memory" (as opposed to "lower memory") starts at 1MB.
-        const UPPER_MEMORY_START: usize = MB + OFFSET;
+        const UPPER_MEMORY_START: VirtAddr = MB + OFFSET;
 
         // The exclusive max address is given by multiplying the number of bytes
         // in a KB by mem_upper, and adding this to UPPER_MEMORY_START.

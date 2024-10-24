@@ -1,4 +1,5 @@
 pub mod pool_allocator;
+pub mod mem_addr_types;
 
 use crate::sizes::{KB, MB};
 

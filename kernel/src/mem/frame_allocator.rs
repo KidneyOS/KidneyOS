@@ -1,5 +1,6 @@
 use super::FrameAllocator;
 use core::{alloc::Allocator, ops::Range};
+use kidneyos_shared::mem::mem_addr_types::{VirtAddr};
 
 pub struct FrameAllocatorSolution<A>
 where
@@ -28,7 +29,7 @@ where
         }
     }
 
-    fn alloc(&mut self, frames: usize) -> Option<Range<usize>> {
+    fn alloc(&mut self, frames: usize) -> Option<Range<VirtAddr>> {
         if self.first_unused_frame + frames >= self.max_frames {
             return None;
         }
@@ -38,5 +39,5 @@ where
         Some(res)
     }
 
-    fn dealloc(&mut self, _start: usize) {}
+    fn dealloc(&mut self, _start: VirtAddr) {}
 }
