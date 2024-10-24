@@ -34,17 +34,8 @@ use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
-<<<<<<< HEAD
 
-use threading::{thread_system_initialization, thread_system_start};
-=======
-<<<<<<< HEAD
 use threading::{create_thread_state, thread_system_start};
-=======
->>>>>>> refs/remotes/origin/feat/swapping
-
-use threading::{thread_system_initialization, thread_system_start};
->>>>>>> aa99864 (Swapping and replacement skeleton functions)
 
 #[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
