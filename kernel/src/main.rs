@@ -50,8 +50,7 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-const INIT: &[u8] = include_bytes!("../../programs/example_c/build/example_c").as_slice();
-// "../../programs/exit/exit"
+const INIT: &[u8] = include_bytes!("../../programs/exit/exit").as_slice();
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
