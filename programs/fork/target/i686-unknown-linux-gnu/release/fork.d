@@ -1,1 +1,0 @@
-/home/nicholas/KidneyOS/programs/fork/target/i686-unknown-linux-gnu/release/fork: /home/nicholas/KidneyOS/programs/fork/src/main.rs /home/nicholas/KidneyOS/syscalls/bindgen.toml /home/nicholas/KidneyOS/syscalls/build.rs /home/nicholas/KidneyOS/syscalls/src /home/nicholas/KidneyOS/syscalls/src/defs.rs /home/nicholas/KidneyOS/syscalls/src/lib.rs
