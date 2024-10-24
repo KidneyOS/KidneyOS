@@ -1,6 +1,6 @@
 use super::super::ThreadControlBlock;
 use super::scheduler::Scheduler;
-use crate::threading::thread_control_block::Tid;
+use crate::threading::process::Tid;
 use alloc::{boxed::Box, collections::VecDeque};
 
 pub struct FIFOScheduler {

@@ -1,4 +1,4 @@
-PROGRAMS := exit example_c example_rust execve
+PROGRAMS := exit example_c example_rust fs execve
 
 .PHONY: programs
 programs: $(PROGRAMS)
@@ -10,6 +10,9 @@ exit:
 
 example_c:
 	cd programs/example_c && make
+
+fs:
+	cd programs/fs && make
 
 example_rust:
 	# We don't want to export CARGO_TARGET_DIR to our destination make.
