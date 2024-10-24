@@ -1,2 +1,0 @@
-cargo::rerun-if-changed=bindgen.toml
-cargo::rerun-if-changed=src
