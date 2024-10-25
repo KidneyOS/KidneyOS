@@ -1,4 +1,4 @@
-use super::scheduling::{scheduler_yield_and_block, scheduler_yield_and_continue};
+use super::scheduling::scheduler_yield_and_continue;
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use super::thread_sleep::thread_wakeup;
 use crate::system::unwrap_system_mut;

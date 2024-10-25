@@ -9,6 +9,7 @@
 #define KIDNEYOS_SYSCALLS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define O_CREATE 64
 

@@ -440,6 +440,24 @@ impl<A: Allocator> PageManager<A> {
             .step_by(PAGE_FRAME_SIZE)
             .all(|ptr| self.is_mapped(ptr))
     }
+
+    /// Marks every pte entry as invalid so it can be re-mapped
+    ///
+    /// # Safety
+    ///
+    /// This should never be called on any already-mapped page table
+    /// Currently it should only be used to re-map a new process on fork
+    pub unsafe fn zero_page_table(&mut self) {
+        let page_directory = &mut self.root.as_mut();
+
+        for pdi in 0..PAGE_DIRECTORY_LEN {
+            if !page_directory[pdi].present() {
+                continue;
+            }
+            let page_table = page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
+            *page_table = PageTable::default();
+        }
+    }
 }
 
 impl<A: Allocator + Copy> Clone for PageManager<A> {
