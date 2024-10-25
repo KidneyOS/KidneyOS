@@ -112,11 +112,17 @@
 
 #define SYS_GETCWD 183
 
+#define SYS_CLOCK_GETTIME 265
+
 #define S_REGULAR_FILE 1
 
 #define S_SYMLINK 2
 
 #define S_DIRECTORY 3
+
+#define CLOCK_REALTIME 0
+
+#define CLOCK_MONOTONIC 1
 
 typedef uint16_t Pid;
 
@@ -145,7 +151,8 @@ typedef struct Dirent {
 } Dirent;
 
 typedef struct Timespec {
-
+  int64_t tv_sec;
+  int64_t tv_nsec;
 } Timespec;
 
 void exit(uintptr_t code);
@@ -201,5 +208,7 @@ Pid getpid(void);
 Pid getppid(void);
 
 int32_t scheduler_yield(void);
+
+int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */
