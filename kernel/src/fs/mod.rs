@@ -1,3 +1,4 @@
+pub mod fat;
 pub mod fs_manager;
 pub mod syscalls;
 use crate::fs::fs_manager::Mode;
