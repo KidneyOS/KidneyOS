@@ -6,8 +6,8 @@ pub type Pid = u16;
 
 #[repr(C)]
 pub struct Timespec {
-    // ... unsized ...
-    // TODO: Fill for nanosleep.
+    pub tv_sec: i64,
+    pub tv_nsec: i64,
 }
 
 pub mod defs;
@@ -385,4 +385,21 @@ pub extern "C" fn wifexited(status: i32) -> bool {
 #[no_mangle]
 pub extern "C" fn wifexitstatus(status: i32) -> i32 {
     (status >> 8) & 0xff
+}
+
+#[no_mangle]
+pub extern "C" fn clock_gettime(clock_id: i32, timespec: *mut Timespec) -> i32 {
+    let result: i32;
+    unsafe {
+        asm!(
+            "
+            mov eax, 0x109
+            int 0x80
+            ",
+            in("ebx") clock_id,
+            in("ecx") timespec,
+            lateout("eax") result,
+        )
+    }
+    result
 }
