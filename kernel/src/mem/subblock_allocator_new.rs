@@ -53,7 +53,7 @@ impl SubblockAllocator {
         let subblock_size_index = get_best_subblock_size_idx(layout.size());
 
         if (subblock_size_index == SUBBLOCK_TYPE_COUNT){
-            println!("Size requested larger than one frame, size not supported currently");
+            println!("[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently");
             return Err(AllocError);
         };
 
@@ -62,7 +62,7 @@ impl SubblockAllocator {
                 // Set the new list head to be the next node from the current node
                 //
                 // Think of this as doing a linked_list.pop_from_head() operation
-                println!("List head exists, allocating subblock");
+                println!("[SUBBLOCK ALLOCATOR]: List head exists, allocating subblock size: {}", SUBBLOCK_SIZES[subblock_size_index]);
                 self.list_heads[subblock_size_index] = node.next.take();
                 Ok(node as *mut ListNode as *mut u8)
             }
@@ -71,7 +71,7 @@ impl SubblockAllocator {
                 ///
                 /// We first have to make sure the subblock size has enough room to hold a ListNode
                 /// This should always be the case, but we check regardless
-                println!("List head does not exist, requesting frame");
+                println!("[SUBBLOCK ALLOCATOR]: List head does not exist, requesting frame for subblock size: {}", SUBBLOCK_SIZES[subblock_size_index]);
                 assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
                 let mut new_frame = match self.frame_allocator.alloc(1) {

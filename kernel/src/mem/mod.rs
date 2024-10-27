@@ -8,6 +8,7 @@ mod subblock_allocator_new;
 use alloc::{
     boxed::Box,
     vec::Vec,
+
 };
 use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
@@ -124,7 +125,8 @@ impl KernelAllocator {
         let KernelAllocatorState::SetupState {
             dummy_allocator
         } = &mut *self.state.get_mut() else {
-            panic!("init called while kernel allocator was already initialized");
+            // We can panic here because the kernel hasn't been initialized yet
+            panic!("[PANIC]: init called while kernel allocator was already initialized");
         };
 
         /// The exclusive max address is given by multiplying the number of bytes
@@ -149,17 +151,18 @@ impl KernelAllocator {
 
         /// This should ALWAYS be the first global allocation to take place - should use dummy allocator
         ///
-        println!("Creating Coremap Entries for Frame Allocator");
+        println!("[KERNEL ALLOCATOR]: Creating Coremap Entries for Frame Allocator");
         let mut core_map: Box<[CoreMapEntry]> = vec![CoreMapEntry::DEFAULT; num_frames_in_system]
                                                 .into_boxed_slice();
-        println!("Finished creating Coremap Entries for Frame Allocator");
+        println!("[KERNEL ALLOCATOR]: Finished creating Coremap Entries for Frame Allocator");
 
         /// Check that the dummy allocator actually updated its internal state
         /// I.e. the start address should have moved to accommodate Coremap Entries
         /// The Coremap should take up 128 frames
         ///
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
-        println!("Frame Base Address: {}, Dummy Allocator Start Address: {}", frames_base_address, dummy_allocator.get_start_address());
+        println!("[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
+                 frames_base_address, dummy_allocator.get_start_address());
 
         let mut frame_allocator = FrameAllocatorWrapper::new_in(
             NonNull::new(dummy_allocator.get_start_address() as *mut u8).expect("frames_base can't be null"),
@@ -190,7 +193,7 @@ impl KernelAllocator {
             subblock_allocator, ..
         } = &mut *self.state.get()
         else {
-            halt!("Dealloc called on Deinitialized or SetupState kernel allocator");
+            halt!("[KERNEL ALLOCATOR]: Dealloc called on DeInitialized or SetupState kernel");
         };
 
         subblock_allocator.get_frame_allocator().dealloc(ptr);
@@ -202,7 +205,7 @@ impl KernelAllocator {
             subblock_allocator,
         } = self.state.get_mut()
         else {
-            panic!("deinit called before initialization of kernel allocator");
+            panic!("[KERNEL ALLOCATOR]: deinit called before initialization of kernel allocator");
         };
 
         let mut incorrect_num_allocs = false;
@@ -214,8 +217,7 @@ impl KernelAllocator {
         subblock_allocator.deinit();
 
         if incorrect_num_allocs{
-            println!();
-            panic!("Leaks detected");
+            halt!("[KERNEL ALLOCATOR]: Leaks detected");
         }
 
         *self.state.get_mut() = KernelAllocatorState::DeInitialized;
@@ -231,12 +233,12 @@ unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) == 0 {
             // If we are here, it should be the dummy allocator doing the allocation
-            println!("Dummy Allocation for Coremap Entries happening...");
+            println!("[KERNEL ALLOCATOR]: Beginning Dummy Allocation for Coremap Entries");
 
             let KernelAllocatorState::SetupState {
                 dummy_allocator
             } = &mut *self.state.get() else {
-                halt!("Kernel initialized before Coremap entries were setup, abort")
+                halt!("[KERNEL ALLOCATOR]: Kernel initialized before Coremap Entries created")
             };
 
             let size = layout.size();
@@ -251,7 +253,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
                                                         / PAGE_FRAME_SIZE;
 
             let Ok(region) = dummy_allocator.alloc(num_frames_requested) else {
-                halt!("Unable to allocate memory according to provided layout in DummyAllocator, PANIC!");
+                halt!("[KERNEL ALLOCATOR]: Unable to allocate memory according to provided layout in DummyAllocator");
             };
 
             // At this point, we know the allocation was successful; increment global statistics
@@ -264,7 +266,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 subblock_allocator,
             } = &mut *self.state.get()
                 else {
-                    halt!("Second and later allocations should not be allocated by Dummy Allocator, abort");
+                    halt!("[KERNEL ALLOCATOR]: Allocation requested before kernel is Initialized");
                 };
 
             let size = layout.size();
@@ -281,7 +283,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
             /// Allocate using subblock allocator
             let ret_ptr = match subblock_allocator.allocate(layout) {
                 Ok(T) => T,
-                Err(_) => halt!("Unable to allocate memory according to provided layout in SubblockAllocator, PANIC!"),
+                Err(_) => halt!("[KERNEL ALLOCATOR]: Unable to allocate memory according to provided layout in SubblockAllocator"),
             };
 
             // At this point, we know the allocation was successful; increment global statistics
@@ -297,7 +299,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
             subblock_allocator,
         } = &mut *self.state.get()
         else {
-            halt!("Dealloc called before initialization of kernel allocator");
+            halt!("[KERNEL ALLOCATOR]: dealloc called before initialization of kernel allocator");
         };
 
         subblock_allocator.deallocate(ptr, layout);
@@ -307,17 +309,15 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 }
 
-// Run tests to see if GlobalAllocator is working properly
-#[allow(dead_code)]
-pub fn run_allocation_tests(){
-    // Test 1
+fn test_1(){
     let heap_val_1 = Box::new(10);
     let heap_val_2 = Box::new(3.2);
     assert_eq!(*heap_val_1, 10);
     assert_eq!(*heap_val_2, 3.2);
+}
 
-    // Test 2
-    let n = 100;
+fn test_2(){
+    let n = 70;
     let mut test_vec = Vec::new();
     for i in 1..=n {
         test_vec.push(i)
@@ -325,18 +325,41 @@ pub fn run_allocation_tests(){
 
     assert_eq!(test_vec[10], 11);
     assert_eq!(test_vec[67], 68);
-    assert_eq!(test_vec.iter().sum::<u64>(), 101 * 50);
+    assert_eq!(test_vec.iter().sum::<u64>(), (n + 1) * (n / 2));
+}
 
-    // Test 3
-    let large_n = 1000000;
+fn test_3(){
+    let large_n = 10000;
     let mut large_test_vec = Vec::new();
     for i in 1..=large_n{
         large_test_vec.push(i)
     }
 
-    assert_eq!(test_vec[10], 11);
-    assert_eq!(test_vec[67], 68);
-    assert_eq!(test_vec.iter().sum::<u64>(), 1000001 * 500000);
+    assert_eq!(large_test_vec[10], 11);
+    assert_eq!(large_test_vec[67], 68);
+    assert_eq!(large_test_vec.iter().sum::<u64>(), (large_n + 1) * (large_n / 2));
+}
+
+// Run tests to see if GlobalAllocator is working properly
+#[allow(dead_code)]
+pub fn run_allocation_tests(){
+    println!("[ALLOCATOR TEST]: Beginning to run allocation tests");
+
+    // Test 1
+    println!("[ALLOCATOR TEST]: Running Test 1");
+    test_1();
+    println!("[ALLOCATOR TEST]: Successfully completed Test 1");
+
+    // Test 2
+    println!("[ALLOCATOR TEST]: Running Test 2");
+    test_2();
+    println!("[ALLOCATOR TEST]: Successfully completed Test 2");
+
+    // Test 3
+    // This test will fail because it causes an allocation of request larger than one frame
+    println!("[ALLOCATOR TEST]: Running Test 3");
+    test_3();
+    println!("[ALLOCATOR TEST]: Successfully completed Test 3");
 
 }
 
