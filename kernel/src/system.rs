@@ -38,12 +38,17 @@ pub fn init_system(state: SystemState) {
             core::sync::atomic::Ordering::Relaxed,
         )
         .expect("System initialized twice");
+    // SAFETY:
+    //   - only one thread can successfully exchange UNINITIALIZED with INITIALIZING
+    //   - no threads can have references to the system since unwrap_system()
+    //     requires SYSTEM_STATE to be set to INITIALIZED
     unsafe { SYSTEM.write(state) };
     SYSTEM_STATE.store(INITIALIZED, core::sync::atomic::Ordering::Release);
 }
 
 pub fn unwrap_system() -> &'static SystemState {
     if SYSTEM_STATE.load(core::sync::atomic::Ordering::Acquire) == INITIALIZED {
+        // SAFETY: since SYSTEM_STATE = INITIALIZED, the SYSTEM has been initialized.
         unsafe { SYSTEM.assume_init_ref() }
     } else {
         panic!("System not initialized.");
