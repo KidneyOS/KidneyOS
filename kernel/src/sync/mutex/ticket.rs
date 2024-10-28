@@ -85,11 +85,6 @@ impl<T: ?Sized> TicketMutex<T> {
     }
 
     #[inline(always)]
-    pub unsafe fn force_unlock(&self) {
-        self.next_serving.fetch_add(1, Ordering::Release);
-    }
-
-    #[inline(always)]
     pub fn try_lock(&self) -> Option<TicketMutexGuard<T>> {
         let ticket = self
             .next_ticket
