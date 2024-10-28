@@ -1,13 +1,12 @@
 use crate::fs::{
-    fs_manager::{Mode, SeekFrom, ROOT},
+    fs_manager::{Mode, SeekFrom},
     FileDescriptor, ProcessFileDescriptor,
 };
 use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_mut_slice_from_user_space,
     get_slice_from_user_space, CStrError,
 };
-use crate::system::running_process;
-use crate::system::running_thread_pid;
+use crate::system::{root_filesystem, running_process, running_thread_pid};
 use crate::user_program::syscall::{
     Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END,
     SEEK_SET,
@@ -31,7 +30,10 @@ pub unsafe fn open(path: *const u8, flags: usize) -> isize {
     } else {
         Mode::ReadWrite
     };
-    match ROOT.lock().open(&running_process().lock(), path, mode) {
+    match root_filesystem()
+        .lock()
+        .open(&running_process().lock(), path, mode)
+    {
         Err(e) => -e.to_isize(),
         Ok(fd) => fd.into(),
     }
@@ -53,7 +55,7 @@ pub unsafe fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match ROOT.lock().read(fd, buf) {
+    match root_filesystem().lock().read(fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -75,7 +77,7 @@ pub unsafe fn write(fd: usize, buf: *const u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match ROOT.lock().write(fd, buf) {
+    match root_filesystem().lock().write(fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -101,7 +103,7 @@ pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match ROOT.lock().lseek(fd, whence, *offset) {
+    match root_filesystem().lock().lseek(fd, whence, *offset) {
         Err(e) => -e.to_isize(),
         Ok(n) => {
             *offset = n;
@@ -118,7 +120,7 @@ pub fn close(fd: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match ROOT.lock().close(fd) {
+    match root_filesystem().lock().close(fd) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -133,7 +135,10 @@ pub unsafe fn chdir(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -ENOENT,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().chdir(&mut running_process().lock(), path) {
+    match root_filesystem()
+        .lock()
+        .chdir(&mut running_process().lock(), path)
+    {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -166,7 +171,10 @@ pub unsafe fn mkdir(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().mkdir(&running_process().lock(), path) {
+    match root_filesystem()
+        .lock()
+        .mkdir(&running_process().lock(), path)
+    {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -186,7 +194,7 @@ pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match ROOT.lock().fstat(fd) {
+    match root_filesystem().lock().fstat(fd) {
         Err(e) => -e.to_isize(),
         Ok(info) => {
             *statbuf = Stat {
@@ -209,7 +217,10 @@ pub unsafe fn unlink(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().unlink(&running_process().lock(), path) {
+    match root_filesystem()
+        .lock()
+        .unlink(&running_process().lock(), path)
+    {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -224,14 +235,17 @@ pub unsafe fn rmdir(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().rmdir(&running_process().lock(), path) {
+    match root_filesystem()
+        .lock()
+        .rmdir(&running_process().lock(), path)
+    {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
 }
 
 pub fn sync() -> isize {
-    match ROOT.lock().sync() {
+    match root_filesystem().lock().sync() {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -251,7 +265,7 @@ pub unsafe fn getdents(fd: usize, output: *mut Dirent, size: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match ROOT.lock().getdents(fd, output, size) {
+    match root_filesystem().lock().getdents(fd, output, size) {
         Ok(n) => n as isize,
         Err(e) => -e.to_isize(),
     }
@@ -271,7 +285,10 @@ pub unsafe fn link(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().link(&running_process().lock(), source, dest) {
+    match root_filesystem()
+        .lock()
+        .link(&running_process().lock(), source, dest)
+    {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -291,7 +308,10 @@ pub unsafe fn symlink(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().symlink(&running_process().lock(), source, dest) {
+    match root_filesystem()
+        .lock()
+        .symlink(&running_process().lock(), source, dest)
+    {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -311,7 +331,10 @@ pub unsafe fn rename(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().rename(&running_process().lock(), source, dest) {
+    match root_filesystem()
+        .lock()
+        .rename(&running_process().lock(), source, dest)
+    {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -326,7 +349,7 @@ pub fn ftruncate(fd: usize, size_lo: usize, size_hi: usize) -> isize {
         fd,
     };
     let size = size_lo as u64 | (size_hi as u64) << 32;
-    match ROOT.lock().ftruncate(fd, size) {
+    match root_filesystem().lock().ftruncate(fd, size) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -341,7 +364,10 @@ pub unsafe fn unmount(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -ENOENT,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().unmount(&running_process().lock(), path) {
+    match root_filesystem()
+        .lock()
+        .unmount(&running_process().lock(), path)
+    {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -366,7 +392,7 @@ pub unsafe fn mount(device: *const u8, target: *const u8, file_system_type: *con
         Err(CStrError::BadUtf8) => return -ENODEV,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    let mut root = ROOT.lock();
+    let mut root = root_filesystem().lock();
     let result = match file_system_type {
         "tmpfs" => {
             if !device.is_empty() {

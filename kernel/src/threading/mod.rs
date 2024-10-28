@@ -39,9 +39,7 @@ pub fn create_thread_state() -> ThreadState {
 /// Thread system must have been previously enabled.
 pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) -> ! {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
-
     let system = unwrap_system();
-
     // We must 'turn the kernel thread into a thread'.
     // This amounts to just making a TCB that will be in control of the kernel stack and will
     // never exit.
@@ -56,7 +54,10 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     let user_tcb = ThreadControlBlock::new_from_elf(elf, &system.process);
 
     *system.threads.running_thread.lock() = Some(Box::new(kernel_tcb));
-    system.threads.scheduler.lock().push(Box::new(user_tcb));
+    let tcb = Box::new(user_tcb);
+    let mut scheduler = system.threads.scheduler.lock();
+    scheduler.push(tcb);
+    drop(scheduler);
 
     intr_enable();
 

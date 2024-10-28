@@ -1,17 +1,18 @@
 use crate::block::block_core::BlockManager;
+use crate::fs::fs_manager::RootFileSystem;
 use crate::sync::mutex::Mutex;
 use crate::sync::rwlock::sleep::RwLock;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::ProcessControlBlock;
 use crate::threading::ThreadState;
 use alloc::sync::Arc;
-use once_cell::race::OnceBox;
 
 pub struct SystemState {
     pub threads: ThreadState,
     pub process: ProcessState,
 
     pub block_manager: RwLock<BlockManager>,
+    pub root_filesystem: Mutex<RootFileSystem>,
 }
 
 impl core::fmt::Debug for SystemState {
@@ -21,22 +22,32 @@ impl core::fmt::Debug for SystemState {
     }
 }
 
-/*
-    We have to put SystemState in a Box because OnceCell can only be used with
-    std or critical-section (which doesn't seem to work).
-    (There's no spinlock version of OnceCell, because of fears about
-    priority inversion, which is irrelevant for us.)
-*/
-static SYSTEM: OnceBox<SystemState> = OnceBox::new();
+static mut SYSTEM: core::mem::MaybeUninit<SystemState> = core::mem::MaybeUninit::uninit();
+const UNINITIALIZED: u8 = 0;
+const INITIALIZING: u8 = 1;
+const INITIALIZED: u8 = 2;
+static SYSTEM_STATE: core::sync::atomic::AtomicU8 =
+    core::sync::atomic::AtomicU8::new(UNINITIALIZED);
 
 pub fn init_system(state: SystemState) {
-    SYSTEM
-        .set(alloc::boxed::Box::new(state))
+    SYSTEM_STATE
+        .compare_exchange(
+            UNINITIALIZED,
+            INITIALIZING,
+            core::sync::atomic::Ordering::Relaxed,
+            core::sync::atomic::Ordering::Relaxed,
+        )
         .expect("System initialized twice");
+    unsafe { SYSTEM.write(state) };
+    SYSTEM_STATE.store(INITIALIZED, core::sync::atomic::Ordering::Release);
 }
 
 pub fn unwrap_system() -> &'static SystemState {
-    SYSTEM.get().expect("System not initialized.")
+    if SYSTEM_STATE.load(core::sync::atomic::Ordering::Acquire) == INITIALIZED {
+        unsafe { SYSTEM.assume_init_ref() }
+    } else {
+        panic!("System not initialized.");
+    }
 }
 
 /// Get reference to running process (panicks if no process is running)
@@ -63,4 +74,8 @@ pub fn running_thread_tid() -> Tid {
         .as_ref()
         .expect("no running thread")
         .tid
+}
+
+pub fn root_filesystem() -> &'static Mutex<RootFileSystem> {
+    &unwrap_system().root_filesystem
 }

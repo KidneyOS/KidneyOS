@@ -1,5 +1,4 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
-use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
@@ -1194,8 +1193,6 @@ impl RootFileSystem {
         }
     }
 }
-
-pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
 
 #[cfg(test)]
 mod test {

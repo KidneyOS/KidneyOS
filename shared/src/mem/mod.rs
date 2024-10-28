@@ -70,7 +70,7 @@ pub mod virt {
 pub const OFFSET: usize = 0x80000000;
 
 // TODO: Figure out how to detect kernel stack overflows.
-pub const MAIN_STACK_SIZE: usize = 32 * KB;
+pub const MAIN_STACK_SIZE: usize = 2 * MB;
 pub const TRAMPOLINE_HEAP_SIZE: usize = 8 * MB;
 
 // TODO: We currently leave 8MB for the bootstrap allocator. This should be

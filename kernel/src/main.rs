@@ -28,13 +28,14 @@ extern crate alloc;
 
 use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
+use crate::fs::fs_manager::RootFileSystem;
+use crate::sync::mutex::Mutex;
 use crate::sync::rwlock::sleep::RwLock;
 use crate::system::SystemState;
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
 use core::ptr::NonNull;
-use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
@@ -92,19 +93,20 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         threads.scheduler.lock().push(Box::new(ide_tcb));
 
+        println!("Mounting root filesystem...");
+        let mut root = RootFileSystem::new();
+        // for now, we just use TempFS for the root filesystem
+        root.mount_root(TempFS::new())
+            .expect("Couldn't mount root FS");
+
         crate::system::init_system(SystemState {
             threads,
             process,
 
             block_manager: RwLock::new(block_manager),
+            root_filesystem: Mutex::new(root),
         });
-
-        println!("Mounting root filesystem...");
-        // for now, we just use TempFS for the root filesystem
-        ROOT.lock()
-            .mount_root(TempFS::new())
-            .expect("Couldn't mount root FS");
-        println!("Root mounted!");
+        println!("initialized system");
 
         thread_system_start(page_manager, INIT);
     }
