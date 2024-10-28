@@ -294,12 +294,12 @@ pub mod test {
             index: 0,
             block_name: "<test file>".into(),
             block_type: BlockType::FileSystem,
-            driver: Box::new(FileBlockOps(file)),
+            driver: Mutex::new(Box::new(FileBlockOps(file))),
             block_size: (size / BLOCK_SECTOR_SIZE as u64)
                 .try_into()
                 .expect("file too large"),
-            read_count: 0,
-            write_count: 0,
+            read_count: 0.into(),
+            write_count: 0.into(),
         }
     }
 }
