@@ -13,6 +13,7 @@ kidneyos-shared.path = "../shared"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 zerocopy = { version = "0.7.35", features = ["derive"] }
 kidneyos-syscalls.path = "../syscalls"
+once_cell = { version = "1.20.2", default-features = false, features = ["race", "alloc"] }
 
 [features]
 default = ["ticket_mutex"]

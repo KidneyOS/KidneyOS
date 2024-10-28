@@ -9,7 +9,6 @@ use crate::{
     vfs::{INodeNum, OwnedPath},
     KERNEL_ALLOCATOR,
 };
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
@@ -53,7 +52,7 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &mut ProcessState, parent_pid: Pid) -> Pid {
+    pub fn create(state: &ProcessState, parent_pid: Pid) -> Pid {
         let pid = state.allocate_pid();
         let mut root = crate::fs::fs_manager::ROOT.lock();
         // open stdin, stdout, stderr
@@ -68,7 +67,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        state.table.add(Box::new(pcb));
+        state.table.add(pcb);
 
         pid
     }
@@ -99,7 +98,7 @@ pub struct ThreadControlBlock {
 }
 
 impl ThreadControlBlock {
-    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> ThreadControlBlock {
+    pub fn new_from_elf(elf: Elf, state: &ProcessState) -> ThreadControlBlock {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
@@ -107,14 +106,13 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let ppid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
-                .as_ref()
-                .map_or(0, |_| running_thread_ppid())
+        let running_thread = unwrap_system().threads.running_thread.lock();
+        let ppid = if running_thread.is_none() {
+            0
+        } else {
+            drop(running_thread);
+            running_thread_ppid()
         };
-
         let pid: Pid = ProcessControlBlock::create(state, ppid);
 
         let mut page_manager = PageManager::default();
@@ -190,7 +188,7 @@ impl ThreadControlBlock {
         entry_instruction: NonNull<u8>,
         pid: Pid,
         page_manager: PageManager,
-        state: &mut ProcessState,
+        state: &ProcessState,
     ) -> Self {
         let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
 
@@ -247,7 +245,7 @@ impl ThreadControlBlock {
         entry_instruction: NonNull<u8>,
         pid: Pid,
         mut page_manager: PageManager,
-        state: &mut ProcessState,
+        state: &ProcessState,
     ) -> Self {
         let tid: Tid = state.allocate_tid();
 
@@ -309,7 +307,7 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager, state: &mut ProcessState) -> Self {
+    pub fn new_kernel_thread(page_manager: PageManager, state: &ProcessState) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -380,3 +378,5 @@ impl ThreadControlBlock {
         self.status = ThreadStatus::Invalid;
     }
 }
+
+unsafe impl Send for ThreadControlBlock {}

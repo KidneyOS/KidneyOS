@@ -1,7 +1,7 @@
 use crate::block::block_core::{Block, BlockOp, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
-use crate::system::unwrap_system_mut;
+use crate::system::unwrap_system;
 use alloc::boxed::Box;
 use alloc::format;
 use kidneyos_shared::{eprintln, println};
@@ -121,16 +121,18 @@ struct Partition {
 
 impl BlockOp for Partition {
     unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
-        unwrap_system_mut()
+        unwrap_system()
             .block_manager
+            .read()
             .by_id(self.block_idx)
             .unwrap()
             .read(sector + self.start, buf)
     }
 
     unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
-        unwrap_system_mut()
+        unwrap_system()
             .block_manager
+            .read()
             .by_id(self.block_idx)
             .unwrap()
             .write(sector + self.start, buf)
@@ -241,7 +243,7 @@ pub fn partition_type_name(ty: u8) -> &'static str {
     }
 }
 
-pub fn partition_scan(block: &mut Block) {
+pub fn partition_scan(block: &Block) {
     let mut part_nr = 0;
     read_partition_table(block, 0, 0, &mut part_nr);
     if part_nr == 0 {
@@ -250,7 +252,7 @@ pub fn partition_scan(block: &mut Block) {
 }
 
 fn read_partition_table(
-    block: &mut Block,
+    block: &Block,
     sector: BlockSector,
     primary_extended_sector: BlockSector,
     part_nr: &mut i32,
@@ -337,7 +339,7 @@ fn read_partition_table(
 }
 
 fn found_partition(
-    block: &mut Block,
+    block: &Block,
     partition_type: u8,
     start: BlockSector,
     size: u32,
@@ -383,13 +385,11 @@ fn found_partition(
             block_idx: block.get_index(),
             start,
         };
-        unsafe {
-            unwrap_system_mut().block_manager.register_block(
-                b_type,
-                name.as_ref(),
-                size,
-                Box::new(p),
-            );
-        }
+        unwrap_system().block_manager.write().register_block(
+            b_type,
+            name.as_ref(),
+            size,
+            Box::new(p),
+        );
     }
 }

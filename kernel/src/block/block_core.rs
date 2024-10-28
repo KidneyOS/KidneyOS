@@ -2,10 +2,13 @@
 
 use crate::block::block_error::BlockError;
 use crate::interrupts::{intr_get_level, IntrLevel};
+use crate::sync::mutex::Mutex;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 use core::result::Result;
+use core::sync::atomic::{self, AtomicU32};
 use kidneyos_shared::println;
 
 /// Size of a block device in bytes.
@@ -79,15 +82,15 @@ pub struct Block {
     /// The type of block
     block_type: BlockType,
     /// The block driver
-    driver: Box<dyn BlockOp + Send + Sync + 'static>,
+    driver: Mutex<Box<dyn BlockOp + Send + Sync + 'static>>,
 
     /// The size of the block device in sectors
     block_size: BlockSector,
 
     /// The read count
-    read_count: u32,
+    read_count: AtomicU32,
     /// The write count
-    write_count: u32,
+    write_count: AtomicU32,
 }
 
 impl Block {
@@ -109,7 +112,7 @@ impl Block {
     /// `BLOCK_SECTOR_SIZE` bytes.
     ///
     /// Panics if interrupts are disabled.
-    pub fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+    pub fn read(&self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
         assert_eq!(
             intr_get_level(),
             IntrLevel::IntrOn,
@@ -122,15 +125,15 @@ impl Block {
             return Err(BlockError::BufferInvalid);
         }
 
-        self.read_count += 1;
-        unsafe { self.driver.read(sector, buf) }
+        self.read_count.fetch_add(1, atomic::Ordering::Relaxed);
+        unsafe { self.driver.lock().read(sector, buf) }
     }
 
     /// Writes sector `sector` from `buf`, which must contain `BLOCK_SECTOR_SIZE` bytes. Returns
     /// after the block device has acknowledged receiving the data.
     ///
     /// Panics if interrupts are disabled.
-    pub fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+    pub fn write(&self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
         assert_eq!(
             intr_get_level(),
             IntrLevel::IntrOn,
@@ -149,8 +152,8 @@ impl Block {
             "Cannot write to foreign block"
         );
 
-        self.write_count += 1;
-        unsafe { self.driver.write(sector, buf) }
+        self.write_count.fetch_add(1, atomic::Ordering::Relaxed);
+        unsafe { self.driver.lock().write(sector, buf) }
     }
 
     // Block getters -----------------------------------------------------------
@@ -178,8 +181,8 @@ impl fmt::Display for Block {
             self.block_name,
             self.block_type,
             self.block_size,
-            self.read_count,
-            self.write_count
+            self.read_count.load(atomic::Ordering::Relaxed),
+            self.write_count.load(atomic::Ordering::Relaxed)
         )
     }
 }
@@ -188,9 +191,7 @@ impl fmt::Display for Block {
 #[derive(Default)]
 pub struct BlockManager {
     /// All the block devices
-    all_blocks: Vec<Block>,
-    /// The maximum index of the block devices
-    max_index: usize,
+    all_blocks: Vec<Arc<Block>>,
 }
 
 impl BlockManager {
@@ -203,7 +204,6 @@ impl BlockManager {
     fn with_capacity(cap: usize) -> Self {
         BlockManager {
             all_blocks: Vec::with_capacity(cap),
-            max_index: 0,
         }
     }
 
@@ -218,30 +218,30 @@ impl BlockManager {
         block_size: BlockSector,
         driver: Box<dyn BlockOp + 'static + Send + Sync>,
     ) -> usize {
-        self.all_blocks.push(Block {
-            index: self.max_index,
+        let blocks = &mut self.all_blocks;
+        let index = blocks.len();
+        blocks.push(Arc::new(Block {
             block_name: String::from(block_name),
             block_type,
-            driver,
+            driver: Mutex::new(driver),
+            index,
             block_size,
-            read_count: 0,
-            write_count: 0,
-        });
-
+            read_count: AtomicU32::new(0),
+            write_count: AtomicU32::new(0),
+        }));
         println!(
             "Registered block device \"{}\" ({} type) with {} sectors",
-            self.all_blocks[self.max_index].block_name, block_type, block_size,
+            blocks[index].block_name, block_type, block_size,
         );
 
-        self.max_index += 1;
-        self.max_index - 1
+        index
     }
 
     /// Get the block device with the given `index`.
     ///
     /// If the index is out of bounds, returns `None`.
-    pub fn by_id(&mut self, idx: usize) -> Option<&mut Block> {
-        self.all_blocks.get_mut(idx)
+    pub fn by_id(&self, idx: usize) -> Option<Arc<Block>> {
+        self.all_blocks.get(idx).cloned()
     }
 
     /// Get the block device with the given `name`.
@@ -249,8 +249,11 @@ impl BlockManager {
     /// If the name is not found, returns `None`.
     ///
     /// **Note:** This function is very inefficient and should be avoided.
-    pub fn by_name(&mut self, name: &str) -> Option<&mut Block> {
-        self.all_blocks.iter_mut().find(|b| b.block_name == name)
+    pub fn by_name(&self, name: &str) -> Option<Arc<Block>> {
+        self.all_blocks
+            .iter()
+            .find(|b| b.block_name == name)
+            .cloned()
     }
 }
 

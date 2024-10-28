@@ -6,7 +6,8 @@ use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_mut_slice_from_user_space,
     get_slice_from_user_space, CStrError,
 };
-use crate::system::{running_process, running_process_mut};
+use crate::system::running_process;
+use crate::system::running_thread_pid;
 use crate::user_program::syscall::{
     Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END,
     SEEK_SET,
@@ -15,7 +16,7 @@ use crate::vfs::tempfs::TempFS;
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn open(path: *const u8, flags: usize) -> isize {
     if (flags & !O_CREATE) != 0 {
         return -EINVAL;
@@ -30,7 +31,7 @@ pub unsafe fn open(path: *const u8, flags: usize) -> isize {
     } else {
         Mode::ReadWrite
     };
-    match ROOT.lock().open(running_process(), path, mode) {
+    match ROOT.lock().open(&running_process().lock(), path, mode) {
         Err(e) => -e.to_isize(),
         Ok(fd) => fd.into(),
     }
@@ -38,7 +39,7 @@ pub unsafe fn open(path: *const u8, flags: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly
 pub unsafe fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
@@ -49,7 +50,7 @@ pub unsafe fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
         return -EFAULT;
     };
     let fd = ProcessFileDescriptor {
-        pid: running_process().pid,
+        pid: running_thread_pid(),
         fd,
     };
     match ROOT.lock().read(fd, buf) {
@@ -71,7 +72,7 @@ pub unsafe fn write(fd: usize, buf: *const u8, count: usize) -> isize {
         return -EFAULT;
     };
     let fd = ProcessFileDescriptor {
-        pid: running_process().pid,
+        pid: running_thread_pid(),
         fd,
     };
     match ROOT.lock().write(fd, buf) {
@@ -82,7 +83,7 @@ pub unsafe fn write(fd: usize, buf: *const u8, count: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly
 pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
     let Some(offset) = get_mut_from_user_space(offset) else {
         return -EFAULT;
@@ -97,7 +98,7 @@ pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
         _ => return -EINVAL,
     };
     let fd = ProcessFileDescriptor {
-        pid: unsafe { running_process().pid },
+        pid: running_thread_pid(),
         fd,
     };
     match ROOT.lock().lseek(fd, whence, *offset) {
@@ -109,15 +110,12 @@ pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
     }
 }
 
-/// # Safety
-///
-/// TODO: mark this as no longer unsafe when accessing running PCB is safe
-pub unsafe fn close(fd: usize) -> isize {
+pub fn close(fd: usize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
     };
     let fd = ProcessFileDescriptor {
-        pid: running_process().pid,
+        pid: running_thread_pid(),
         fd,
     };
     match ROOT.lock().close(fd) {
@@ -128,14 +126,14 @@ pub unsafe fn close(fd: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn chdir(path: *const u8) -> isize {
     let path = match get_cstr_from_user_space(path) {
         Ok(path) => path,
         Err(CStrError::BadUtf8) => return -ENOENT,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().chdir(running_process_mut(), path) {
+    match ROOT.lock().chdir(&mut running_process().lock(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -143,12 +141,13 @@ pub unsafe fn chdir(path: *const u8) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly
 pub unsafe fn getcwd(buf: *mut u8, size: usize) -> isize {
     let Some(buf) = get_mut_slice_from_user_space(buf, size) else {
         return -EFAULT;
     };
     let pcb = running_process();
+    let pcb = pcb.lock();
     let cwd = pcb.cwd_path.as_bytes();
     if size < cwd.len() + 1 {
         return -ERANGE;
@@ -160,14 +159,14 @@ pub unsafe fn getcwd(buf: *mut u8, size: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn mkdir(path: *const u8) -> isize {
     let path = match get_cstr_from_user_space(path) {
         Ok(path) => path,
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().mkdir(running_process(), path) {
+    match ROOT.lock().mkdir(&running_process().lock(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -175,7 +174,7 @@ pub unsafe fn mkdir(path: *const u8) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_mut_from_user_space works correctly
 pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
     let Some(statbuf) = get_mut_from_user_space(statbuf) else {
         return -EFAULT;
@@ -184,7 +183,7 @@ pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
         return -EBADF;
     };
     let fd = ProcessFileDescriptor {
-        pid: unsafe { running_process().pid },
+        pid: running_thread_pid(),
         fd,
     };
     match ROOT.lock().fstat(fd) {
@@ -203,14 +202,14 @@ pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn unlink(path: *const u8) -> isize {
     let path = match get_cstr_from_user_space(path) {
         Ok(path) => path,
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().unlink(running_process(), path) {
+    match ROOT.lock().unlink(&running_process().lock(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -218,14 +217,14 @@ pub unsafe fn unlink(path: *const u8) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn rmdir(path: *const u8) -> isize {
     let path = match get_cstr_from_user_space(path) {
         Ok(path) => path,
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().rmdir(running_process(), path) {
+    match ROOT.lock().rmdir(&running_process().lock(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -240,7 +239,7 @@ pub fn sync() -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_mut_slice_from_user_space works correctly
 pub unsafe fn getdents(fd: usize, output: *mut Dirent, size: usize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
@@ -249,7 +248,7 @@ pub unsafe fn getdents(fd: usize, output: *mut Dirent, size: usize) -> isize {
         return -EFAULT;
     }
     let fd = ProcessFileDescriptor {
-        pid: running_process().pid,
+        pid: running_thread_pid(),
         fd,
     };
     match ROOT.lock().getdents(fd, output, size) {
@@ -260,7 +259,7 @@ pub unsafe fn getdents(fd: usize, output: *mut Dirent, size: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn link(source: *const u8, dest: *const u8) -> isize {
     let source = match get_cstr_from_user_space(source) {
         Ok(path) => path,
@@ -272,7 +271,7 @@ pub unsafe fn link(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().link(running_process(), source, dest) {
+    match ROOT.lock().link(&running_process().lock(), source, dest) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -280,7 +279,7 @@ pub unsafe fn link(source: *const u8, dest: *const u8) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn symlink(source: *const u8, dest: *const u8) -> isize {
     let source = match get_cstr_from_user_space(source) {
         Ok(path) => path,
@@ -292,7 +291,7 @@ pub unsafe fn symlink(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().symlink(running_process(), source, dest) {
+    match ROOT.lock().symlink(&running_process().lock(), source, dest) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -300,7 +299,7 @@ pub unsafe fn symlink(source: *const u8, dest: *const u8) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn rename(source: *const u8, dest: *const u8) -> isize {
     let source = match get_cstr_from_user_space(source) {
         Ok(path) => path,
@@ -312,21 +311,18 @@ pub unsafe fn rename(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().rename(running_process(), source, dest) {
+    match ROOT.lock().rename(&running_process().lock(), source, dest) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
 }
 
-/// # Safety
-///
-/// TODO: mark this as no longer unsafe when accessing running PCB is safe
-pub unsafe fn ftruncate(fd: usize, size_lo: usize, size_hi: usize) -> isize {
+pub fn ftruncate(fd: usize, size_lo: usize, size_hi: usize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
     };
     let fd = ProcessFileDescriptor {
-        pid: running_process().pid,
+        pid: running_thread_pid(),
         fd,
     };
     let size = size_lo as u64 | (size_hi as u64) << 32;
@@ -338,14 +334,14 @@ pub unsafe fn ftruncate(fd: usize, size_lo: usize, size_hi: usize) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn unmount(path: *const u8) -> isize {
     let path = match get_cstr_from_user_space(path) {
         Ok(path) => path,
         Err(CStrError::BadUtf8) => return -ENOENT,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().unmount(running_process(), path) {
+    match ROOT.lock().unmount(&running_process().lock(), path) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -353,7 +349,7 @@ pub unsafe fn unmount(path: *const u8) -> isize {
 
 /// # Safety
 ///
-/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly and accessing running PCB is safe
+/// TODO: mark this as no longer unsafe when get_cstr_from_user_space works correctly
 pub unsafe fn mount(device: *const u8, target: *const u8, file_system_type: *const u8) -> isize {
     let device = match get_cstr_from_user_space(device) {
         Ok(d) => d,
@@ -371,14 +367,13 @@ pub unsafe fn mount(device: *const u8, target: *const u8, file_system_type: *con
         Err(CStrError::Fault) => return -EFAULT,
     };
     let mut root = ROOT.lock();
-    let process = running_process();
     let result = match file_system_type {
         "tmpfs" => {
             if !device.is_empty() {
                 // should set device to empty string for tmpfs
                 return -EINVAL;
             }
-            root.mount(process, target, TempFS::new())
+            root.mount(&running_process().lock(), target, TempFS::new())
         }
         _ => return -ENODEV,
     };

@@ -28,7 +28,8 @@ extern crate alloc;
 
 use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
-use crate::system::{SystemState, SYSTEM};
+use crate::sync::rwlock::sleep::RwLock;
+use crate::system::SystemState;
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
@@ -80,7 +81,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("PIT set up!");
 
         println!("Initializing Thread System...");
-        let mut threads = create_thread_state();
+        let threads = create_thread_state();
         let mut process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
 
@@ -89,13 +90,13 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         let block_manager = BlockManager::default();
 
-        threads.scheduler.push(Box::new(ide_tcb));
+        threads.scheduler.lock().push(Box::new(ide_tcb));
 
-        SYSTEM = Some(SystemState {
+        crate::system::init_system(SystemState {
             threads,
             process,
 
-            block_manager,
+            block_manager: RwLock::new(block_manager),
         });
 
         println!("Mounting root filesystem...");
