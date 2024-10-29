@@ -1,5 +1,5 @@
 use crate::interrupts::mutex_irq::MutexIrq;
-use crate::system::{unwrap_system, unwrap_system_mut, running_thread};
+use crate::system::running_thread_tid;
 use crate::threading::process::{AtomicTid, Tid};
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
@@ -104,16 +104,12 @@ impl<T> SleepMutex<T> {
 impl<T: ?Sized> SleepMutex<T> {
     #[must_use = "Mutex is released when guard falls out of scope."]
     pub fn lock(&self) -> SleepMutexGuard<T> {
-        let current_tid = unsafe {
-            unwrap_system_mut()
-                .threads
-                .running_thread
-                .as_ref()
-                .expect("why is nothing running?")
-                .tid
-        };
+        let current_tid = running_thread_tid();
 
         loop {
+            // Ensure interrupts are disabled *before* we check the lock state,
+            // so that the owner of the Mutex will definitely wake us up when we go to sleep.
+            let mut wait_queue = self.wait_queue.lock();
             // If no thread is holding the mutex, grab it.
             let _ = self
                 .holding_thread
@@ -125,7 +121,6 @@ impl<T: ?Sized> SleepMutex<T> {
                 break;
             }
 
-            let mut wait_queue = self.wait_queue.lock();
             if !wait_queue.contains(&current_tid) {
                 wait_queue.push_back(current_tid);
             }
@@ -137,7 +132,7 @@ impl<T: ?Sized> SleepMutex<T> {
     }
 
     fn unlock(&self) {
-        let running_tid = running_thread().tid;
+        let running_tid = running_thread_tid();
 
         if self.holding_thread.load(Acquire) != running_tid {
             return;
@@ -160,7 +155,7 @@ impl<T: ?Sized> SleepMutex<T> {
     }
 
     pub fn try_lock(&self) -> bool {
-        let current_tid = running_thread().tid;
+        let current_tid = running_thread_tid();
         self.holding_thread
             .compare_exchange(0, current_tid, AcqRel, Acquire)
             .is_ok()

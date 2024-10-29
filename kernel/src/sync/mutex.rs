@@ -52,11 +52,6 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     #[inline(always)]
-    pub unsafe fn force_unlock(&self) {
-        self.inner.force_unlock()
-    }
-
-    #[inline(always)]
     pub fn is_locked(&self) -> bool {
         self.inner.is_locked()
     }

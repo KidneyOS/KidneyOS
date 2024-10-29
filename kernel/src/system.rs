@@ -1,5 +1,5 @@
 use crate::block::block_core::BlockManager;
-use crate::threading::process::{Pid, ProcessState};
+use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
 
@@ -81,4 +81,9 @@ pub fn running_thread() -> &'static ThreadControlBlock {
 pub fn running_thread_mut() -> &'static mut ThreadControlBlock {
     let tcb = unsafe { unwrap_system_mut().threads.running_thread.as_mut().unwrap().as_mut() };
     tcb
+}
+
+pub fn running_thread_tid() -> Tid {
+    let tcb = running_thread();
+    tcb.tid
 }
