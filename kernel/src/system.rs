@@ -73,9 +73,12 @@ pub fn running_thread_ppid() -> Pid {
 }
 
 pub fn running_thread() -> &'static ThreadControlBlock {
-    unsafe { unwrap_system().threads.running_thread.unwrap().as_ref() }
+    let tcb = unsafe { unwrap_system().threads.running_thread.as_ref().unwrap().as_ref() };
+    tcb
 }
 
+#[allow(dead_code)]
 pub fn running_thread_mut() -> &'static mut ThreadControlBlock {
-    unsafe { unwrap_system().threads.running_thread.unwrap().as_mut() }
+    let tcb = unsafe { unwrap_system_mut().threads.running_thread.as_mut().unwrap().as_mut() };
+    tcb
 }

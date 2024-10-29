@@ -1,5 +1,5 @@
 use crate::interrupts::mutex_irq::MutexIrq;
-use crate::system::{unwrap_system, unwrap_system_mut};
+use crate::system::{unwrap_system, unwrap_system_mut, running_thread};
 use crate::threading::process::{AtomicTid, Tid};
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
@@ -137,14 +137,7 @@ impl<T: ?Sized> SleepMutex<T> {
     }
 
     fn unlock(&self) {
-        let running_tid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
-                .as_ref()
-                .expect("why is nothing running?")
-                .tid
-        };
+        let running_tid = running_thread().tid;
 
         if self.holding_thread.load(Acquire) != running_tid {
             return;
@@ -167,14 +160,7 @@ impl<T: ?Sized> SleepMutex<T> {
     }
 
     pub fn try_lock(&self) -> bool {
-        let current_tid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
-                .as_ref()
-                .expect("why is nothing running?")
-                .tid
-        };
+        let current_tid = running_thread().tid;
         self.holding_thread
             .compare_exchange(0, current_tid, AcqRel, Acquire)
             .is_ok()
