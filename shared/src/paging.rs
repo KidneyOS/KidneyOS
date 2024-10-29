@@ -2,11 +2,13 @@
 // https://wiki.osdev.org/Setting_Up_Paging
 
 use crate::{
+    bit_array::BitArray,
+    bitfield,
     mem::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
     },
-    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE}, bit_array::BitArray, bitfield
+    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
 };
 use core::{
     alloc::{Allocator, Layout},
@@ -45,6 +47,7 @@ impl DerefMut for PageDirectory {
     }
 }
 
+#[allow(clippy::mut_from_ref)]
 impl PageDirectory {
     fn page_table(
         &self,
@@ -410,8 +413,7 @@ impl<A: Allocator> PageManager<A> {
         }
 
         // A bit unsettling...
-        let page_table =
-            unsafe { &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset) };
+        let page_table = &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
 
         page_table.0[pti].present()
     }
@@ -552,7 +554,7 @@ lazy_static! {
 
         let cr4: u32;
         unsafe { asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack)) };
-        let mut cr4 = CR4::new(cr4);
+        let cr4 = CR4::new(cr4);
         if cr4.pse() {
             // If it is, early return true.
             return true;

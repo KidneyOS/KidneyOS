@@ -15,18 +15,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c84fc003e338a6f69fbd4f7fe9f92b535ff13e9af8997f3b14b6ddff8b1df46d"
 
 [[package]]
-name = "bitbybit"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb157f9753a7cddfcf4a4f5fed928fbf4ce1b7b64b6bcc121d7a9f95d698997b"
-dependencies = [
- "arbitrary-int",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -136,12 +124,12 @@ name = "kidneyos"
 version = "0.1.0"
 dependencies = [
  "arbitrary-int",
- "bitbybit",
  "flate2",
  "kidneyos-shared",
  "kidneyos-syscalls",
  "lazy_static",
  "nom",
+ "paste",
  "zerocopy",
 ]
 
@@ -150,8 +138,8 @@ name = "kidneyos-shared"
 version = "0.1.0"
 dependencies = [
  "arbitrary-int",
- "bitbybit",
  "lazy_static",
+ "paste",
 ]
 
 [[package]]
@@ -235,6 +223,12 @@ checksum = "82881c4be219ab5faaf2ad5e5e5ecdff8c66bd7402ca3160975c93b24961afd1"
 dependencies = [
  "portable-atomic",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "portable-atomic"

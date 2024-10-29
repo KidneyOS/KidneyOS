@@ -3,7 +3,7 @@
 // https://wiki.osdev.org/Exceptions
 
 use core::{arch::asm, mem::size_of};
-use kidneyos_shared::{bitfield, bit_array::BitArray};
+use kidneyos_shared::{bit_array::BitArray, bitfield};
 use paste::paste;
 
 use crate::interrupts::intr_handler::{
@@ -24,12 +24,15 @@ bitfield!(
 );
 
 impl GateDescriptor {
+    #[allow(dead_code)]
     pub fn offset(&self) -> u32 {
         ((self.offset_high() as u32) << 16) | (self.offset_low() as u32)
     }
 
+    #[allow(dead_code)]
     pub fn with_offset(self, value: u32) -> Self {
-        self.with_offset_low(value as u16).with_offset_high((value >> 16) as u16)
+        self.with_offset_low(value as u16)
+            .with_offset_high((value >> 16) as u16)
     }
 }
 

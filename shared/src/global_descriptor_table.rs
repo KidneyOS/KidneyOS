@@ -3,7 +3,7 @@
 
 use crate::{
     segment::{SegmentDescriptor, SegmentSelector},
-    task_state_segment::{TaskStateSegment, TASK_STATE_SEGMENT}
+    task_state_segment::{TaskStateSegment, TASK_STATE_SEGMENT},
 };
 use core::{arch::asm, mem::size_of, ptr::addr_of};
 

@@ -62,13 +62,18 @@ macro_rules! bitfield {
         pub struct $name(BitArray<$t>);
 
         impl $name {
+            #[allow(dead_code)]
             pub const fn default() -> Self { Self(BitArray::<$t>(0)) }
+            #[allow(dead_code)]
             pub const fn new(value: $t) -> Self { Self(BitArray::<$t>(value)) }
+            #[allow(dead_code)]
             pub const fn load(self) -> $t { self.0.load() }
 
             $(
                 paste! {
+                    #[allow(dead_code)]
                     pub const fn $r_name(&self) -> $r_t { self.0.get_range($r_low, $r_high) as $r_t }
+                    #[allow(dead_code)]
                     pub const fn [<with_ $r_name>](self, value: $r_t) -> Self {
                         Self(self.0.with_range(value as $t, $r_low, $r_high))
                     }
@@ -77,7 +82,9 @@ macro_rules! bitfield {
 
             $(
                 paste! {
+                    #[allow(dead_code)]
                     pub const fn $b_name(&self) -> bool { self.0.get($b_idx) }
+                    #[allow(dead_code)]
                     pub const fn [<with_ $b_name>](self, value: bool) -> Self {
                         Self(self.0.with(value, $b_idx))
                     }
