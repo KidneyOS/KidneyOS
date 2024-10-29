@@ -1,5 +1,7 @@
 mod buddy_allocator;
 mod frame_allocator;
+pub mod user;
+pub mod util;
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
@@ -150,6 +152,9 @@ impl KernelAllocator {
         };
     }
 
+    /// # Safety
+    ///
+    /// TODO
     pub unsafe fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
         let KernelAllocatorState::Initialized {
             frame_allocator, ..
@@ -161,6 +166,9 @@ impl KernelAllocator {
         frame_allocator.alloc(frames)
     }
 
+    /// # Safety
+    ///
+    /// TODO
     pub unsafe fn frame_dealloc(&mut self, ptr: NonNull<u8>) {
         let KernelAllocatorState::Initialized {
             frame_allocator, ..

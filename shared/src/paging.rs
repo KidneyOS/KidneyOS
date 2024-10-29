@@ -47,7 +47,7 @@ impl DerefMut for PageDirectory {
 
 impl PageDirectory {
     fn page_table(
-        &mut self,
+        &self,
         page_directory_index: usize,
         phys_to_alloc_addr_offset: usize,
     ) -> &mut PageTable {
@@ -259,7 +259,7 @@ impl<A: Allocator> PageManager<A> {
                 page_directory[pdi] = page_directory[pdi].with_user_supervisor(true);
             }
 
-            page_directory.page_table(pdi, self.phys_to_alloc_addr_offset)
+            &mut *page_directory.page_table(pdi, self.phys_to_alloc_addr_offset)
         };
 
         assert!(
@@ -388,6 +388,44 @@ impl<A: Allocator> PageManager<A> {
     ) {
         self.map_range(start, start, frames_len, write, user);
     }
+
+    /// Returns true if this `pointer` is mapped in this PageManager.
+    ///
+    /// This doesn't return a &PageEntry because it would work strangely with huge pages.
+    pub fn is_mapped(&self, pointer: usize) -> bool {
+        let (pdi, pti) = virt_parts(pointer);
+
+        let page_directory = unsafe { self.root.as_ref() };
+
+        let entry = &page_directory.0[pdi];
+
+        // Entry is not present, don't bother looking any further.
+        if !entry.present() {
+            return false;
+        }
+
+        // Huge, page, this point is mapped.
+        if entry.page_size() {
+            return true;
+        }
+
+        // A bit unsettling...
+        let page_table =
+            unsafe { &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset) };
+
+        page_table.0[pti].present()
+    }
+
+    /// Returns true if `count` bytes after `pointer` are mapped in this PageManager.
+    pub fn is_range_mapped(&self, pointer: usize, count: usize) -> bool {
+        // Align downwards.
+        let start = (pointer / PAGE_FRAME_SIZE) * PAGE_FRAME_SIZE;
+
+        // Check if each 4K page is mapped.
+        (start..pointer + count)
+            .step_by(PAGE_FRAME_SIZE)
+            .all(|ptr| self.is_mapped(ptr))
+    }
 }
 
 impl<A: Allocator + Copy> Clone for PageManager<A> {
@@ -489,7 +527,7 @@ lazy_static! {
                 popfd // Restore original EFLAGS.
                 ",
                 out(reg) eflags_diff,
-                mask = const EFlags::default().with_id(true).id() as u8,
+                mask = const EFlags::default().with_id(true).load() as u8,
             )
         };
 
@@ -526,7 +564,7 @@ lazy_static! {
         }
 
         // Otherwise, enable it and return true.
-        unsafe { asm!("mov cr4, {}", in(reg) cr4.with_pse(true).pse() as usize, options(nostack)) };
+        unsafe { asm!("mov cr4, {}", in(reg) cr4.with_pse(true).load() as usize, options(nostack)) };
         true
     };
 }

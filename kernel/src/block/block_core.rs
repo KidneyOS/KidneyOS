@@ -79,7 +79,7 @@ pub struct Block {
     /// The type of block
     block_type: BlockType,
     /// The block driver
-    driver: Box<dyn BlockOp>,
+    driver: Box<dyn BlockOp + Send + Sync + 'static>,
 
     /// The size of the block device in sectors
     block_size: BlockSector,
@@ -185,6 +185,7 @@ impl fmt::Display for Block {
 }
 
 /// Maintain a list of blocks
+#[derive(Default)]
 pub struct BlockManager {
     /// All the block devices
     all_blocks: Vec<Block>,
@@ -215,7 +216,7 @@ impl BlockManager {
         block_type: BlockType,
         block_name: &str,
         block_size: BlockSector,
-        driver: Box<dyn BlockOp>,
+        driver: Box<dyn BlockOp + 'static + Send + Sync>,
     ) -> usize {
         self.all_blocks.push(Block {
             index: self.max_index,
@@ -263,7 +264,39 @@ impl fmt::Display for BlockManager {
     }
 }
 
-/// Initialize the block layer
-pub fn block_init() -> BlockManager {
-    BlockManager::new()
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use std::io::{prelude::*, SeekFrom};
+    fn seek_offset(sector: BlockSector) -> SeekFrom {
+        SeekFrom::Start(sector as u64 * BLOCK_SECTOR_SIZE as u64)
+    }
+    struct FileBlockOps<T: Seek + Read + Write + Send + Sync + 'static>(T);
+    impl<T: Seek + Read + Write + Send + Sync + 'static> BlockOp for FileBlockOps<T> {
+        unsafe fn read(&mut self, sector: BlockSector, buf: &mut [u8]) -> Result<(), BlockError> {
+            self.0.seek(seek_offset(sector)).unwrap();
+            self.0.read_exact(buf).unwrap();
+            Ok(())
+        }
+        unsafe fn write(&mut self, sector: BlockSector, buf: &[u8]) -> Result<(), BlockError> {
+            self.0.seek(seek_offset(sector)).unwrap();
+            self.0.write_all(buf).unwrap();
+            Ok(())
+        }
+    }
+    // create a block device from a file, for testing
+    pub fn block_from_file<T: Seek + Read + Write + Send + Sync + 'static>(mut file: T) -> Block {
+        let size = file.seek(SeekFrom::End(0)).unwrap();
+        Block {
+            index: 0,
+            block_name: "<test file>".into(),
+            block_type: BlockType::FileSystem,
+            driver: Box::new(FileBlockOps(file)),
+            block_size: (size / BLOCK_SECTOR_SIZE as u64)
+                .try_into()
+                .expect("file too large"),
+            read_count: 0,
+            write_count: 0,
+        }
+    }
 }
