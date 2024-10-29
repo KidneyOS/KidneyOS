@@ -56,7 +56,6 @@ impl ProcessTable {
         self.content.insert(pcb.pid, pcb);
     }
 
-    #[allow(dead_code)]
     pub fn remove(&mut self, pid: Pid) -> Option<Box<ProcessControlBlock>> {
         self.content.remove(&pid)
     }

@@ -76,20 +76,19 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             };
 
             let system = unsafe { unwrap_system_mut() };
-            let running_tcb = system.threads.running_thread.as_ref().unwrap();
 
-            if let Some(parnet_pcb) = system.process.table.get_mut(wait_pid) {
-                parnet_pcb.wait_list.push(running_tcb.pid);
-                let parent_pid = parnet_pcb.pid;
+            let Some(wait_pcb) = system.process.table.get_mut(wait_pid) else {
+                return -1;
+            }; 
 
+            while wait_pcb.exit_code.is_none() {
                 thread_sleep();
-
-                *status_ptr = (parnet_pcb.exit_code.unwrap() & 0xff) << 8;
-                parent_pid as isize
-            } else {
-                // Parent TID not found
-                -1
             }
+
+            *status_ptr = (wait_pcb.exit_code.unwrap() & 0xff) << 8;
+            system.process.table.remove(wait_pid);
+            
+            wait_pid as isize
         }
         SYS_EXECVE => {
             let thread = unsafe {

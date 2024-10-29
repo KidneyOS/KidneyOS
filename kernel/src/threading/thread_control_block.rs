@@ -16,6 +16,7 @@ use core::{
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use kidneyos_shared::println;
 use kidneyos_shared::sizes::KB;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
@@ -44,7 +45,7 @@ pub struct ProcessControlBlock {
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
-    pub wait_list: Vec<Tid>,
+    pub waiting_thread: Option<Tid>,
 
     pub exit_code: Option<i32>,
     /// filesystem and inode of current working directory
@@ -63,7 +64,7 @@ impl ProcessControlBlock {
             pid,
             ppid: parent_pid,
             child_tids: Vec::new(),
-            wait_list: Vec::new(),
+            waiting_thread: None,
             exit_code: None,
             cwd: root.get_root().unwrap(),
             cwd_path: "/".into(),
