@@ -1,6 +1,6 @@
 use crate::block::block_core::BlockManager;
 use crate::threading::process::{Pid, ProcessState};
-use crate::threading::thread_control_block::ProcessControlBlock;
+use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
 
 // Synchronizing this primitive in a safe way is hard.
@@ -70,4 +70,12 @@ pub fn running_thread_ppid() -> Pid {
     let process_table = unsafe { &unwrap_system().process.table };
     let pcb = process_table.get(tcb.pid).unwrap();
     pcb.ppid
+}
+
+pub fn running_thread() -> &'static ThreadControlBlock {
+    unsafe { unwrap_system().threads.running_thread.unwrap().as_ref() }
+}
+
+pub fn running_thread_mut() -> &'static mut ThreadControlBlock {
+    unsafe { unwrap_system().threads.running_thread.unwrap().as_mut() }
 }

@@ -9,7 +9,7 @@ use crate::mem::util::get_mut_from_user_space;
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
-use crate::threading::thread_functions;
+use crate::threading::{process_functions, thread_functions};
 use crate::user_program::elf::Elf;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
@@ -27,7 +27,8 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
         SYS_EXIT => {
-            thread_functions::exit_thread(arg0 as i32);
+            // thread_functions::exit_thread(arg0 as i32);
+            process_functions::exit_process(arg0 as i32);
         }
         SYS_FORK => {
             todo!("fork syscall")
