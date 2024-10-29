@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 arbitrary-int = "1.2.7"
-bitfield = "0.17.0"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+paste = "1.0.15"

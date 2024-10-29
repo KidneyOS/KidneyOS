@@ -9,12 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c84fc003e338a6f69fbd4f7fe9f92b535ff13e9af8997f3b14b6ddff8b1df46d"
 
 [[package]]
-name = "bitfield"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f798d2d157e547aa99aab0967df39edd0b70307312b6f8bd2848e6abe40896e0"
-
-[[package]]
 name = "bitflags"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -99,10 +93,10 @@ name = "kidneyos"
 version = "0.1.0"
 dependencies = [
  "arbitrary-int",
- "bitfield",
  "kidneyos-shared",
  "lazy_static",
  "nom",
+ "paste",
 ]
 
 [[package]]
@@ -110,8 +104,8 @@ name = "kidneyos-shared"
 version = "0.1.0"
 dependencies = [
  "arbitrary-int",
- "bitfield",
  "lazy_static",
+ "paste",
 ]
 
 [[package]]
@@ -186,6 +180,12 @@ checksum = "82881c4be219ab5faaf2ad5e5e5ecdff8c66bd7402ca3160975c93b24961afd1"
 dependencies = [
  "portable-atomic",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "portable-atomic"
