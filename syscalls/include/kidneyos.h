@@ -114,6 +114,8 @@
 
 #define SYS_CLOCK_GETTIME 265
 
+#define SYS_GETRANDOM 355
+
 #define S_REGULAR_FILE 1
 
 #define S_SYMLINK 2
@@ -210,5 +212,7 @@ Pid getppid(void);
 int32_t scheduler_yield(void);
 
 int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
+
+int32_t getrandom(int8_t *buf, uintptr_t size, uintptr_t flags);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

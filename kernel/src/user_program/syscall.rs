@@ -12,6 +12,7 @@ use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
 use crate::user_program::elf::Elf;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
+use crate::user_program::random::getrandom;
 use alloc::boxed::Box;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
@@ -105,6 +106,14 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             println!("{:?}", timespec);
             *timespec_ptr = timespec;
+            0
+        }
+        SYS_GETRANDOM => {
+            let Some(buffer) = (unsafe {get_mut_from_user_space(arg1 as *mut u8) }) else {
+                return -1;
+            };
+            getrandom(buffer, arg1, arg2);
+            println!("{}", buffer);
             0
         }
         _ => -ENOSYS,
