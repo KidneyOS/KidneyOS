@@ -1,8 +1,7 @@
 use core::arch::asm;
 use core::ptr;
 
-/// Generates a random `i32` using the CPU's RDRAND instruction.
-/// Returns `Some(random_value)` on success or `None` if RDRAND fails.
+/// Generates a random int using the CPU's RDRAND instruction.
 fn generate_random_i32() -> Option<i32> {
     let mut random_int: i32;
     let success: u8;
@@ -10,7 +9,7 @@ fn generate_random_i32() -> Option<i32> {
     unsafe {
         asm!(
             "rdrand {0}",
-            "setc {1}",  // Set success flag if RDRAND succeeded
+            "setc {1}",
             out(reg) random_int,
             out(reg_byte) success,
             options(nostack, nomem),
@@ -26,24 +25,27 @@ fn generate_random_i32() -> Option<i32> {
 
 /// Fills a buffer with random bytes from the CPU's RDRAND instruction.
 /// Returns the number of bytes written, or -1 if an error occurs.
-pub fn getrandom(buffer: *mut u8, length: usize, flags: usize) -> isize {
+/// Currently no flags are implemented, if there is no random data available,
+/// an error code is returned.
+pub fn getrandom(buffer: *mut u8, length: usize, _flags: usize) -> isize {
     let mut bytes_written: usize = 0;
-    let chunks = length / 4; // Number of complete 4-byte chunks
-    let remainder = length % 4; // Remaining bytes if length is not a multiple of 4
+    let chunks = length / 4;
+    let remainder = length % 4;
 
-    // Fill the buffer with complete 4-byte chunks
     for i in 0..chunks {
         match generate_random_i32() {
             Some(random_int) => {
-                // Write the random integer into the buffer as 4 bytes
-                unsafe { ptr::write(buffer.add(i * 4) as *mut i32, random_int) };
+                let random_bytes = random_int.to_le_bytes();
+                for (j, &byte) in random_bytes.iter().enumerate() {
+                    unsafe { ptr::write(buffer.add(i * 4 + j), byte) };
+                }
                 bytes_written += 4;
             }
-            None => return bytes_written.try_into().unwrap(), // Stop if RDRAND failed
+            None => return bytes_written.try_into().unwrap(),
         }
     }
 
-    // Handle any remaining bytes (if length is not a multiple of 4)
+    // Handle any remaining bytes if length is not a multiple of 4
     if remainder > 0 {
         if let Some(random_int) = generate_random_i32() {
             let random_bytes = random_int.to_le_bytes();
@@ -54,5 +56,5 @@ pub fn getrandom(buffer: *mut u8, length: usize, flags: usize) -> isize {
         }
     }
 
-    bytes_written.try_into().unwrap()// Return the total number of bytes written
+    bytes_written.try_into().unwrap()
 }
