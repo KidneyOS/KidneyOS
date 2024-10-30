@@ -1,8 +1,6 @@
-use core::{alloc::{AllocError, Allocator, Layout}, mem::size_of, mem::align_of, ptr, ptr::NonNull, slice};
-use alloc::boxed::Box;
+use core::{alloc::{AllocError, Layout}, mem::size_of};
 
-use crate::mem::frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
-use crate::mem::{FrameAllocator, FrameAllocatorWrapper};
+use super::{FrameAllocatorWrapper};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 use kidneyos_shared::println;
 
@@ -52,7 +50,7 @@ impl SubblockAllocator {
     pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocError> {
         let subblock_size_index = get_best_subblock_size_idx(layout.size());
 
-        if (subblock_size_index == SUBBLOCK_TYPE_COUNT){
+        if subblock_size_index == SUBBLOCK_TYPE_COUNT{
             println!("[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently");
             return Err(AllocError);
         };
@@ -67,21 +65,21 @@ impl SubblockAllocator {
                 Ok(node as *mut ListNode as *mut u8)
             }
             None => {
-                /// If no block currently exists, we need to allocate a frame and divide the frame
-                ///
-                /// We first have to make sure the subblock size has enough room to hold a ListNode
-                /// This should always be the case, but we check regardless
+                // If no block currently exists, we need to allocate a frame and divide the frame
+                //
+                // We first have to make sure the subblock size has enough room to hold a ListNode
+                // This should always be the case, but we check regardless
                 println!("[SUBBLOCK ALLOCATOR]: List head does not exist, requesting frame for subblock size: {}", SUBBLOCK_SIZES[subblock_size_index]);
                 assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
-                let mut new_frame = match self.frame_allocator.alloc(1) {
+                let new_frame = match self.frame_allocator.alloc(1) {
                     Err(AllocError) => return Err(AllocError),
                     Ok(v) => v
                 };
                 let start_of_frame_addr = new_frame.as_ptr() as *const u8 as usize;
                 let num_subblocks = PAGE_FRAME_SIZE / SUBBLOCK_SIZES[subblock_size_index];
 
-                /// Begin to divide the frame into the required subblock sizes
+                // Begin to divide the frame into the required subblock sizes
                 for i in 0..num_subblocks {
                     let start_of_subblock_addr = start_of_frame_addr + (SUBBLOCK_SIZES[subblock_size_index] * i);
                     let start_of_subblock_ptr = start_of_subblock_addr as *mut u8 as *mut ListNode;
@@ -95,10 +93,10 @@ impl SubblockAllocator {
                     }
                 }
 
-                /// At this point, the head of the linked list should not be None
-                assert_eq!(self.list_heads[subblock_size_index].is_none(), false);
+                // At this point, the head of the linked list should not be None
+                assert!(!self.list_heads[subblock_size_index].is_none());
 
-                /// Return the head of the linked list
+                // Return the head of the linked list
                 let node = self.list_heads[subblock_size_index].take().unwrap();
                 self.list_heads[subblock_size_index] = node.next.take();
                 Ok(node as *mut ListNode as *mut u8)

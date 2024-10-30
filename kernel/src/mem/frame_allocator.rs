@@ -44,7 +44,7 @@ impl DummyAllocatorSolution{
             .next_multiple_of(PAGE_FRAME_SIZE);
 
         let ret = Ok(NonNull::slice_from_raw_parts(
-            NonNull::new(unsafe { self.start_address as *mut u8 })
+            NonNull::new( self.start_address as *mut u8 )
                 .ok_or(AllocError)?,
             frames_requested * PAGE_FRAME_SIZE,
         ));
@@ -92,18 +92,18 @@ pub struct FrameAllocatorSolution{
 
 #[allow(unused)]
 pub enum PlacementPolicy{
-    NextFit,
-    FirstFit,
-    BestFit,
+    Next,
+    First,
+    Best,
 }
 
-unsafe impl FrameAllocator for FrameAllocatorSolution{
+impl FrameAllocator for FrameAllocatorSolution{
     fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>,
               total_number_of_frames: usize) -> Self{
         FrameAllocatorSolution{
             start,
             core_map,
-            placement_policy: PlacementPolicy::NextFit,
+            placement_policy: PlacementPolicy::Next,
             total_number_of_frames,
         }
     }
@@ -119,9 +119,9 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
         }
 
         let Some(range) = (match self.placement_policy{
-            PlacementPolicy::NextFit => self.next_fit(frames_requested),
-            PlacementPolicy::FirstFit => self.first_fit(frames_requested),
-            PlacementPolicy::BestFit => self.best_fit(frames_requested),
+            PlacementPolicy::Next => self.next_fit(frames_requested),
+            PlacementPolicy::First => self.first_fit(frames_requested),
+            PlacementPolicy::Best => self.best_fit(frames_requested),
         }) else {
             return Err(AllocError);
         };
@@ -146,8 +146,8 @@ unsafe impl FrameAllocator for FrameAllocatorSolution{
             if !self.core_map[start].next(){
                 break;
             }
-            assert_eq!(self.core_map[start].next(), true);
-            assert_eq!(self.core_map[start].allocated(), true);
+            assert!(self.core_map[start].next());
+            assert!(self.core_map[start].allocated());
 
             self.core_map[start] = self.core_map[start].with_next(false).with_allocated(false);
 
@@ -223,7 +223,7 @@ impl FrameAllocatorSolution{
 
             if free_frames_found == frames_requested{
                 for k in i..i + frames_requested{
-                    assert_eq!(self.core_map[k].allocated(), false);
+                    assert!(!self.core_map[k].allocated());
 
                     self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
                 }
@@ -255,7 +255,7 @@ impl FrameAllocatorSolution{
 
             if free_frames_found == frames_requested{
                 for k in i..i + frames_requested{
-                    assert_eq!(self.core_map[k].allocated(), false);
+                    assert!(!self.core_map[k].allocated());
 
                     self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
                 }
@@ -289,11 +289,9 @@ impl FrameAllocatorSolution{
                     i += 1;
                 }
 
-                if chunk_size >= frames_requested{
-                    if chunk_size - frames_requested < best_chunk_size_so_far{
-                        best_chunk_size_so_far = chunk_size;
-                        best_start_index_so_far = start_index;
-                    }
+                if chunk_size >= frames_requested && chunk_size - frames_requested < best_chunk_size_so_far{
+                    best_chunk_size_so_far = chunk_size;
+                    best_start_index_so_far = start_index;
                 }
 
             } else {
@@ -306,15 +304,14 @@ impl FrameAllocatorSolution{
         }
 
         for k in best_start_index_so_far..best_start_index_so_far + frames_requested{
-            assert_eq!(self.core_map[k].allocated(), false);
-
+            assert!(!self.core_map[k].allocated());
             self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
         }
 
         let temp = CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested;
         CURR_NUM_FRAMES_ALLOCATED.store(temp, Ordering::Relaxed);
 
-        return Some(best_start_index_so_far..best_start_index_so_far + frames_requested);
+        Some(best_start_index_so_far..best_start_index_so_far + frames_requested)
     }
 }
 
