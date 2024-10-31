@@ -1,6 +1,6 @@
 use core::{
     alloc::{AllocError, Layout},
-    mem::size_of
+    mem::size_of,
 };
 
 use super::FrameAllocatorWrapper;
@@ -63,7 +63,7 @@ impl SubblockAllocator {
                 //
                 // Think of this as doing a linked_list.pop_from_head() operation
                 println!(
-                    "[SUBBLOCK ALLOCATOR]: List head exists, allocating subblock size: {}", 
+                    "[SUBBLOCK ALLOCATOR]: List head exists, allocating subblock size: {}",
                     SUBBLOCK_SIZES[subblock_size_index]
                 );
                 self.list_heads[subblock_size_index] = node.next.take();
@@ -90,7 +90,7 @@ impl SubblockAllocator {
 
                 // Begin to divide the frame into the required subblock sizes
                 for i in 0..num_subblocks {
-                    let start_of_subblock_addr = 
+                    let start_of_subblock_addr =
                         start_of_frame_addr + (SUBBLOCK_SIZES[subblock_size_index] * i);
                     let start_of_subblock_ptr = start_of_subblock_addr as *mut u8 as *mut ListNode;
 

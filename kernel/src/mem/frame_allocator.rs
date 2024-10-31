@@ -18,7 +18,7 @@ pub struct DummyAllocatorSolution {
 }
 
 impl DummyAllocatorSolution {
-    pub const fn new_in(start_address: usize, end_address: usize) -> Self{
+    pub const fn new_in(start_address: usize, end_address: usize) -> Self {
         DummyAllocatorSolution {
             start_address,
             end_address
@@ -41,7 +41,7 @@ impl DummyAllocatorSolution {
             .next_multiple_of(PAGE_FRAME_SIZE);
 
         let ret = Ok(NonNull::slice_from_raw_parts(
-            NonNull::new( self.start_address as *mut u8 ).ok_or(AllocError)?,
+            NonNull::new(self.start_address as *mut u8).ok_or(AllocError)?,
             frames_requested * PAGE_FRAME_SIZE,
         ));
 
@@ -68,7 +68,7 @@ impl DummyAllocatorSolution {
 
 // TODO: Verify the correctness of all placement policy algorithms
 #[bitfield(u8, default = 0)]
-pub struct CoreMapEntry{
+pub struct CoreMapEntry {
     #[bit(0, rw)]
     allocated: bool,
     #[bit(1, rw)]
@@ -98,7 +98,7 @@ impl FrameAllocator for FrameAllocatorSolution {
         start: NonNull<u8>,
         core_map: Box<[CoreMapEntry]>,
         total_number_of_frames: usize
-    ) -> Self{
+    ) -> Self {
         FrameAllocatorSolution{
             start,
             core_map,
@@ -112,9 +112,10 @@ impl FrameAllocator for FrameAllocatorSolution {
         Success: Return a NonNull<[u8]> pointer to the start of memory address
         Failure: Return AllocError
      */
-    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>{
+    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
         if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
-            > self.total_number_of_frames {
+            > self.total_number_of_frames
+        {
             return Err(AllocError);
         }
 
@@ -138,8 +139,8 @@ impl FrameAllocator for FrameAllocatorSolution {
         Success: Return the number of frames freed
         Failure: TBD
      */
-    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize{ 
-        let start = 
+    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize {
+        let start =
             (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
         let mut num_frames_to_free = 0;
 
@@ -162,15 +163,16 @@ impl FrameAllocator for FrameAllocatorSolution {
     }
 }
 
-impl FrameAllocatorSolution{
+impl FrameAllocatorSolution {
     #[allow(dead_code)]
     pub fn set_placement_policy(&mut self, new_placement_policy: PlacementPolicy) {
         self.placement_policy = new_placement_policy;
     }
 
     pub fn has_room(&self, frames_requested: usize) -> bool {
-        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested 
-            > self.total_number_of_frames{
+        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
+            > self.total_number_of_frames
+        {
             return false
         };
 
@@ -193,7 +195,6 @@ impl FrameAllocatorSolution{
                 if chunk_size > largest_chunk {
                     largest_chunk = chunk_size
                 }
-
             } else {
                 i += 1;
             }
@@ -204,7 +205,8 @@ impl FrameAllocatorSolution{
 
     fn next_fit(&mut self, frames_requested: usize) -> Option<Range<usize>> {
         for index in CURR_POSITION.load(Ordering::Relaxed)
-            ..CURR_POSITION.load(Ordering::Relaxed) + self.total_number_of_frames {
+            ..CURR_POSITION.load(Ordering::Relaxed) + self.total_number_of_frames
+        {
             let i = index % self.total_number_of_frames;
 
             if i + frames_requested > self.total_number_of_frames {
@@ -217,7 +219,7 @@ impl FrameAllocatorSolution{
                 free_frames_found += 1;
 
                 for j in 1..frames_requested {
-                    if !self.core_map[i+j].allocated() {
+                    if !self.core_map[i + j].allocated() {
                         free_frames_found += 1;
                     }
                 }
@@ -249,7 +251,7 @@ impl FrameAllocatorSolution{
                 free_frames_found += 1;
 
                 for j in 1..frames_requested {
-                    if !self.core_map[i+j].allocated() {
+                    if !self.core_map[i + j].allocated() {
                         free_frames_found += 1;
                     }
                 }
@@ -291,8 +293,9 @@ impl FrameAllocatorSolution{
                     i += 1;
                 }
 
-                if chunk_size >= frames_requested 
-                    && chunk_size - frames_requested < best_chunk_size_so_far {
+                if chunk_size >= frames_requested
+                    && chunk_size - frames_requested < best_chunk_size_so_far
+                {
                     best_chunk_size_so_far = chunk_size;
                     best_start_index_so_far = start_index;
                 }

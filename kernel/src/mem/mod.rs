@@ -13,7 +13,7 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use frame_allocator::{CoreMapEntry, FrameAllocatorSolution, DummyAllocatorSolution};
+use frame_allocator::{CoreMapEntry, DummyAllocatorSolution, FrameAllocatorSolution};
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
@@ -33,7 +33,7 @@ trait FrameAllocator {
     fn new_in(
         start: NonNull<u8>,
         core_map: Box<[CoreMapEntry]>,
-        num_frames_in_system: usize
+        num_frames_in_system: usize,
     ) -> Self;
 
     /// Allocate the specified number of frames if possible,
@@ -52,11 +52,11 @@ struct FrameAllocatorWrapper {
     frame_allocator: FrameAllocatorSolution,
 }
 
-impl FrameAllocatorWrapper{
+impl FrameAllocatorWrapper {
     fn new_in(
         start: NonNull<u8>,
         core_map: Box<[CoreMapEntry]>,
-        num_frames_in_system: usize
+        num_frames_in_system: usize,
     ) -> Self {
         Self {
             frame_allocator: FrameAllocatorSolution::new_in(start, core_map, num_frames_in_system),
@@ -160,13 +160,14 @@ impl KernelAllocator {
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
         println!("[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
                  frames_base_address,
-                 dummy_allocator.get_start_address());
+                 dummy_allocator.get_start_address()
+        );
 
         let frame_allocator = FrameAllocatorWrapper::new_in(
             NonNull::new(dummy_allocator.get_start_address() as *mut u8)
                 .expect("frames_base can't be null"),
             core_map,
-            num_frames_in_system
+            num_frames_in_system,
         );
 
         *self.state.get_mut() = KernelAllocatorState::Initialized {
@@ -198,14 +199,15 @@ impl KernelAllocator {
 
 
     pub fn deinit(&mut self) {
-        let KernelAllocatorState::Initialized { subblock_allocator} = self.state.get_mut() else {
+        let KernelAllocatorState::Initialized { subblock_allocator } = self.state.get_mut() else {
             panic!("[KERNEL ALLOCATOR]: deinit called before initialization of kernel allocator");
         };
 
         let mut incorrect_num_allocs = false;
 
         if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed)
-            != TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) {
+            != TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed)
+        {
             incorrect_num_allocs = true;
         }
 
@@ -230,9 +232,8 @@ unsafe impl GlobalAlloc for KernelAllocator {
             // If we are here, it should be the dummy allocator doing the allocation
             println!("[KERNEL ALLOCATOR]: Beginning Dummy Allocation for Coremap Entries");
 
-            let KernelAllocatorState::SetupState {
-                dummy_allocator
-            } = &mut *self.state.get() else {
+            let KernelAllocatorState::SetupState { dummy_allocator } = &mut *self.state.get()
+            else {
                 halt!("[KERNEL ALLOCATOR]: Kernel initialized before Coremap Entries created")
             };
 
@@ -257,7 +258,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
             region.as_ptr().cast::<u8>()
         } else {
-            let KernelAllocatorState::Initialized { subblock_allocator} = &mut *self.state.get()
+            let KernelAllocatorState::Initialized { subblock_allocator } = &mut *self.state.get()
             else {
                 halt!("[KERNEL ALLOCATOR]: Allocation requested before kernel is Initialized");
             };
@@ -326,7 +327,7 @@ fn test_larger_vec() {
     assert_eq!(large_test_vec[40], 41);
     assert_eq!(large_test_vec[52], 53);
     assert_eq!(
-        large_test_vec.iter().sum::<u64>(), 
+        large_test_vec.iter().sum::<u64>(),
         (large_n + 1) * (large_n / 2)
     );
 }
@@ -339,7 +340,3 @@ pub fn subblock_allocation_tests() {
     test_vec();
     test_larger_vec();
 }
-
-
-
-
