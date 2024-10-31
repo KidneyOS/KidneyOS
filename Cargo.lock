@@ -123,7 +123,6 @@ checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 name = "kidneyos"
 version = "0.1.0"
 dependencies = [
- "arbitrary-int",
  "flate2",
  "kidneyos-shared",
  "kidneyos-syscalls",
@@ -137,7 +136,6 @@ dependencies = [
 name = "kidneyos-shared"
 version = "0.1.0"
 dependencies = [
- "arbitrary-int",
  "lazy_static",
  "paste",
 ]

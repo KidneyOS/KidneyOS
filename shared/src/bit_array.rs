@@ -19,7 +19,7 @@ macro_rules! impl_bitarray {
 
                 pub const fn with_range(self, value: $v, low: usize, high: usize) -> Self {
                     let mask = ((1 << high - low) - 1 | 1 << high - low) << low;
-                    BitArray((self.0 & !mask) | (value as $t & mask) << low)
+                    BitArray((self.0 & !mask) | (value as $t << low) & mask)
                 }
 
                 pub const fn load(self) -> $t { self.0 }
@@ -29,26 +29,6 @@ macro_rules! impl_bitarray {
 }
 
 impl_bitarray!({u8, u16, u32, u64} {u8, u16, u32, u64});
-
-#[macro_export]
-macro_rules! impl_getter_setter {
-    ($t: ty, $name: ident, $low: literal, $high: literal) => {
-        paste! {
-            pub fn $name(&self) -> $t { self.0.get_range($low, $high) as $t }
-            pub fn [<with_ $name>](self, value: $t) -> Self {
-                Self(self.0.with_range(value, $low, $high))
-            }
-        }
-    };
-    ($name: ident, $idx: literal) => {
-        paste! {
-            pub const fn $name(&self) -> bool { self.0.get($idx) }
-            pub const fn [<with_ $name>](self, value: bool) -> Self {
-                Self(self.0.with(value, $idx))
-            }
-        }
-    };
-}
 
 #[macro_export]
 macro_rules! bitfield {
