@@ -27,7 +27,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
         SYS_EXIT => {
-            // thread_functions::exit_thread(arg0 as i32);
             process_functions::exit_process(arg0 as i32);
         }
         SYS_FORK => {
