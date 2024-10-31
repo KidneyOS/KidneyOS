@@ -30,3 +30,5 @@ panic = "abort"
 # debug builds, to speed up tests.
 [profile.dev.package.flate2]
 opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
