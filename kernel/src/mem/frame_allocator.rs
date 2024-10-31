@@ -21,7 +21,7 @@ impl DummyAllocatorSolution {
     pub const fn new_in(start_address: usize, end_address: usize) -> Self {
         DummyAllocatorSolution {
             start_address,
-            end_address
+            end_address,
         }
     }
 
@@ -99,7 +99,7 @@ impl FrameAllocator for FrameAllocatorSolution {
         core_map: Box<[CoreMapEntry]>,
         total_number_of_frames: usize
     ) -> Self {
-        FrameAllocatorSolution{
+        FrameAllocatorSolution {
             start,
             core_map,
             placement_policy: PlacementPolicy::Next,
@@ -173,7 +173,7 @@ impl FrameAllocatorSolution {
         if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
             > self.total_number_of_frames
         {
-            return false
+            return false;
         };
 
         let mut i = 0;

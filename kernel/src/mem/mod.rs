@@ -158,9 +158,10 @@ impl KernelAllocator {
         // The Coremap should take up 128 frames
         //
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
-        println!("[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
-                 frames_base_address,
-                 dummy_allocator.get_start_address()
+        println!(
+            "[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
+            frames_base_address,
+            dummy_allocator.get_start_address()
         );
 
         let frame_allocator = FrameAllocatorWrapper::new_in(
@@ -196,7 +197,6 @@ impl KernelAllocator {
 
         subblock_allocator.get_frame_allocator().dealloc(ptr);
     }
-
 
     pub fn deinit(&mut self) {
         let KernelAllocatorState::Initialized { subblock_allocator } = self.state.get_mut() else {
@@ -283,7 +283,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let KernelAllocatorState::Initialized { subblock_allocator} = &mut *self.state.get()
+        let KernelAllocatorState::Initialized { subblock_allocator } = &mut *self.state.get()
         else {
             halt!("[KERNEL ALLOCATOR]: dealloc called before initialization of kernel allocator");
         };
