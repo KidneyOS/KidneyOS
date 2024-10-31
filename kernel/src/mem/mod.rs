@@ -3,12 +3,10 @@ mod frame_allocator;
 pub mod user;
 pub mod util;
 mod subblock_allocator;
-mod subblock_allocator_new;
 
 use alloc::{
     boxed::Box,
     vec::Vec,
-
 };
 use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
@@ -19,7 +17,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution, DummyAllocatorSolution};
-use subblock_allocator_new::SubblockAllocator;
+use subblock_allocator::SubblockAllocator;
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
@@ -72,6 +70,10 @@ impl FrameAllocatorWrapper{
 
     pub fn dealloc(&mut self, ptr: NonNull<u8>) -> usize{
         self.frame_allocator.dealloc(ptr)
+    }
+
+    pub fn has_room(&self, frames: usize) -> bool {
+        self.frame_allocator.has_room(frames)
     }
 }
 
@@ -171,7 +173,6 @@ impl KernelAllocator {
 
         *self.state.get_mut() = KernelAllocatorState::Initialized {
             subblock_allocator: SubblockAllocator::new(
-                dummy_allocator.get_start_address() as *mut u8,
                 frame_allocator,
             )
         };
@@ -269,14 +270,10 @@ unsafe impl GlobalAlloc for KernelAllocator {
                     halt!("[KERNEL ALLOCATOR]: Allocation requested before kernel is Initialized");
                 };
 
-            let size = layout.size();
-            let align = layout.align();
-
             // The alignment of the layout should never be larger than the size of a page
-            if align > MAX_SUPPORTED_ALIGN{
+            if layout.align() > MAX_SUPPORTED_ALIGN{
                 return ptr::null_mut();
             }
-
 
             // Allocate using subblock allocator
             let ret_ptr = match subblock_allocator.allocate(layout) {

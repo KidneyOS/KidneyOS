@@ -161,13 +161,13 @@ impl FrameAllocator for FrameAllocatorSolution{
     }
 }
 
-// TODO: All of these should just return a physical address to the start of the frame
 impl FrameAllocatorSolution{
-    fn set_placement_policy(&mut self, new_placement_policy: PlacementPolicy){
-        self.placement_policy = new_placement_policy;
-    }
+    // Useful for testing correctness of different placement policies
+    // pub fn set_placement_policy(&mut self, new_placement_policy: PlacementPolicy){
+    //     self.placement_policy = new_placement_policy;
+    // }
 
-    fn has_room(&self, frames_requested: usize) -> bool{
+    pub fn has_room(&self, frames_requested: usize) -> bool{
         if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested > self.total_number_of_frames{
             return false
         };

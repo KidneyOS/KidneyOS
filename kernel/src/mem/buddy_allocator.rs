@@ -26,52 +26,52 @@ enum State {
     Split,
 }
 
-impl BuddyAllocator {
-    /// The minimum extra space within its region required by a buddy allocator
-    /// for internal bookkeeping.
-    pub const OVERHEAD: usize = size_of::<State>();
-
-    /// Creates a new buddy allocator using the backing region.
-    pub unsafe fn new(region: NonNull<[u8]>) -> Self {
-        assert!(region.len() >= size_of::<State>());
-        *region.as_ptr().cast::<State>() = State::Free;
-        Self { region }
-    }
-
-    /// Returns whether all allocations within the buddy allocator have been
-    /// freed.
-    pub fn is_empty(&self) -> bool {
-        // SAFETY: self.region must be at least big enough for the initial State
-        // as per the assertion in new.
-        unsafe { *self.region.cast::<State>().as_ptr() == State::Free }
-    }
-
-    // Prints log messages for leaks and returns whether there were any leaks.
-    pub fn detect_leaks(&self) -> bool {
-        unsafe fn detect_leaks(region: NonNull<[u8]>) -> bool {
-            match *region.as_ptr().cast::<State>() {
-                State::Free => false,
-                State::Allocated => {
-                    kidneyos_shared::eprintln!(
-                        "address within buddy allocator region {:?} leaked!",
-                        region.as_ptr()
-                    );
-                    true
-                }
-                State::Split => {
-                    let (left, right) = split_region(region);
-                    let left_leaked = detect_leaks(left);
-                    let right_leaked = detect_leaks(right);
-                    left_leaked || right_leaked
-                }
-            }
-        }
-
-        // SAFETY: self.region belongs to this allocator so it should still be
-        // valid to traverse.
-        unsafe { detect_leaks(self.region) }
-    }
-}
+// impl BuddyAllocator {
+//     /// The minimum extra space within its region required by a buddy allocator
+//     /// for internal bookkeeping.
+//     pub const OVERHEAD: usize = size_of::<State>();
+//
+//     /// Creates a new buddy allocator using the backing region.
+//     pub unsafe fn new(region: NonNull<[u8]>) -> Self {
+//         assert!(region.len() >= size_of::<State>());
+//         *region.as_ptr().cast::<State>() = State::Free;
+//         Self { region }
+//     }
+//
+//     /// Returns whether all allocations within the buddy allocator have been
+//     /// freed.
+//     pub fn is_empty(&self) -> bool {
+//         // SAFETY: self.region must be at least big enough for the initial State
+//         // as per the assertion in new.
+//         unsafe { *self.region.cast::<State>().as_ptr() == State::Free }
+//     }
+//
+//     // Prints log messages for leaks and returns whether there were any leaks.
+//     pub fn detect_leaks(&self) -> bool {
+//         unsafe fn detect_leaks(region: NonNull<[u8]>) -> bool {
+//             match *region.as_ptr().cast::<State>() {
+//                 State::Free => false,
+//                 State::Allocated => {
+//                     kidneyos_shared::eprintln!(
+//                         "address within buddy allocator region {:?} leaked!",
+//                         region.as_ptr()
+//                     );
+//                     true
+//                 }
+//                 State::Split => {
+//                     let (left, right) = split_region(region);
+//                     let left_leaked = detect_leaks(left);
+//                     let right_leaked = detect_leaks(right);
+//                     left_leaked || right_leaked
+//                 }
+//             }
+//         }
+//
+//         // SAFETY: self.region belongs to this allocator so it should still be
+//         // valid to traverse.
+//         unsafe { detect_leaks(self.region) }
+//     }
+// }
 
 // The length of the usable space within region (the space not already used for
 // bookkeeping).
