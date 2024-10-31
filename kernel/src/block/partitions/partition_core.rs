@@ -13,24 +13,22 @@ use kidneyos_shared::{eprintln, println};
 /// A partition table entry in the MBR.
 ///
 /// Reference: https://wiki.osdev.org/MBR_(x86)#Partition_table_entry_format
-///
-/// Note: The CHS addresses, offset, and size use LITTLE ENDIAN
 pub(crate) struct PartitionTableEntry {
     /// 0x00    1   Drive attributes (bit 7 set = active or bootable)
     bootable: u8,
 
     /// 0x01    3   CHS Address of partition start
+    start_cylinder: u8,
     start_head: u8,
     start_sector: u8,
-    start_cylinder: u8,
 
     /// 0x04    1   Partition type
     partition_type: u8,
 
     /// 0x05    3   CHS address of last partition sector
+    end_cylinder: u8,
     end_head: u8,
     end_sector: u8,
-    end_cylinder: u8,
 
     /// 0x08    4   LBA of partition start
     offset: u32,
@@ -246,13 +244,13 @@ impl fmt::Display for PartitionTableEntry {
 impl PartitionTableEntry {
     pub(crate) fn new(buf: &[u8]) -> PartitionTableEntry {
         let bootable = buf[0];
-        let start_head = buf[1];
-        let start_sector = buf[2];
-        let start_cylinder = buf[3];
+        let start_cylinder = buf[1];
+        let start_head = buf[2];
+        let start_sector = buf[3];
         let partition_type = buf[4];
-        let end_head = buf[5];
-        let end_sector = buf[6];
-        let end_cylinder = buf[7];
+        let end_cylinder = buf[5];
+        let end_head = buf[6];
+        let end_sector = buf[7];
         let offset = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
         let size = u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]);
 
