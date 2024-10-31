@@ -22,7 +22,7 @@ RAW_TRAMPOLINE := $(ARTIFACT_DIR)/libkidneyos_trampoline.a
 TRAMPOLINE_DIR := build/trampoline
 TRAMPOLINE := $(TRAMPOLINE_DIR)/libkidneyos_trampoline.a
 ISO := build/kidneyos.iso
-ATADISK := gpt_fat16_50MiB.img
+ATADISK := mbr_ext4_50MiB.img
 
 .PHONY: default
 default: $(ISO)
