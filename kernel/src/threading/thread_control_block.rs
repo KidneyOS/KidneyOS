@@ -38,13 +38,12 @@ pub enum ThreadStatus {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
-    // The Pid of the process' parent.
-    // This should only be 'None' if the thread was spawned by the kernel thread/
+    // The Pid of the process' parent
     pub ppcb: Option<Rc<RefCell<ProcessControlBlock>>>,
-    // References to the TCBs of this process' children threads
-    pub child_tcbs: Vec<Rc<RefCell<ProcessControlBlock>>>,
-    // References to the TCBs of the threads waiting on this process to end
-    pub wait_list: Vec<Rc<RefCell<ProcessControlBlock>>>,
+    // The TIDs of this process' children threads
+    pub child_tcbs: Vec<Rc<RefCell<ThreadControlBlock>>>,
+    // The TIDs of the threads waiting on this process to end
+    pub waiting_thread: Option<Rc<RefCell<ThreadControlBlock>>>,
 
     pub exit_code: Option<i32>,
     /// filesystem and inode of current working directory
@@ -66,7 +65,7 @@ impl ProcessControlBlock {
             pid,
             ppcb: parent_pcb,
             child_tcbs: Vec::new(),
-            wait_list: Vec::new(),
+            waiting_thread: None,
             exit_code: None,
             cwd: root.get_root().unwrap(),
             cwd_path: "/".into(),

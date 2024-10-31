@@ -45,6 +45,13 @@ pub fn exit_thread(exit_code: i32) -> ! {
     }
 }
 
+// Focibly stops the thread associated with the TCB
+pub fn stop_thread(tcb_ref: Rc<RefCell<ThreadControlBlock>>) {
+    let mut tcb = tcb_ref.borrow_mut();
+    tcb.status = ThreadStatus::Dying;
+    tcb.set_exit_code(-1);
+}
+
 /// A wrapper function to execute a thread's true function.
 unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,

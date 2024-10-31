@@ -531,7 +531,7 @@ mod tests {
         path: &Path,
         action: Action<F>,
     ) -> Result<Option<F::FileHandle>> {
-        if !path.starts_with("/") {
+        if !path.starts_with('/') {
             panic!("not an absolute path");
         }
         let mut file = fs.open(fs.root())?;
@@ -625,7 +625,7 @@ mod tests {
         Ok(open_path(fs, path)?.inode())
     }
     // get directory entries sorted by name
-    fn readdir_path<'a, F: FileSystem>(fs: &'a mut F, path: &Path) -> Result<Vec<OwnedDirEntry>> {
+    fn readdir_path<'a, F: FileSystem>(fs: &mut F, path: &Path) -> Result<Vec<OwnedDirEntry>> {
         let mut handle = open_path(fs, path)?;
         Ok(fs.readdir(&mut handle)?.to_sorted_vec())
     }

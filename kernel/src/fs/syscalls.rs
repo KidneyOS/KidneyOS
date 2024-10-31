@@ -97,7 +97,7 @@ pub unsafe fn lseek64(fd: usize, offset: *mut i64, whence: isize) -> isize {
         _ => return -EINVAL,
     };
     let fd = ProcessFileDescriptor {
-        pid: unsafe { running_process().pid },
+        pid: running_process().pid,
         fd,
     };
     match ROOT.lock().lseek(fd, whence, *offset) {
@@ -184,7 +184,7 @@ pub unsafe fn fstat(fd: usize, statbuf: *mut Stat) -> isize {
         return -EBADF;
     };
     let fd = ProcessFileDescriptor {
-        pid: unsafe { running_process().pid },
+        pid: running_process().pid,
         fd,
     };
     match ROOT.lock().fstat(fd) {

@@ -2,7 +2,7 @@ use core::cell::{Ref, RefMut};
 
 use crate::block::block_core::BlockManager;
 use crate::threading::process::{Pid, ProcessState, Tid};
-use crate::threading::thread_control_block::ProcessControlBlock;
+use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
 
 // Synchronizing this primitive in a safe way is hard.
@@ -30,20 +30,50 @@ pub unsafe fn unwrap_system_mut() -> &'static mut SystemState {
 ///
 /// # Safety
 ///
+/// SYSTEM/thread references cannot be accessed simultaneously on different threads.
+pub fn running_thread() -> Ref<'static, ThreadControlBlock> {
+    let tcb = unsafe {
+        unwrap_system()
+            .threads
+            .running_thread
+            .as_ref()
+            .unwrap()
+            .borrow()
+    };
+    tcb
+}
+
+/// Get reference to running process (panicks if no process is running)
+///
+/// # Safety
+///
+/// SYSTEM/thread references cannot be accessed simultaneously on different threads.
+#[allow(dead_code)]
+pub fn running_thread_mut() -> RefMut<'static, ThreadControlBlock> {
+    let tcb = unsafe {
+        unwrap_system_mut()
+            .threads
+            .running_thread
+            .as_mut()
+            .unwrap()
+            .borrow_mut()
+    };
+    tcb
+}
+
+pub fn running_thread_tid() -> Tid {
+    running_thread().tid
+}
+
+/// Get reference to running process (panicks if no process is running)
+///
+/// # Safety
+///
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
-pub unsafe fn running_process() -> Ref<'static, ProcessControlBlock> {
-    let system = unwrap_system();
-    let pid = system
-        .threads
-        .running_thread
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .borrow()
-        .pcb
-        .borrow()
-        .pid;
-    system.process.table.get(pid).unwrap()
+pub fn running_process() -> Ref<'static, ProcessControlBlock> {
+    // running_thread().pcb.borrow()
+    let tid = running_thread().tid;
+    unsafe { unwrap_system().process.table.get(tid).unwrap() }
 }
 
 /// Get mutable reference to running process (panicks if no process is running)
@@ -51,60 +81,21 @@ pub unsafe fn running_process() -> Ref<'static, ProcessControlBlock> {
 /// # Safety
 ///
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
-pub unsafe fn running_process_mut() -> RefMut<'static, ProcessControlBlock> {
-    let system = unwrap_system_mut();
-    let pid = system
-        .threads
-        .running_thread
-        .as_ref()
-        .unwrap()
-        .as_ref()
-        .borrow_mut()
-        .pcb
-        .borrow()
-        .pid;
-    system.process.table.get_mut(pid).unwrap()
+pub fn running_process_mut() -> RefMut<'static, ProcessControlBlock> {
+    // running_thread_mut().pcb.borrow_mut()
+    let tid = running_thread().tid;
+    unsafe { unwrap_system_mut().process.table.get_mut(tid).unwrap() }
 }
 
 pub fn running_thread_pid() -> Pid {
-    let tcb = unsafe {
-        unwrap_system()
-            .threads
-            .running_thread
-            .as_ref()
-            .expect("Why is nothing running?")
-            .as_ref()
-            .borrow()
-    };
-    let pid = tcb.pcb.borrow().pid;
-    pid
+    running_thread().pcb.borrow().pid
 }
 
+// Returns zero if parent process is 'None' (implying kernel process)
 pub fn running_thread_ppid() -> Pid {
-    let tcb = unsafe {
-        unwrap_system()
-            .threads
-            .running_thread
-            .as_ref()
-            .expect("Why is nothing running?")
-            .as_ref()
-            .borrow()
-    };
-    let process_table = unsafe { &unwrap_system().process.table };
-    let pcb = process_table.get(tcb.pcb.borrow().pid).unwrap();
-    let pid = pcb.ppcb.as_ref().unwrap().as_ref().borrow().pid;
-    pid
-}
-
-pub fn running_thread_tid() -> Tid {
-    let tcb = unsafe {
-        unwrap_system()
-            .threads
-            .running_thread
-            .as_ref()
-            .expect("Why is nothing running?")
-            .as_ref()
-            .borrow()
-    };
-    tcb.tid
+    running_process()
+        .ppcb
+        .as_ref()
+        .map(|ppcb| ppcb.borrow().pid)
+        .unwrap_or(0)
 }

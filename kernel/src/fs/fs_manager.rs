@@ -1205,7 +1205,7 @@ mod test {
             pid: 0,
             ppcb: None,
             child_tcbs: vec![],
-            wait_list: vec![],
+            waiting_thread: None,
             exit_code: None,
             cwd: root.get_root().unwrap(),
             cwd_path: "/".into(),

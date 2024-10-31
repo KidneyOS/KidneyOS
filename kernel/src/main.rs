@@ -32,9 +32,8 @@ use crate::system::{SystemState, SYSTEM};
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::rc::Rc;
-use alloc::vec;
 use alloc::string::ToString;
-use system::{unwrap_system, unwrap_system_mut};
+use alloc::vec;
 use core::cell::RefCell;
 use core::ptr::NonNull;
 use fs::fs_manager::ROOT;
@@ -90,12 +89,12 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Finished Thread System initialization. Ready to start threading.");
 
         let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        
+
         let ide_pcb = ProcessControlBlock {
             pid: 0,
             ppcb: None,
             child_tcbs: vec![],
-            wait_list: vec![],
+            waiting_thread: None,
             exit_code: None,
             cwd: (0, 0),
             cwd_path: "".to_string(),
