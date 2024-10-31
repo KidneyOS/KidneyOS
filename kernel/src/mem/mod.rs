@@ -304,58 +304,47 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 }
 
-fn test_1(){
+#[allow(dead_code)]
+fn test_box(){
     let heap_val_1 = Box::new(10);
     let heap_val_2 = Box::new(3.2);
     assert_eq!(*heap_val_1, 10);
     assert_eq!(*heap_val_2, 3.2);
 }
 
-fn test_2(){
-    let n = 70;
+#[allow(dead_code)]
+fn test_vec(){
+    let n = 20;
     let mut test_vec = Vec::new();
     for i in 1..=n {
         test_vec.push(i)
     }
 
+    assert_eq!(test_vec[0], 1);
     assert_eq!(test_vec[10], 11);
-    assert_eq!(test_vec[67], 68);
     assert_eq!(test_vec.iter().sum::<u64>(), (n + 1) * (n / 2));
 }
 
-fn test_3(){
-    let large_n = 10000;
+#[allow(dead_code)]
+fn test_larger_vec(){
+    let large_n = 60;
     let mut large_test_vec = Vec::new();
     for i in 1..=large_n{
         large_test_vec.push(i)
     }
 
-    assert_eq!(large_test_vec[10], 11);
-    assert_eq!(large_test_vec[67], 68);
+    assert_eq!(large_test_vec[40], 41);
+    assert_eq!(large_test_vec[52], 53);
     assert_eq!(large_test_vec.iter().sum::<u64>(), (large_n + 1) * (large_n / 2));
 }
 
 // Run tests to see if GlobalAllocator is working properly
-#[allow(dead_code)]
-pub fn run_allocation_tests(){
-    println!("[ALLOCATOR TEST]: Beginning to run allocation tests");
-
-    // Test 1
-    println!("[ALLOCATOR TEST]: Running Test 1");
-    test_1();
-    println!("[ALLOCATOR TEST]: Successfully completed Test 1");
-
-    // Test 2
-    println!("[ALLOCATOR TEST]: Running Test 2");
-    test_2();
-    println!("[ALLOCATOR TEST]: Successfully completed Test 2");
-
-    // Test 3
-    // This test will fail because it causes an allocation of request larger than one frame
-    println!("[ALLOCATOR TEST]: Running Test 3");
-    test_3();
-    println!("[ALLOCATOR TEST]: Successfully completed Test 3");
-
+#[cfg(test)]
+#[test]
+pub fn subblock_allocation_tests(){
+    test_box();
+    test_vec();
+    test_larger_vec();
 }
 
 

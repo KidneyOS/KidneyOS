@@ -128,6 +128,8 @@ impl SubblockAllocator {
     }
 
     /// Uninitialize the subblock and frame allocator
+    ///
+    /// Returns true if no leaks, false if leaks
     /// TODO
     pub fn deinit(&mut self) -> bool{
         true
