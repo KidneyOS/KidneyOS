@@ -38,6 +38,8 @@ use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+use system::unwrap_system;
+use threading::thread_control_block::ProcessControlBlock;
 use threading::{create_thread_state, thread_system_start};
 use vfs::tempfs::TempFS;
 
@@ -86,7 +88,8 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Finished Thread System initialization. Ready to start threading.");
 
         let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0, &mut process);
+        let ide_pcb = ProcessControlBlock::create(&mut process, None);
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, ide_pcb, &mut process);
 
         let block_manager = BlockManager::default();
 

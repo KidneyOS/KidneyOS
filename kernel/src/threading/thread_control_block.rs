@@ -39,12 +39,13 @@ pub enum ThreadStatus {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
-    // The Pid of the process' parent
-    pub ppid: Pid,
-    // The TIDs of this process' children threads
-    pub child_tids: Vec<Tid>,
-    // The TIDs of the threads waiting on this process to end
-    pub wait_list: Vec<Tid>,
+    // The Pid of the process' parent.
+    // This should only be 'None' if the thread was spawned by the kernel thread/
+    pub ppcb: Option<Rc<RefCell<ProcessControlBlock>>>,
+    // References to the TCBs of this process' children threads
+    pub child_tcbs: Vec<Rc<RefCell<ProcessControlBlock>>>,
+    // References to the TCBs of the threads waiting on this process to end
+    pub wait_list: Vec<Rc<RefCell<ProcessControlBlock>>>,
 
     pub exit_code: Option<i32>,
     /// filesystem and inode of current working directory
@@ -54,24 +55,28 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &mut ProcessState, parent_pid: Pid) -> Pid {
+    pub fn create(
+        state: &mut ProcessState,
+        parent_pcb: Option<Rc<RefCell<ProcessControlBlock>>>,
+    ) -> Rc<RefCell<ProcessControlBlock>> {
         let pid = state.allocate_pid();
         let mut root = crate::fs::fs_manager::ROOT.lock();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
         let pcb = Self {
             pid,
-            ppid: parent_pid,
-            child_tids: Vec::new(),
+            ppcb: parent_pcb,
+            child_tcbs: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
             cwd: root.get_root().unwrap(),
             cwd_path: "/".into(),
         };
 
-        state.table.add(Rc::new(RefCell::new(pcb)));
+        let pcb_ref = Rc::new(RefCell::new(pcb));
+        state.table.add(pcb_ref.clone());
 
-        pid
+        pcb_ref
     }
 }
 
@@ -92,8 +97,8 @@ pub struct ThreadControlBlock {
     pub user_stack: NonNull<u8>,
 
     pub tid: Tid,
-    // The PID of the parent PCB.
-    pub pid: Pid,
+    // The PCB of the parent PCB.
+    pub pcb: Rc<RefCell<ProcessControlBlock>>,
     pub status: ThreadStatus,
     pub exit_code: Option<i32>,
     pub page_manager: PageManager,
@@ -116,7 +121,7 @@ impl ThreadControlBlock {
                 .map_or(0, |_| running_thread_ppid())
         };
 
-        let pid: Pid = ProcessControlBlock::create(state, ppid);
+        let pcb = ProcessControlBlock::create(state, None);
 
         let mut page_manager = PageManager::default();
 
@@ -181,7 +186,7 @@ impl ThreadControlBlock {
         ThreadControlBlock::new_with_page_manager(
             NonNull::new(elf.header.program_entry as *mut u8)
                 .expect("fail to create PCB entry point"),
-            pid,
+            pcb,
             page_manager,
             state,
         )
@@ -189,11 +194,11 @@ impl ThreadControlBlock {
 
     pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
-        pid: Pid,
+        pcb: Rc<RefCell<ProcessControlBlock>>,
         page_manager: PageManager,
         state: &mut ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
+        let mut new_thread = Self::new(entry_instruction, pcb, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -213,8 +218,12 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid, state: &mut ProcessState) -> Self {
-        let mut new_thread = Self::new(eip, pid, PageManager::default(), state);
+    pub fn new_with_setup(
+        eip: NonNull<u8>,
+        pcb: Rc<RefCell<ProcessControlBlock>>,
+        state: &mut ProcessState,
+    ) -> Self {
+        let mut new_thread = Self::new(eip, pcb, PageManager::default(), state);
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -246,7 +255,7 @@ impl ThreadControlBlock {
 
     pub fn new(
         entry_instruction: NonNull<u8>,
-        pid: Pid,
+        pcb: Rc<RefCell<ProcessControlBlock>>,
         mut page_manager: PageManager,
         state: &mut ProcessState,
     ) -> Self {
@@ -263,7 +272,7 @@ impl ThreadControlBlock {
                 .expect("failed to create esp"),
             user_stack,
             tid,
-            pid, // Potentially could be swapped to directly copy the pid of the running thread
+            pcb, // Potentially could be swapped to directly copy the pid of the running thread
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,
@@ -311,6 +320,8 @@ impl ThreadControlBlock {
     /// # Safety
     /// Should only be used once while starting the threading system.
     pub fn new_kernel_thread(page_manager: PageManager, state: &mut ProcessState) -> Self {
+        let kernel_pcb = ProcessControlBlock::create(state, None);
+
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -318,7 +329,7 @@ impl ThreadControlBlock {
             esp: NonNull::dangling(),
             user_stack: NonNull::dangling(),
             tid: state.allocate_tid(),
-            pid: state.allocate_pid(),
+            pcb: kernel_pcb,
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,

@@ -40,6 +40,8 @@ pub unsafe fn running_process() -> Ref<'static, ProcessControlBlock> {
         .unwrap()
         .as_ref()
         .borrow()
+        .pcb
+        .borrow()
         .pid;
     system.process.table.get(pid).unwrap()
 }
@@ -58,6 +60,8 @@ pub unsafe fn running_process_mut() -> RefMut<'static, ProcessControlBlock> {
         .unwrap()
         .as_ref()
         .borrow_mut()
+        .pcb
+        .borrow()
         .pid;
     system.process.table.get_mut(pid).unwrap()
 }
@@ -72,7 +76,8 @@ pub fn running_thread_pid() -> Pid {
             .as_ref()
             .borrow()
     };
-    tcb.pid
+    let pid = tcb.pcb.borrow().pid;
+    pid
 }
 
 pub fn running_thread_ppid() -> Pid {
@@ -86,8 +91,9 @@ pub fn running_thread_ppid() -> Pid {
             .borrow()
     };
     let process_table = unsafe { &unwrap_system().process.table };
-    let pcb = process_table.get(tcb.pid).unwrap();
-    pcb.ppid
+    let pcb = process_table.get(tcb.pcb.borrow().pid).unwrap();
+    let pid = pcb.ppcb.as_ref().unwrap().as_ref().borrow().pid;
+    pid
 }
 
 pub fn running_thread_tid() -> Tid {

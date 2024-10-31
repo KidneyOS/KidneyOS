@@ -59,10 +59,18 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, pid, .. } = switched_to;
+    let switched_to = Rc::new(RefCell::new(switched_to));
+
+    let (eip, esp, pcb) = {
+        let switched_to_ref = switched_to.borrow();
+        (
+            switched_to_ref.eip,
+            switched_to_ref.esp,
+            switched_to_ref.pcb.clone(),
+        )
+    };
 
     // Reschedule our threads.
-    let switched_to = Rc::new(RefCell::new(switched_to));
     threads.running_thread = Some(switched_to);
 
     let mut switched_from = ptr::read(switched_from);
@@ -91,7 +99,7 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
-    if pid == 0 {
+    if pcb.borrow().pid == 0 {
         let entry_function = eip.as_ptr() as *const ThreadFunction;
         let exit_code = (*entry_function)();
 

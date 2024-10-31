@@ -72,7 +72,7 @@ impl ProcessTable {
             .and_then(|entry| Some(entry.borrow()))
     }
 
-    pub fn get_mut(&mut self, pid: Pid) ->  Option<RefMut<'_, ProcessControlBlock>> {
+    pub fn get_mut(&mut self, pid: Pid) -> Option<RefMut<'_, ProcessControlBlock>> {
         self.content
             .get_mut(&pid)
             .and_then(|entry| Some(entry.borrow_mut()))

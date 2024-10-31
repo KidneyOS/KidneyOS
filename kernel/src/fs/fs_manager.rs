@@ -1203,8 +1203,8 @@ mod test {
     fn test_pcb(root: &RootFileSystem) -> ProcessControlBlock {
         ProcessControlBlock {
             pid: 0,
-            ppid: 0,
-            child_tids: vec![],
+            ppcb: None,
+            child_tcbs: vec![],
             wait_list: vec![],
             exit_code: None,
             cwd: root.get_root().unwrap(),
