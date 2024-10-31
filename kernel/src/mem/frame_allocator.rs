@@ -97,7 +97,7 @@ impl FrameAllocator for FrameAllocatorSolution {
     fn new_in(
         start: NonNull<u8>,
         core_map: Box<[CoreMapEntry]>,
-        total_number_of_frames: usize
+        total_number_of_frames: usize,
     ) -> Self {
         FrameAllocatorSolution {
             start,
