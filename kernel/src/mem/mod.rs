@@ -1,25 +1,25 @@
 mod buddy_allocator;
 mod frame_allocator;
+mod subblock_allocator;
 pub mod user;
 pub mod util;
-mod subblock_allocator;
 
 use alloc::{boxed::Box, vec, vec::Vec};
 use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
     cell::UnsafeCell,
-    ptr::NonNull,
     mem::size_of,
     ptr,
+    ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution, DummyAllocatorSolution};
-use subblock_allocator::SubblockAllocator;
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
 };
+use subblock_allocator::SubblockAllocator;
 
 static TOTAL_NUM_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 static TOTAL_NUM_DEALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
@@ -28,12 +28,13 @@ const MAX_SUPPORTED_ALIGN: usize = 4096;
 /// "Upper memory" (as opposed to "lower memory") starts at 1MB.
 const UPPER_MEMORY_START: usize = MB + OFFSET;
 
-trait FrameAllocator
-{
+trait FrameAllocator {
     /// Create a new FrameAllocator.
-    fn new_in(start: NonNull<u8>,
-              core_map: Box<[CoreMapEntry]>,
-              num_frames_in_system: usize) -> Self;
+    fn new_in(
+        start: NonNull<u8>,
+        core_map: Box<[CoreMapEntry]>,
+        num_frames_in_system: usize
+    ) -> Self;
 
     /// Allocate the specified number of frames if possible,
     /// Input: The numbers of frames wanted
@@ -47,16 +48,18 @@ trait FrameAllocator
     fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize;
 }
 
-struct FrameAllocatorWrapper{
+struct FrameAllocatorWrapper {
     frame_allocator: FrameAllocatorSolution,
 }
 
 impl FrameAllocatorWrapper{
-    fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>, num_frames_in_system: usize) -> Self {
+    fn new_in(
+        start: NonNull<u8>,
+        core_map: Box<[CoreMapEntry]>,
+        num_frames_in_system: usize
+    ) -> Self {
         Self {
-            frame_allocator: FrameAllocatorSolution::new_in(start,
-                                                            core_map,
-                                                            num_frames_in_system),
+            frame_allocator: FrameAllocatorSolution::new_in(start, core_map, num_frames_in_system),
         }
     }
 
@@ -64,7 +67,7 @@ impl FrameAllocatorWrapper{
         self.frame_allocator.alloc(frames)
     }
 
-    pub fn dealloc(&mut self, ptr: NonNull<u8>) -> usize{
+    pub fn dealloc(&mut self, ptr: NonNull<u8>) -> usize {
         self.frame_allocator.dealloc(ptr)
     }
 
@@ -104,11 +107,9 @@ macro_rules! halt {
 impl KernelAllocator {
     pub const fn new() -> KernelAllocator {
         Self {
-            state: UnsafeCell::new(
-                KernelAllocatorState::SetupState {
-                    dummy_allocator: DummyAllocatorSolution::new_in(0, 0)
-                }
-            )
+            state: UnsafeCell::new(KernelAllocatorState::SetupState {
+                dummy_allocator: DummyAllocatorSolution::new_in(0, 0),
+            }),
         }
     }
 
@@ -120,9 +121,7 @@ impl KernelAllocator {
     ///
     /// This function can only be called when the allocator is uninitialized.
     pub unsafe fn init(&mut self, mem_upper: usize) {
-        let KernelAllocatorState::SetupState {
-            dummy_allocator
-        } = self.state.get_mut() else {
+        let KernelAllocatorState::SetupState { dummy_allocator } = self.state.get_mut() else {
             // We can panic here because the kernel hasn't been initialized yet
             panic!("[PANIC]: init called while kernel allocator was already initialized");
         };
@@ -144,14 +143,14 @@ impl KernelAllocator {
         dummy_allocator.set_start_address(frames_base_address);
         dummy_allocator.set_end_address(frames_ceil_address);
 
-        let num_frames_in_system = (frames_ceil_address - frames_base_address) /
-            (size_of::<CoreMapEntry>() + PAGE_FRAME_SIZE);
+        let num_frames_in_system = (frames_ceil_address - frames_base_address)
+            / (size_of::<CoreMapEntry>() + PAGE_FRAME_SIZE);
 
         // This should ALWAYS be the first global allocation to take place - should use dummy allocator
         //
         println!("[KERNEL ALLOCATOR]: Creating Coremap Entries for Frame Allocator");
-        let core_map: Box<[CoreMapEntry]> = vec![CoreMapEntry::DEFAULT; num_frames_in_system]
-            .into_boxed_slice();
+        let core_map: Box<[CoreMapEntry]> =
+            vec![CoreMapEntry::DEFAULT; num_frames_in_system].into_boxed_slice();
         println!("[KERNEL ALLOCATOR]: Finished creating Coremap Entries for Frame Allocator");
 
         // Check that the dummy allocator actually updated its internal state
@@ -160,17 +159,18 @@ impl KernelAllocator {
         //
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
         println!("[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
-                 frames_base_address, dummy_allocator.get_start_address());
+                 frames_base_address,
+                 dummy_allocator.get_start_address());
 
         let frame_allocator = FrameAllocatorWrapper::new_in(
-            NonNull::new(dummy_allocator.get_start_address() as *mut u8).expect("frames_base can't be null"),
+            NonNull::new(dummy_allocator.get_start_address() as *mut u8)
+                .expect("frames_base can't be null"),
             core_map,
-            num_frames_in_system);
+            num_frames_in_system
+        );
 
         *self.state.get_mut() = KernelAllocatorState::Initialized {
-            subblock_allocator: SubblockAllocator::new(
-                frame_allocator,
-            )
+            subblock_allocator: SubblockAllocator::new(frame_allocator),
         };
     }
 
@@ -198,22 +198,20 @@ impl KernelAllocator {
 
 
     pub fn deinit(&mut self) {
-        let KernelAllocatorState::Initialized {
-            subblock_allocator,
-        } = self.state.get_mut()
-        else {
+        let KernelAllocatorState::Initialized { subblock_allocator} = self.state.get_mut() else {
             panic!("[KERNEL ALLOCATOR]: deinit called before initialization of kernel allocator");
         };
 
         let mut incorrect_num_allocs = false;
 
-        if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) != TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) {
+        if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed)
+            != TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) {
             incorrect_num_allocs = true;
         }
 
         subblock_allocator.deinit();
 
-        if incorrect_num_allocs{
+        if incorrect_num_allocs {
             halt!("[KERNEL ALLOCATOR]: Leaks detected");
         }
 
@@ -242,12 +240,12 @@ unsafe impl GlobalAlloc for KernelAllocator {
             let align = layout.align();
 
             // The alignment of the layout should never be larger than the size of a page
-            if align > MAX_SUPPORTED_ALIGN{
+            if align > MAX_SUPPORTED_ALIGN {
                 return ptr::null_mut();
             }
 
-            let num_frames_requested = ((size + align).next_multiple_of(PAGE_FRAME_SIZE))
-                / PAGE_FRAME_SIZE;
+            let num_frames_requested =
+                ((size + align).next_multiple_of(PAGE_FRAME_SIZE)) / PAGE_FRAME_SIZE;
 
             let Ok(region) = dummy_allocator.alloc(num_frames_requested) else {
                 halt!("[KERNEL ALLOCATOR]: Unable to allocate memory according to provided layout in DummyAllocator");
@@ -259,15 +257,13 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
             region.as_ptr().cast::<u8>()
         } else {
-            let KernelAllocatorState::Initialized {
-                subblock_allocator,
-            } = &mut *self.state.get()
+            let KernelAllocatorState::Initialized { subblock_allocator} = &mut *self.state.get()
             else {
                 halt!("[KERNEL ALLOCATOR]: Allocation requested before kernel is Initialized");
             };
 
             // The alignment of the layout should never be larger than the size of a page
-            if layout.align() > MAX_SUPPORTED_ALIGN{
+            if layout.align() > MAX_SUPPORTED_ALIGN {
                 return ptr::null_mut();
             }
 
@@ -286,9 +282,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let KernelAllocatorState::Initialized {
-            subblock_allocator,
-        } = &mut *self.state.get()
+        let KernelAllocatorState::Initialized { subblock_allocator} = &mut *self.state.get()
         else {
             halt!("[KERNEL ALLOCATOR]: dealloc called before initialization of kernel allocator");
         };
@@ -301,7 +295,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
 }
 
 #[allow(dead_code)]
-fn test_box(){
+fn test_box() {
     let heap_val_1 = Box::new(10);
     let heap_val_2 = Box::new(3.2);
     assert_eq!(*heap_val_1, 10);
@@ -309,7 +303,7 @@ fn test_box(){
 }
 
 #[allow(dead_code)]
-fn test_vec(){
+fn test_vec() {
     let n = 20;
     let mut test_vec = Vec::new();
     for i in 1..=n {
@@ -322,22 +316,25 @@ fn test_vec(){
 }
 
 #[allow(dead_code)]
-fn test_larger_vec(){
+fn test_larger_vec() {
     let large_n = 60;
     let mut large_test_vec = Vec::new();
-    for i in 1..=large_n{
+    for i in 1..=large_n {
         large_test_vec.push(i)
     }
 
     assert_eq!(large_test_vec[40], 41);
     assert_eq!(large_test_vec[52], 53);
-    assert_eq!(large_test_vec.iter().sum::<u64>(), (large_n + 1) * (large_n / 2));
+    assert_eq!(
+        large_test_vec.iter().sum::<u64>(), 
+        (large_n + 1) * (large_n / 2)
+    );
 }
 
 // Run tests to see if GlobalAllocator is working properly
 #[cfg(test)]
 #[test]
-pub fn subblock_allocation_tests(){
+pub fn subblock_allocation_tests() {
     test_box();
     test_vec();
     test_larger_vec();

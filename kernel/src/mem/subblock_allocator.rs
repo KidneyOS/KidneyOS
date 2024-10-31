@@ -1,6 +1,9 @@
-use core::{alloc::{AllocError, Layout}, mem::size_of};
+use core::{
+    alloc::{AllocError, Layout},
+    mem::size_of
+};
 
-use super::{FrameAllocatorWrapper};
+use super::FrameAllocatorWrapper;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 use kidneyos_shared::println;
 
@@ -38,7 +41,7 @@ impl SubblockAllocator {
 
         SubblockAllocator {
             list_heads: [EMPTY; SUBBLOCK_TYPE_COUNT],
-            frame_allocator
+            frame_allocator,
         }
     }
 
@@ -47,17 +50,22 @@ impl SubblockAllocator {
     pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocError> {
         let subblock_size_index = get_best_subblock_size_idx(layout.size());
 
-        if subblock_size_index == SUBBLOCK_TYPE_COUNT{
-            println!("[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently");
+        if subblock_size_index == SUBBLOCK_TYPE_COUNT {
+            println!(
+                "[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently"
+            );
             return Err(AllocError);
         };
 
-        match self.list_heads[subblock_size_index].take(){
+        match self.list_heads[subblock_size_index].take() {
             Some(node) => {
                 // Set the new list head to be the next node from the current node
                 //
                 // Think of this as doing a linked_list.pop_from_head() operation
-                println!("[SUBBLOCK ALLOCATOR]: List head exists, allocating subblock size: {}", SUBBLOCK_SIZES[subblock_size_index]);
+                println!(
+                    "[SUBBLOCK ALLOCATOR]: List head exists, allocating subblock size: {}", 
+                    SUBBLOCK_SIZES[subblock_size_index]
+                );
                 self.list_heads[subblock_size_index] = node.next.take();
                 Ok(node as *mut ListNode as *mut u8)
             }
@@ -69,24 +77,25 @@ impl SubblockAllocator {
                 println!("[SUBBLOCK ALLOCATOR]: List head does not exist, requesting frame for subblock size: {}", SUBBLOCK_SIZES[subblock_size_index]);
                 assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
-                if !self.frame_allocator.has_room(1){
+                if !self.frame_allocator.has_room(1) {
                     return Err(AllocError);
                 }
 
                 let new_frame = match self.frame_allocator.alloc(1) {
                     Err(AllocError) => return Err(AllocError),
-                    Ok(v) => v
+                    Ok(v) => v,
                 };
                 let start_of_frame_addr = new_frame.as_ptr() as *const u8 as usize;
                 let num_subblocks = PAGE_FRAME_SIZE / SUBBLOCK_SIZES[subblock_size_index];
 
                 // Begin to divide the frame into the required subblock sizes
                 for i in 0..num_subblocks {
-                    let start_of_subblock_addr = start_of_frame_addr + (SUBBLOCK_SIZES[subblock_size_index] * i);
+                    let start_of_subblock_addr = 
+                        start_of_frame_addr + (SUBBLOCK_SIZES[subblock_size_index] * i);
                     let start_of_subblock_ptr = start_of_subblock_addr as *mut u8 as *mut ListNode;
 
                     let next = self.list_heads[subblock_size_index].take();
-                    let new_node = ListNode{ next };
+                    let new_node = ListNode { next };
 
                     unsafe {
                         start_of_subblock_ptr.write(new_node);
@@ -131,7 +140,7 @@ impl SubblockAllocator {
     ///
     /// Returns true if no leaks, false if leaks
     /// TODO
-    pub fn deinit(&mut self) -> bool{
+    pub fn deinit(&mut self) -> bool {
         true
     }
 

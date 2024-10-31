@@ -1,28 +1,24 @@
 use super::FrameAllocator;
-use core::{
-    ptr::NonNull,
-    ops::Range
-};
-use core::{
-    alloc::AllocError,
-    sync::atomic::{AtomicUsize, Ordering}
-};
 use alloc::boxed::Box;
 use bitbybit::bitfield;
+use core::{
+    sync::atomic::{AtomicUsize, Ordering},
+};
+use core::{ops::Range, ptr::NonNull};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 // For replacement policy and bookkeeping
 static CURR_NUM_FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 static CURR_POSITION: AtomicUsize = AtomicUsize::new(0);
 
-pub struct DummyAllocatorSolution{
+pub struct DummyAllocatorSolution {
     start_address: usize,
     end_address: usize,
 }
 
-impl DummyAllocatorSolution{
+impl DummyAllocatorSolution {
     pub const fn new_in(start_address: usize, end_address: usize) -> Self{
-        DummyAllocatorSolution{
+        DummyAllocatorSolution {
             start_address,
             end_address
         }
@@ -34,9 +30,9 @@ impl DummyAllocatorSolution{
     2. Increments the start address by the number of frames the CoreMap Entries (we do this
     because we never want to free the region of memory storing the CoreMap Entries)
     */
-    pub fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>{
+    pub fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
         // Don't think this will ever happen, but good to have a check for it
-        if self.start_address + (PAGE_FRAME_SIZE * frames_requested) > self.end_address{
+        if self.start_address + (PAGE_FRAME_SIZE * frames_requested) > self.end_address {
             return Err(AllocError);
         }
 
@@ -44,8 +40,7 @@ impl DummyAllocatorSolution{
             .next_multiple_of(PAGE_FRAME_SIZE);
 
         let ret = Ok(NonNull::slice_from_raw_parts(
-            NonNull::new( self.start_address as *mut u8 )
-                .ok_or(AllocError)?,
+            NonNull::new( self.start_address as *mut u8 ).ok_or(AllocError)?,
             frames_requested * PAGE_FRAME_SIZE,
         ));
 
@@ -53,25 +48,25 @@ impl DummyAllocatorSolution{
         ret
     }
 
-    pub fn get_start_address(&self) -> usize{
+    pub fn get_start_address(&self) -> usize {
         self.start_address
     }
 
-    pub fn get_end_address(&self) -> usize{
+    pub fn get_end_address(&self) -> usize {
         self.end_address
     }
 
-    pub fn set_start_address(&mut self, new_start: usize){
+    pub fn set_start_address(&mut self, new_start: usize) {
         self.start_address = new_start;
     }
 
-    pub fn set_end_address(&mut self, new_end: usize){
+    pub fn set_end_address(&mut self, new_end: usize) {
         self.end_address = new_end;
     }
 }
 
 // TODO: Verify the correctness of all placement policy algorithms
-#[bitfield(u8, default=0)]
+#[bitfield(u8, default = 0)]
 pub struct CoreMapEntry{
     #[bit(0, rw)]
     allocated: bool,
@@ -83,7 +78,7 @@ pub struct CoreMapEntry{
     next: bool,
 }
 
-pub struct FrameAllocatorSolution{
+pub struct FrameAllocatorSolution {
     start: NonNull<u8>,
     core_map: Box<[CoreMapEntry]>,
     placement_policy: PlacementPolicy,
@@ -91,15 +86,18 @@ pub struct FrameAllocatorSolution{
 }
 
 #[allow(unused)]
-pub enum PlacementPolicy{
+pub enum PlacementPolicy {
     Next,
     First,
     Best,
 }
 
-impl FrameAllocator for FrameAllocatorSolution{
-    fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>,
-              total_number_of_frames: usize) -> Self{
+impl FrameAllocator for FrameAllocatorSolution {
+    fn new_in(
+        start: NonNull<u8>,
+        core_map: Box<[CoreMapEntry]>,
+        total_number_of_frames: usize
+    ) -> Self{
         FrameAllocatorSolution{
             start,
             core_map,
@@ -114,11 +112,12 @@ impl FrameAllocator for FrameAllocatorSolution{
         Failure: Return AllocError
      */
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>{
-        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested > self.total_number_of_frames {
+        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
+            > self.total_number_of_frames {
             return Err(AllocError);
         }
 
-        let Some(range) = (match self.placement_policy{
+        let Some(range) = (match self.placement_policy {
             PlacementPolicy::Next => self.next_fit(frames_requested),
             PlacementPolicy::First => self.first_fit(frames_requested),
             PlacementPolicy::Best => self.best_fit(frames_requested),
@@ -138,12 +137,13 @@ impl FrameAllocator for FrameAllocatorSolution{
         Success: Return the number of frames freed
         Failure: TBD
      */
-    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize{
-        let start = (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
+    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize{ 
+        let start = 
+            (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
         let mut num_frames_to_free = 0;
 
         while start < self.total_number_of_frames {
-            if !self.core_map[start].next(){
+            if !self.core_map[start].next() {
                 break;
             }
             assert!(self.core_map[start].next());
@@ -163,24 +163,25 @@ impl FrameAllocator for FrameAllocatorSolution{
 
 impl FrameAllocatorSolution{
     #[allow(dead_code)]
-    pub fn set_placement_policy(&mut self, new_placement_policy: PlacementPolicy){
+    pub fn set_placement_policy(&mut self, new_placement_policy: PlacementPolicy) {
         self.placement_policy = new_placement_policy;
     }
 
-    pub fn has_room(&self, frames_requested: usize) -> bool{
-        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested > self.total_number_of_frames{
+    pub fn has_room(&self, frames_requested: usize) -> bool {
+        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested 
+            > self.total_number_of_frames{
             return false
         };
 
         let mut i = 0;
         let mut largest_chunk = 0;
 
-        while i < self.total_number_of_frames{
-            if !self.core_map[i].allocated(){
+        while i < self.total_number_of_frames {
+            if !self.core_map[i].allocated() {
                 let mut chunk_size = 0;
 
                 while i < self.total_number_of_frames {
-                    if self.core_map[i].next(){
+                    if self.core_map[i].next() {
                         break;
                     }
 
@@ -188,7 +189,7 @@ impl FrameAllocatorSolution{
                     i += 1;
                 }
 
-                if chunk_size > largest_chunk{
+                if chunk_size > largest_chunk {
                     largest_chunk = chunk_size
                 }
 
@@ -200,9 +201,9 @@ impl FrameAllocatorSolution{
         largest_chunk >= frames_requested
     }
 
-    fn next_fit(&mut self, frames_requested: usize) -> Option<Range<usize>>{
-        for index in CURR_POSITION.load(Ordering::Relaxed)..
-            CURR_POSITION.load(Ordering::Relaxed) + self.total_number_of_frames {
+    fn next_fit(&mut self, frames_requested: usize) -> Option<Range<usize>> {
+        for index in CURR_POSITION.load(Ordering::Relaxed)
+            ..CURR_POSITION.load(Ordering::Relaxed) + self.total_number_of_frames {
             let i = index % self.total_number_of_frames;
 
             if i + frames_requested > self.total_number_of_frames {
@@ -211,18 +212,18 @@ impl FrameAllocatorSolution{
 
             let mut free_frames_found = 0;
 
-            if !self.core_map[i].allocated(){
+            if !self.core_map[i].allocated() {
                 free_frames_found += 1;
 
-                for j in 1..frames_requested{
-                    if !self.core_map[i+j].allocated(){
+                for j in 1..frames_requested {
+                    if !self.core_map[i+j].allocated() {
                         free_frames_found += 1;
                     }
                 }
             }
 
-            if free_frames_found == frames_requested{
-                for k in i..i + frames_requested{
+            if free_frames_found == frames_requested {
+                for k in i..i + frames_requested {
                     assert!(!self.core_map[k].allocated());
 
                     self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
@@ -240,21 +241,21 @@ impl FrameAllocatorSolution{
     }
 
     fn first_fit(&mut self, frames_requested: usize) -> Option<Range<usize>> {
-        for i in 0..=self.total_number_of_frames - frames_requested{
+        for i in 0..=self.total_number_of_frames - frames_requested {
             let mut free_frames_found = 0;
 
-            if !self.core_map[i].allocated(){
+            if !self.core_map[i].allocated() {
                 free_frames_found += 1;
 
-                for j in 1..frames_requested{
-                    if !self.core_map[i+j].allocated(){
+                for j in 1..frames_requested {
+                    if !self.core_map[i+j].allocated() {
                         free_frames_found += 1;
                     }
                 }
             }
 
-            if free_frames_found == frames_requested{
-                for k in i..i + frames_requested{
+            if free_frames_found == frames_requested {
+                for k in i..i + frames_requested {
                     assert!(!self.core_map[k].allocated());
 
                     self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
@@ -276,12 +277,12 @@ impl FrameAllocatorSolution{
         let mut i = 0;
 
         while i < self.total_number_of_frames {
-            if !self.core_map[i].allocated(){
+            if !self.core_map[i].allocated() {
                 let start_index = i;
                 let mut chunk_size = 0;
 
                 while i < self.total_number_of_frames {
-                    if self.core_map[i].allocated(){
+                    if self.core_map[i].allocated() {
                         break;
                     }
 
@@ -289,11 +290,11 @@ impl FrameAllocatorSolution{
                     i += 1;
                 }
 
-                if chunk_size >= frames_requested && chunk_size - frames_requested < best_chunk_size_so_far{
+                if chunk_size >= frames_requested 
+                    && chunk_size - frames_requested < best_chunk_size_so_far {
                     best_chunk_size_so_far = chunk_size;
                     best_start_index_so_far = start_index;
                 }
-
             } else {
                 i += 1;
             }
@@ -303,7 +304,7 @@ impl FrameAllocatorSolution{
             return None;
         }
 
-        for k in best_start_index_so_far..best_start_index_so_far + frames_requested{
+        for k in best_start_index_so_far..best_start_index_so_far + frames_requested {
             assert!(!self.core_map[k].allocated());
             self.core_map[k] = self.core_map[k].with_next(true).with_allocated(true);
         }
@@ -314,5 +315,3 @@ impl FrameAllocatorSolution{
         Some(best_start_index_so_far..best_start_index_so_far + frames_requested)
     }
 }
-
-
