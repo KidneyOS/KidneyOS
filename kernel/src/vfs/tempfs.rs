@@ -625,7 +625,7 @@ mod tests {
         Ok(open_path(fs, path)?.inode())
     }
     // get directory entries sorted by name
-    fn readdir_path<'a, F: FileSystem>(fs: &mut F, path: &Path) -> Result<Vec<OwnedDirEntry>> {
+    fn readdir_path<F: FileSystem>(fs: &mut F, path: &Path) -> Result<Vec<OwnedDirEntry>> {
         let mut handle = open_path(fs, path)?;
         Ok(fs.readdir(&mut handle)?.to_sorted_vec())
     }
@@ -640,7 +640,7 @@ mod tests {
             }
             vec.extend_from_slice(&buf[..n]);
         }
-        return Ok(vec);
+        Ok(vec)
     }
     #[test]
     // one regular file in root

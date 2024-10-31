@@ -72,8 +72,8 @@ pub fn running_thread_tid() -> Tid {
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
 pub fn running_process() -> Ref<'static, ProcessControlBlock> {
     // running_thread().pcb.borrow()
-    let tid = running_thread().tid;
-    unsafe { unwrap_system().process.table.get(tid).unwrap() }
+    let pid = running_thread().pcb.borrow().pid;
+    unsafe { unwrap_system().process.table.get(pid).unwrap() }
 }
 
 /// Get mutable reference to running process (panicks if no process is running)
@@ -83,8 +83,8 @@ pub fn running_process() -> Ref<'static, ProcessControlBlock> {
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
 pub fn running_process_mut() -> RefMut<'static, ProcessControlBlock> {
     // running_thread_mut().pcb.borrow_mut()
-    let tid = running_thread().tid;
-    unsafe { unwrap_system_mut().process.table.get_mut(tid).unwrap() }
+    let pid = running_thread().pcb.borrow().pid;
+    unsafe { unwrap_system_mut().process.table.get_mut(pid).unwrap() }
 }
 
 pub fn running_thread_pid() -> Pid {
