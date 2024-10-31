@@ -2,6 +2,7 @@ use super::FrameAllocator;
 use alloc::boxed::Box;
 use bitbybit::bitfield;
 use core::{
+    alloc::AllocError,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use core::{ops::Range, ptr::NonNull};
