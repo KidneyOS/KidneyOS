@@ -2,28 +2,38 @@
 // https://wiki.osdev.org/Interrupts_tutorial
 // https://wiki.osdev.org/Exceptions
 
-use arbitrary_int::{u2, u4};
-use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of};
+use kidneyos_shared::{bit_array::BitArray, bitfield};
+use paste::paste;
 
 use crate::interrupts::intr_handler::{
     ide_prim_interrupt_handler, ide_secd_interrupt_handler, keyboard_handler, page_fault_handler,
     syscall_handler, timer_interrupt_handler, unhandled_handler,
 };
 
-#[repr(align(8))]
-#[bitfield(u64, default = 0)]
-struct GateDescriptor {
-    #[bits([0..=15, 48..=63], rw)]
-    offset: u32,
-    #[bits(16..=31, rw)]
-    segment_selector: u16,
-    #[bits(40..=43, rw)]
-    gate_type: u4,
-    #[bits(45..=46, rw)]
-    descriptor_privilege_level: u2,
-    #[bit(47, rw)]
-    present: bool,
+bitfield!(
+    GateDescriptor, u64
+    {
+        (u16, offset_low, 0, 15),
+        (u16, offset_high, 48, 63),
+        (u16, segment_selector, 16, 31),
+        (u8, gate_type, 40, 43),
+        (u8, descriptor_privilege_level, 45, 46),
+    }
+    { (present, 47) }
+);
+
+impl GateDescriptor {
+    #[allow(dead_code)]
+    pub fn offset(&self) -> u32 {
+        ((self.offset_high() as u32) << 16) | (self.offset_low() as u32)
+    }
+
+    #[allow(dead_code)]
+    pub fn with_offset(self, value: u32) -> Self {
+        self.with_offset_low(value as u16)
+            .with_offset_high((value >> 16) as u16)
+    }
 }
 
 #[repr(packed)]
@@ -34,7 +44,7 @@ struct IDTDescriptor {
 }
 
 const IDT_LEN: usize = 256;
-static mut IDT: [GateDescriptor; IDT_LEN] = [GateDescriptor::DEFAULT; IDT_LEN];
+static mut IDT: [GateDescriptor; IDT_LEN] = [GateDescriptor::default(); IDT_LEN];
 
 // TODO: Set up stack on entry to handlers from kernel, the current behaviour is
 // horribly dangerous... The current behaviour is currently safe fine for cases
@@ -57,8 +67,8 @@ pub unsafe fn load() {
         *gate_descriptor = GateDescriptor::default()
             .with_offset(unhandled_handler as usize as u32)
             .with_segment_selector(0x8)
-            .with_gate_type(u4::new(0xE))
-            .with_descriptor_privilege_level(u2::new(3))
+            .with_gate_type(0xEu8)
+            .with_descriptor_privilege_level(3u8)
             .with_present(true);
     }
     IDT[0xe] = IDT[0xe].with_offset(page_fault_handler as usize as u32);
