@@ -1,5 +1,4 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -112,14 +111,6 @@ impl ThreadControlBlock {
         if elf.header.architecture != ElfArchitecture::X86 && executable {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
-
-        let ppid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
-                .as_ref()
-                .map_or(0, |_| running_thread_ppid())
-        };
 
         let pcb = ProcessControlBlock::create(state, None);
 
@@ -272,7 +263,7 @@ impl ThreadControlBlock {
                 .expect("failed to create esp"),
             user_stack,
             tid,
-            pcb, // Potentially could be swapped to directly copy the pid of the running thread
+            pcb,
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,

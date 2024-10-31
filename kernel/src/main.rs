@@ -32,13 +32,15 @@ use crate::system::{SystemState, SYSTEM};
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::rc::Rc;
+use alloc::vec;
+use alloc::string::ToString;
+use system::{unwrap_system, unwrap_system_mut};
 use core::cell::RefCell;
 use core::ptr::NonNull;
 use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
-use system::unwrap_system;
 use threading::thread_control_block::ProcessControlBlock;
 use threading::{create_thread_state, thread_system_start};
 use vfs::tempfs::TempFS;
@@ -88,8 +90,21 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Finished Thread System initialization. Ready to start threading.");
 
         let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        let ide_pcb = ProcessControlBlock::create(&mut process, None);
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, ide_pcb, &mut process);
+        
+        let ide_pcb = ProcessControlBlock {
+            pid: 0,
+            ppcb: None,
+            child_tcbs: vec![],
+            wait_list: vec![],
+            exit_code: None,
+            cwd: (0, 0),
+            cwd_path: "".to_string(),
+        };
+
+        let ide_pcb_ref = Rc::new(RefCell::new(ide_pcb));
+        process.table.add(ide_pcb_ref.clone());
+
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, ide_pcb_ref, &mut process);
 
         let block_manager = BlockManager::default();
 

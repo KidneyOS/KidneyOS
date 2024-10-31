@@ -67,14 +67,10 @@ impl ProcessTable {
     }
 
     pub fn get(&self, pid: Pid) -> Option<Ref<'_, ProcessControlBlock>> {
-        self.content
-            .get(&pid)
-            .and_then(|entry| Some(entry.borrow()))
+        self.content.get(&pid).map(|entry| entry.borrow())
     }
 
     pub fn get_mut(&mut self, pid: Pid) -> Option<RefMut<'_, ProcessControlBlock>> {
-        self.content
-            .get_mut(&pid)
-            .and_then(|entry| Some(entry.borrow_mut()))
+        self.content.get_mut(&pid).map(|entry| entry.borrow_mut())
     }
 }
