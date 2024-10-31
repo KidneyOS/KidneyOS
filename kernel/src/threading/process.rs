@@ -2,7 +2,7 @@ use super::thread_control_block::ProcessControlBlock;
 use alloc::collections::BTreeMap;
 use alloc::rc::Rc;
 use core::{
-    cell::RefCell,
+    cell::{Ref, RefCell, RefMut},
     sync::atomic::{AtomicU16, Ordering},
 };
 
@@ -52,12 +52,13 @@ impl ProcessState {
 
 impl ProcessTable {
     pub fn add(&mut self, pcb: Rc<RefCell<ProcessControlBlock>>) {
+        let pid = pcb.borrow().pid;
         assert!(
-            !self.content.contains_key(&pcb.borrow().pid),
+            !self.content.contains_key(&pid),
             "PCB with pid {} already added to process table.",
             pcb.borrow().pid
         );
-        self.content.insert(pcb.borrow().pid, pcb);
+        self.content.insert(pid, pcb);
     }
 
     #[allow(dead_code)]
@@ -65,15 +66,15 @@ impl ProcessTable {
         self.content.remove(&pid)
     }
 
-    pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
+    pub fn get(&self, pid: Pid) -> Option<Ref<'_, ProcessControlBlock>> {
         self.content
             .get(&pid)
-            .and_then(|entry| Some(&*entry.as_ref().borrow()))
+            .and_then(|entry| Some(entry.borrow()))
     }
 
-    pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {
+    pub fn get_mut(&mut self, pid: Pid) ->  Option<RefMut<'_, ProcessControlBlock>> {
         self.content
             .get_mut(&pid)
-            .map(|entry| &mut *entry.borrow_mut())
+            .and_then(|entry| Some(entry.borrow_mut()))
     }
 }

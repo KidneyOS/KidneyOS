@@ -4,11 +4,10 @@ use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
 };
-use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::arch::asm;
-use core::borrow::BorrowMut;
 use core::cell::RefCell;
+use core::ptr;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
@@ -37,7 +36,7 @@ pub fn exit_thread(exit_code: i32) -> ! {
             .take()
             .expect("Why is nothing running!?")
             .as_ptr();
-        let mut current_thread = *current_thread_ptr;
+        let mut current_thread = ptr::read(current_thread_ptr);
         current_thread.set_exit_code(exit_code);
 
         // Replace and yield.
@@ -52,7 +51,7 @@ unsafe extern "C" fn run_thread(
     switched_to: *mut ThreadControlBlock,
 ) -> ! {
     let threads = &mut unwrap_system_mut().threads;
-    let mut switched_to = *switched_to;
+    let mut switched_to = ptr::read(switched_to);
 
     // We assume that switched_from had its status changed already.
     // We must only mark this thread as running.
@@ -66,7 +65,7 @@ unsafe extern "C" fn run_thread(
     let switched_to = Rc::new(RefCell::new(switched_to));
     threads.running_thread = Some(switched_to);
 
-    let mut switched_from = *switched_from;
+    let mut switched_from = ptr::read(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
         switched_from.reap();

@@ -1,6 +1,6 @@
 use crate::interrupts::{intr_get_level, IntrLevel};
 use alloc::rc::Rc;
-use core::{cell::RefCell, mem::offset_of};
+use core::{cell::RefCell, mem::offset_of, ptr};
 
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use crate::system::unwrap_system_mut;
@@ -43,7 +43,7 @@ pub unsafe fn switch_threads(
     page_manager.load();
 
     let previous_ptr = context_switch(switch_from.as_ptr(), switch_to.as_ptr());
-    let mut previous = *previous_ptr;
+    let mut previous = ptr::read(previous_ptr);
 
     // We must mark this thread as running once again.
     switch_from.borrow_mut().status = ThreadStatus::Running;

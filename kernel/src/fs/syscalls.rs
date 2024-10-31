@@ -30,7 +30,7 @@ pub unsafe fn open(path: *const u8, flags: usize) -> isize {
     } else {
         Mode::ReadWrite
     };
-    match ROOT.lock().open(running_process(), path, mode) {
+    match ROOT.lock().open(&running_process(), path, mode) {
         Err(e) => -e.to_isize(),
         Ok(fd) => fd.into(),
     }
@@ -135,7 +135,7 @@ pub unsafe fn chdir(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -ENOENT,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().chdir(running_process_mut(), path) {
+    match ROOT.lock().chdir(&mut running_process_mut(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -167,7 +167,7 @@ pub unsafe fn mkdir(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().mkdir(running_process(), path) {
+    match ROOT.lock().mkdir(&running_process(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -210,7 +210,7 @@ pub unsafe fn unlink(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().unlink(running_process(), path) {
+    match ROOT.lock().unlink(&running_process(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -225,7 +225,7 @@ pub unsafe fn rmdir(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().rmdir(running_process(), path) {
+    match ROOT.lock().rmdir(&running_process(), path) {
         Err(e) => -e.to_isize(),
         Ok(()) => 0,
     }
@@ -272,7 +272,7 @@ pub unsafe fn link(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().link(running_process(), source, dest) {
+    match ROOT.lock().link(&running_process(), source, dest) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -292,7 +292,7 @@ pub unsafe fn symlink(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().symlink(running_process(), source, dest) {
+    match ROOT.lock().symlink(&running_process(), source, dest) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -312,7 +312,7 @@ pub unsafe fn rename(source: *const u8, dest: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -EINVAL,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().rename(running_process(), source, dest) {
+    match ROOT.lock().rename(&running_process(), source, dest) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -345,7 +345,7 @@ pub unsafe fn unmount(path: *const u8) -> isize {
         Err(CStrError::BadUtf8) => return -ENOENT,
         Err(CStrError::Fault) => return -EFAULT,
     };
-    match ROOT.lock().unmount(running_process(), path) {
+    match ROOT.lock().unmount(&running_process(), path) {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
     }
@@ -378,7 +378,7 @@ pub unsafe fn mount(device: *const u8, target: *const u8, file_system_type: *con
                 // should set device to empty string for tmpfs
                 return -EINVAL;
             }
-            root.mount(process, target, TempFS::new())
+            root.mount(&process, target, TempFS::new())
         }
         _ => return -ENODEV,
     };

@@ -1,7 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use alloc::rc::Rc;
-use core::borrow::Borrow;
 use core::cell::RefCell;
 
 use crate::fs::syscalls::{

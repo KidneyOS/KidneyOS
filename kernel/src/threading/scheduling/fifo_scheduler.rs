@@ -3,7 +3,7 @@ use super::scheduler::Scheduler;
 use crate::threading::process::Tid;
 use alloc::collections::VecDeque;
 use alloc::rc::Rc;
-use core::cell::RefCell;
+use core::cell::{RefCell, RefMut};
 
 pub struct FIFOScheduler {
     ready_queue: VecDeque<Rc<RefCell<ThreadControlBlock>>>,
@@ -36,11 +36,12 @@ impl Scheduler for FIFOScheduler {
         self.ready_queue.remove(pos?)
     }
 
-    fn get_mut(&mut self, _tid: Tid) -> Option<&mut ThreadControlBlock> {
+    fn get_mut(&mut self, _tid: Tid) -> Option<RefMut<'_, ThreadControlBlock>> {
         let pos = self
             .ready_queue
             .iter()
             .position(|tcb| tcb.borrow().tid == _tid)?;
-        Some(self.ready_queue.get_mut(pos)?.get_mut())
+        let tcb = self.ready_queue.get_mut(pos)?;
+        Some(tcb.borrow_mut())
     }
 }

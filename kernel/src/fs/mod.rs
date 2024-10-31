@@ -19,7 +19,7 @@ pub struct ProcessFileDescriptor {
 pub fn read_file(path: &Path) -> Result<Vec<u8>> {
     let process = unsafe { running_process() };
     let mut root = fs_manager::ROOT.lock();
-    let fd = root.open(process, path, Mode::ReadWrite)?;
+    let fd = root.open(&process, path, Mode::ReadWrite)?;
     let fd = ProcessFileDescriptor {
         fd,
         pid: process.pid,

@@ -1,3 +1,5 @@
+use core::cell::{Ref, RefMut};
+
 use crate::block::block_core::BlockManager;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::ProcessControlBlock;
@@ -29,7 +31,7 @@ pub unsafe fn unwrap_system_mut() -> &'static mut SystemState {
 /// # Safety
 ///
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
-pub unsafe fn running_process() -> &'static ProcessControlBlock {
+pub unsafe fn running_process() -> Ref<'static, ProcessControlBlock> {
     let system = unwrap_system();
     let pid = system
         .threads
@@ -39,8 +41,7 @@ pub unsafe fn running_process() -> &'static ProcessControlBlock {
         .as_ref()
         .borrow()
         .pid;
-    let process = system.process.table.get(pid).unwrap();
-    &process
+    system.process.table.get(pid).unwrap()
 }
 
 /// Get mutable reference to running process (panicks if no process is running)
@@ -48,7 +49,7 @@ pub unsafe fn running_process() -> &'static ProcessControlBlock {
 /// # Safety
 ///
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
-pub unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
+pub unsafe fn running_process_mut() -> RefMut<'static, ProcessControlBlock> {
     let system = unwrap_system_mut();
     let pid = system
         .threads
