@@ -9,9 +9,10 @@ use crate::{
     vfs::{INodeNum, OwnedPath},
     KERNEL_ALLOCATOR,
 };
-use alloc::boxed::Box;
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::{
+    cell::RefCell,
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
@@ -68,7 +69,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        state.table.add(Box::new(pcb));
+        state.table.add(Rc::new(RefCell::new(pcb)));
 
         pid
     }

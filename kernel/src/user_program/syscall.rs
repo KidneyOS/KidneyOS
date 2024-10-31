@@ -1,5 +1,9 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use alloc::rc::Rc;
+use core::borrow::Borrow;
+use core::cell::RefCell;
+
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
@@ -12,7 +16,6 @@ use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_functions;
 use crate::user_program::elf::Elf;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
-use alloc::boxed::Box;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
 
@@ -61,6 +64,8 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                     .running_thread
                     .as_ref()
                     .expect("A syscall was called without a running thread.")
+                    .as_ref()
+                    .borrow()
             };
 
             let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
@@ -77,7 +82,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 unwrap_system_mut()
                     .threads
                     .scheduler
-                    .push(Box::new(control));
+                    .push(Rc::new(RefCell::new(control)));
             }
 
             scheduler_yield_and_die();

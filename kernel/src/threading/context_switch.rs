@@ -1,57 +1,55 @@
 use crate::interrupts::{intr_get_level, IntrLevel};
-use core::mem::offset_of;
+use alloc::rc::Rc;
+use core::{cell::RefCell, mem::offset_of};
 
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use crate::system::unwrap_system_mut;
-use alloc::boxed::Box;
 
-/// Public facing method to perform a context switch between two threads.
+/// Public-facing method to perform a context switch between two threads.
 /// # Safety
 /// This function should only be called by methods within the Scheduler crate.
 /// Interrupts must be disabled.
 pub unsafe fn switch_threads(
     status_for_current_thread: ThreadStatus,
-    switch_to: Box<ThreadControlBlock>,
+    switch_to: Rc<RefCell<ThreadControlBlock>>,
 ) {
     let threads = &mut unwrap_system_mut().threads;
 
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
-    let switch_from = Box::into_raw(
-        threads
-            .running_thread
-            .take()
-            .expect("Why is nothing running!?"),
-    );
-    let switch_to = Box::into_raw(switch_to);
+    let switch_from = threads
+        .running_thread
+        .take()
+        .expect("Why is nothing running!?");
 
     // Ensure we are switching to a valid thread.
     assert_eq!(
-        (*switch_to).status,
+        switch_to.borrow().status,
         ThreadStatus::Ready,
         "Cannot switch to a non-ready thread."
     );
 
     // Ensure that the previous thread is running.
     assert_eq!(
-        (*switch_from).status,
+        switch_from.borrow().status,
         ThreadStatus::Running,
         "The thread to switch out of must be in the running state."
     );
 
     // Update the status of the current thread.
-    (*switch_from).status = status_for_current_thread;
+    switch_from.borrow_mut().status = status_for_current_thread;
 
-    let page_manager = &(*switch_to).page_manager;
+    let page_manager = switch_to.borrow().page_manager.clone();
     page_manager.load();
 
-    let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
+    let previous_ptr = context_switch(switch_from.as_ptr(), switch_to.as_ptr());
+    let mut previous = *previous_ptr;
 
     // We must mark this thread as running once again.
-    (*switch_from).status = ThreadStatus::Running;
+    switch_from.borrow_mut().status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    threads.running_thread = Some(Box::from_raw(switch_from));
+    threads.running_thread = Some(switch_from.clone());
 
     if previous.status == ThreadStatus::Dying {
         previous.reap();
@@ -59,9 +57,15 @@ pub unsafe fn switch_threads(
         // Page manager must be loaded when dropped.
         previous.page_manager.load();
         drop(previous);
-        threads.running_thread.as_ref().unwrap().page_manager.load();
+        threads
+            .running_thread
+            .as_ref()
+            .unwrap()
+            .borrow()
+            .page_manager
+            .load();
     } else {
-        threads.scheduler.push(previous);
+        threads.scheduler.push(Rc::new(RefCell::new(previous)));
     }
 }
 

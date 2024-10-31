@@ -5,7 +5,10 @@ use crate::{
     threading::scheduling::scheduler_yield_and_die,
 };
 use alloc::boxed::Box;
+use alloc::rc::Rc;
 use core::arch::asm;
+use core::borrow::BorrowMut;
+use core::cell::RefCell;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
@@ -29,14 +32,16 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // SAFETY: Interrupts must be off.
     unsafe {
         let threads = &mut unwrap_system_mut().threads;
-        let mut current_thread = threads
+        let mut current_thread_ptr = threads
             .running_thread
             .take()
-            .expect("Why is nothing running!?");
+            .expect("Why is nothing running!?")
+            .as_ptr();
+        let mut current_thread = *current_thread_ptr;
         current_thread.set_exit_code(exit_code);
 
         // Replace and yield.
-        threads.running_thread = Some(current_thread);
+        threads.running_thread = Some(Rc::new(RefCell::new(current_thread)));
         scheduler_yield_and_die();
     }
 }
@@ -47,7 +52,7 @@ unsafe extern "C" fn run_thread(
     switched_to: *mut ThreadControlBlock,
 ) -> ! {
     let threads = &mut unwrap_system_mut().threads;
-    let mut switched_to = Box::from_raw(switched_to);
+    let mut switched_to = *switched_to;
 
     // We assume that switched_from had its status changed already.
     // We must only mark this thread as running.
@@ -55,12 +60,13 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
+    let ThreadControlBlock { eip, esp, pid, .. } = switched_to;
 
     // Reschedule our threads.
+    let switched_to = Rc::new(RefCell::new(switched_to));
     threads.running_thread = Some(switched_to);
 
-    let mut switched_from = Box::from_raw(switched_from);
+    let mut switched_from = *switched_from;
 
     if switched_from.status == ThreadStatus::Dying {
         switched_from.reap();
@@ -68,8 +74,16 @@ unsafe extern "C" fn run_thread(
         // Page manager must be loaded to be dropped.
         switched_from.page_manager.load();
         drop(switched_from);
-        threads.running_thread.as_ref().unwrap().page_manager.load();
+        threads
+            .running_thread
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .borrow()
+            .page_manager
+            .load();
     } else {
+        let switched_from = Rc::new(RefCell::new(switched_from));
         threads.scheduler.push(switched_from);
     }
 

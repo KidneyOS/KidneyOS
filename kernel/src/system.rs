@@ -31,8 +31,16 @@ pub unsafe fn unwrap_system_mut() -> &'static mut SystemState {
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
 pub unsafe fn running_process() -> &'static ProcessControlBlock {
     let system = unwrap_system();
-    let pid = system.threads.running_thread.as_ref().unwrap().pid;
-    system.process.table.get(pid).unwrap()
+    let pid = system
+        .threads
+        .running_thread
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .borrow()
+        .pid;
+    let process = system.process.table.get(pid).unwrap();
+    &process
 }
 
 /// Get mutable reference to running process (panicks if no process is running)
@@ -42,7 +50,14 @@ pub unsafe fn running_process() -> &'static ProcessControlBlock {
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
 pub unsafe fn running_process_mut() -> &'static mut ProcessControlBlock {
     let system = unwrap_system_mut();
-    let pid = system.threads.running_thread.as_ref().unwrap().pid;
+    let pid = system
+        .threads
+        .running_thread
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .borrow_mut()
+        .pid;
     system.process.table.get_mut(pid).unwrap()
 }
 
@@ -54,6 +69,7 @@ pub fn running_thread_pid() -> Pid {
             .as_ref()
             .expect("Why is nothing running?")
             .as_ref()
+            .borrow()
     };
     tcb.pid
 }
@@ -66,6 +82,7 @@ pub fn running_thread_ppid() -> Pid {
             .as_ref()
             .expect("Why is nothing running?")
             .as_ref()
+            .borrow()
     };
     let process_table = unsafe { &unwrap_system().process.table };
     let pcb = process_table.get(tcb.pid).unwrap();
@@ -80,6 +97,7 @@ pub fn running_thread_tid() -> Tid {
             .as_ref()
             .expect("Why is nothing running?")
             .as_ref()
+            .borrow()
     };
     tcb.tid
 }

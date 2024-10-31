@@ -31,7 +31,8 @@ use crate::drivers::ata::ata_core::ide_init;
 use crate::system::{SystemState, SYSTEM};
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
-use alloc::boxed::Box;
+use alloc::rc::Rc;
+use core::cell::RefCell;
 use core::ptr::NonNull;
 use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
@@ -89,7 +90,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         let block_manager = BlockManager::default();
 
-        threads.scheduler.push(Box::new(ide_tcb));
+        threads.scheduler.push(Rc::new(RefCell::new(ide_tcb)));
 
         SYSTEM = Some(SystemState {
             threads,
