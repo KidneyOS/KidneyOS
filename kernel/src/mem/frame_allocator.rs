@@ -1,6 +1,6 @@
 use super::FrameAllocator;
 use core::{alloc::Allocator, ops::Range};
-use kidneyos_shared::mem::mem_addr_types::{VirtAddr};
+use kidneyos_shared::mem::mem_addr_types::VirtAddr;
 
 pub struct FrameAllocatorSolution<A>
 where
