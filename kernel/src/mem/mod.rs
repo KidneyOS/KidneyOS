@@ -13,7 +13,10 @@ use core::{
 };
 use frame_allocator::FrameAllocatorSolution;
 use kidneyos_shared::{
-    mem::{mem_addr_types::VirtAddr, virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
+    mem::{
+        mem_addr_types::VirtAddr, virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET,
+        PAGE_FRAME_SIZE,
+    },
     println,
     sizes::{KB, MB},
 };
