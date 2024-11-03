@@ -1,5 +1,7 @@
 // https://wiki.osdev.org/%228042%22_PS/2_Controller#PS/2_Controller_IO_Ports
 
+use crate::system::unwrap_system;
+
 use kidneyos_shared::serial::inb;
 
 /// Data port           Read/Write
@@ -7,9 +9,9 @@ use kidneyos_shared::serial::inb;
 /// The Data Port (IO Port 0x60) is used for reading data that was received from a PS/2 device or from the PS/2 controller itself and writing data to a PS/2 device or to the PS/2 controller itself.
 static DATA_PORT: u16 = 0x60;
 /// Status register     Read
-static _STATUS_REGISTER: u16 = 0x64;
+static _STATUS_REGISTER: u16 = 0x64; // Unused
 /// Command register    Write
-static _COMMAND_REGISTER: u16 = 0x64;
+static _COMMAND_REGISTER: u16 = 0x64; // Unused
 
 // Modifier Keys
 static mut L_SHIFT: bool = false;
@@ -181,8 +183,9 @@ pub fn on_keyboard_interrupt() {
         if shift == unsafe { CAPS_LOCK } {
             c = c.to_ascii_lowercase();
         }
-        // TODO: Add to buffer
-        kidneyos_shared::eprint!("{}", c as char);
+
+        // Add to buffer
+        unsafe { unwrap_system().input_buffer.lock().putc(c) };
     } else {
         // Modifier keys
 

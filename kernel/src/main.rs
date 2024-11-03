@@ -28,6 +28,8 @@ extern crate alloc;
 
 use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
+use crate::drivers::ps_2::input::InputBuffer;
+use crate::sync::mutex::Mutex;
 use crate::system::{SystemState, SYSTEM};
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
@@ -88,6 +90,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0, &mut process);
 
         let block_manager = BlockManager::default();
+        let input_buffer = Mutex::new(InputBuffer::new());
 
         threads.scheduler.push(Box::new(ide_tcb));
 
@@ -96,6 +99,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
             process,
 
             block_manager,
+            input_buffer,
         });
 
         println!("Mounting root filesystem...");

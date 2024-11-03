@@ -1,4 +1,6 @@
 use crate::block::block_core::BlockManager;
+use crate::drivers::ps_2::input::InputBuffer;
+use crate::sync::mutex::Mutex;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
@@ -9,6 +11,7 @@ pub struct SystemState {
     pub process: ProcessState,
 
     pub block_manager: BlockManager,
+    pub input_buffer: Mutex<InputBuffer>,
 }
 
 pub static mut SYSTEM: Option<SystemState> = None;
