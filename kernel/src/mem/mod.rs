@@ -2,6 +2,8 @@ mod buddy_allocator;
 mod frame_allocator;
 pub mod user;
 pub mod util;
+mod swapping;
+mod page_replacement;
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
@@ -241,6 +243,9 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 .next_multiple_of(PAGE_FRAME_SIZE)
                 / PAGE_FRAME_SIZE,
         ) else {
+            // Evict page for swapping
+            
+
             halt!("Out of virtual memory!");
         };
 

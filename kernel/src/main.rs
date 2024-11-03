@@ -36,6 +36,7 @@ use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMO
 use mem::KernelAllocator;
 use threading::{create_thread_state, thread_system_start};
 
+
 #[cfg_attr(not(test), global_allocator)]
 pub static mut KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
