@@ -1,7 +1,7 @@
 use core::arch::asm;
 
 use crate::drivers::ata::ata_interrupt;
-use crate::drivers::ps_2::keyboard;
+use crate::drivers::input::keyboard;
 use crate::interrupts::{pic, timer};
 use crate::threading::scheduling;
 use crate::user_program::syscall;
@@ -147,7 +147,7 @@ pub unsafe extern "C" fn keyboard_handler() -> ! {
     popa
     iretd
     ",
-    sym keyboard::on_keyboard_interrupt,
+    sym keyboard::atkbd::on_keyboard_interrupt,
     sym pic::send_eoi,
     sym scheduling::scheduler_yield_and_continue,
     options(noreturn),

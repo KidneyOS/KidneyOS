@@ -28,7 +28,7 @@ extern crate alloc;
 
 use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
-use crate::drivers::ps_2::input::InputBuffer;
+use crate::drivers::input::input_core::InputBuffer;
 use crate::sync::mutex::Mutex;
 use crate::system::{SystemState, SYSTEM};
 use crate::threading::process::create_process_state;
