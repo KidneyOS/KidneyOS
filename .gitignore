@@ -10,3 +10,5 @@ bx_enh_dbg.ini
 rustc-ice-*.txt
 kidneyos-builder.tar.gz
 .DS_Store
+
+/grub
