@@ -2,6 +2,7 @@
 pub mod read_only_test;
 pub mod tempfs;
 
+use crate::user_program::syscall;
 use alloc::{borrow::Cow, format, string::String, vec::Vec};
 
 pub type INodeNum = u32;
@@ -13,7 +14,7 @@ pub type OwnedPath = String;
 /// **IMPORTANT**: the kernel must call [`FileSystem::release`]
 /// when it closes its last open file to an inode. Otherwise,
 /// the filesystem will have to keep around the file's data indefinitely!
-pub trait FileHandle: core::fmt::Debug {
+pub trait FileHandle: core::fmt::Debug + Send + Sync {
     fn inode(&self) -> INodeNum;
 }
 
@@ -39,6 +40,22 @@ pub enum Error {
     ReadOnlyFS,
     /// Process has too many open file descriptors
     TooManyOpenFiles,
+    /// Bad file descriptor
+    BadFd,
+    /// Trying to unmount file system with open files
+    FileSystemInUse,
+    /// Seek to bad offset
+    BadOffset,
+    /// Seek in non-seekable file
+    IllegalSeek,
+    /// Unmount directory that isn't mounted
+    NotMounted,
+    /// Called readlink on something that isn't a link
+    NotLink,
+    /// Too many levels of symbolic links
+    TooManyLevelsOfLinks,
+    /// Source and destination of link() lie in different mounted file systems.
+    HardLinkBetweenFileSystems,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -62,12 +79,48 @@ impl core::fmt::Display for Error {
             Self::Unsupported => write!(f, "unsupported operation"),
             Self::ReadOnlyFS => write!(f, "read-only file system"),
             Self::TooManyOpenFiles => write!(f, "too many open files"),
+            Self::BadFd => write!(f, "bad file descriptor"),
+            Self::FileSystemInUse => write!(f, "file system in use"),
+            Self::BadOffset => write!(f, "seek to bad offset"),
+            Self::IllegalSeek => write!(f, "illegal seek"),
+            Self::NotMounted => write!(f, "not mounted"),
+            Self::NotLink => write!(f, "not a link"),
+            Self::TooManyLevelsOfLinks => write!(f, "too many levels of symbolic links"),
+            Self::HardLinkBetweenFileSystems => {
+                write!(f, "hard link between different file systems")
+            }
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
 }
 
 impl core::error::Error for Error {}
+
+impl Error {
+    pub fn to_isize(&self) -> isize {
+        match self {
+            Error::NotFound => syscall::ENOENT,
+            Error::NotDirectory => syscall::ENOTDIR,
+            Error::IsDirectory => syscall::EISDIR,
+            Error::NoSpace => syscall::ENOSPC,
+            Error::TooManyLinks => syscall::EMLINK,
+            Error::NotEmpty => syscall::ENOTEMPTY,
+            Error::Exists => syscall::EEXIST,
+            Error::Unsupported => syscall::EIO,
+            Error::ReadOnlyFS => syscall::EROFS,
+            Error::TooManyOpenFiles => syscall::EMFILE,
+            Error::BadFd => syscall::EBADF,
+            Error::FileSystemInUse => syscall::EBUSY,
+            Error::BadOffset => syscall::EINVAL,
+            Error::IllegalSeek => syscall::ESPIPE,
+            Error::NotMounted => syscall::EINVAL,
+            Error::NotLink => syscall::EINVAL,
+            Error::TooManyLevelsOfLinks => syscall::ELOOP,
+            Error::HardLinkBetweenFileSystems => syscall::EXDEV,
+            Error::IO(_) => syscall::EIO,
+        }
+    }
+}
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -92,6 +145,16 @@ pub enum INodeType {
     Link,
     /// Directory
     Directory,
+}
+
+impl INodeType {
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::File => syscall::S_REGULAR_FILE,
+            Self::Link => syscall::S_SYMLINK,
+            Self::Directory => syscall::S_DIRECTORY,
+        }
+    }
 }
 
 /// Raw directory entry information
@@ -200,7 +263,7 @@ impl<'a> IntoIterator for &'a DirEntries {
     }
 }
 
-pub trait FileSystem: Sized {
+pub trait FileSystem: Sized + Sync + Send {
     type FileHandle: FileHandle;
     /// Get root inode number
     fn root(&self) -> INodeNum;
@@ -217,7 +280,7 @@ pub trait FileSystem: Sized {
     ///
     /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`
     /// If `name` already exists (whether as a directory or as a file), returns [`Error::Exists`].
-    fn mkdir(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<()>;
+    fn mkdir(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<INodeNum>;
     /// Remove a (link to a) file/symlink in parent
     ///
     /// The kernel must ensure that `parent` is a directory and that `name` is non-empty and doesn't contain `/`
@@ -265,7 +328,12 @@ pub trait FileSystem: Sized {
     /// As on Linux, this returns [`Error::Exists`] and does nothing if the destination already exists.
     ///
     /// The kernel must ensure that parent is a directory, and that `link` and `name` are non-empty and that `name` doesn't contain `/`
-    fn symlink(&mut self, link: &Path, parent: &mut Self::FileHandle, name: &Path) -> Result<()>;
+    fn symlink(
+        &mut self,
+        link: &Path,
+        parent: &mut Self::FileHandle,
+        name: &Path,
+    ) -> Result<INodeNum>;
     /// Read a symbolic link
     ///
     /// Returns the prefix of `buf` which has been filled with the desintation, or `Ok(None)` if `buf`
@@ -299,7 +367,7 @@ pub trait FileSystem: Sized {
 /// This trait also has default stub implementations for all the filesystem functions except for [`FileSystem::root`],
 /// so you can implement and test them one at a time
 #[allow(unused_variables)] // default implementations don't always use their parameters
-pub trait SimpleFileSystem: Sized {
+pub trait SimpleFileSystem: Sized + Send + Sync {
     /// Get root inode number.
     fn root(&self) -> INodeNum;
     /// The kernel will always call this function before reading/writing data to a file.
@@ -315,7 +383,9 @@ pub trait SimpleFileSystem: Sized {
         Err(Error::Unsupported)
     }
     /// Create an empty directory in `parent` called `name`.
-    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+    ///
+    /// Returns the inode number of the newly-created directory
+    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum> {
         Err(Error::Unsupported)
     }
     /// Unlink the file called `name` in the directory `parent`.
@@ -357,7 +427,9 @@ pub trait SimpleFileSystem: Sized {
         Err(Error::Unsupported)
     }
     /// Create symbolic link to `link` in `parent` called `name`.
-    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<()> {
+    ///
+    /// Returns the inode number of the newly-created symbolic link
+    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<INodeNum> {
         Err(Error::Unsupported)
     }
     /// Read the contents of a symbolic link
@@ -421,7 +493,7 @@ impl<F: SimpleFileSystem> FileSystem for F {
     fn create(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<Self::FileHandle> {
         SimpleFileSystem::create(self, parent.0, name).map(SimpleFileHandle)
     }
-    fn mkdir(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
+    fn mkdir(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<INodeNum> {
         SimpleFileSystem::mkdir(self, parent.0, name)
     }
     fn unlink(&mut self, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
@@ -453,7 +525,12 @@ impl<F: SimpleFileSystem> FileSystem for F {
     ) -> Result<()> {
         SimpleFileSystem::link(self, source.0, parent.0, name)
     }
-    fn symlink(&mut self, link: &Path, parent: &mut Self::FileHandle, name: &Path) -> Result<()> {
+    fn symlink(
+        &mut self,
+        link: &Path,
+        parent: &mut Self::FileHandle,
+        name: &Path,
+    ) -> Result<INodeNum> {
         SimpleFileSystem::symlink(self, link, parent.0, name)
     }
     fn readlink<'a>(

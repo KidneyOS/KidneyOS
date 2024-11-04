@@ -71,10 +71,6 @@ impl<T: ?Sized> MutexIrq<T> {
         self.lock.is_locked()
     }
 
-    pub unsafe fn force_unlock(&self) {
-        self.lock.force_unlock()
-    }
-
     #[inline(always)]
     pub fn try_lock(&self) -> Option<MutexGuardIrq<T>> {
         if self.lock.is_locked() {

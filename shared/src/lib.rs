@@ -5,6 +5,7 @@
 #![feature(slice_ptr_get)]
 #![no_std]
 
+pub mod bit_array;
 pub mod global_descriptor_table;
 pub mod macros;
 pub mod mem;
