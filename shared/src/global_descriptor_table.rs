@@ -2,47 +2,10 @@
 // https://wiki.osdev.org/GDT_Tutorial
 
 use crate::{
-    segment::SegmentSelector,
+    segment::{SegmentDescriptor, SegmentSelector},
     task_state_segment::{TaskStateSegment, TASK_STATE_SEGMENT},
 };
-use arbitrary_int::{u13, u2, u20};
-use bitbybit::bitfield;
 use core::{arch::asm, mem::size_of, ptr::addr_of};
-
-#[bitfield(u64, default = 0)]
-struct SegmentDescriptor {
-    #[bits([0..=15, 48..=51], rw)]
-    limit: u20,
-    #[bits([16..=31, 32..=39, 56..=63], rw)]
-    base: u32,
-    #[bit(40, rw)]
-    accessed: bool,
-    #[bit(41, rw)]
-    read_write: bool,
-    #[bit(42, rw)]
-    direction_conforming: bool,
-    #[bit(43, rw)]
-    executable: bool,
-    #[bit(44, rw)]
-    r#type: bool,
-    #[bits(45..=46, rw)]
-    descriptor_privilege_level: u2,
-    #[bit(47, rw)]
-    present: bool,
-    #[bit(53, rw)]
-    long_mode: bool,
-    #[bit(54, rw)]
-    size: bool,
-    #[bit(55, rw)]
-    granularity: bool,
-}
-
-impl SegmentDescriptor {
-    const UNLIMITED: Self = Self::DEFAULT
-        .with_limit(u20::new(0xFFFFF))
-        .with_size(true)
-        .with_granularity(true);
-}
 
 #[repr(packed)]
 struct GDTDescriptor {
@@ -55,7 +18,7 @@ const GDT_LEN: usize = 6;
 
 static mut GDT: [SegmentDescriptor; GDT_LEN] = [
     // Null Descriptor
-    SegmentDescriptor::DEFAULT,
+    SegmentDescriptor::default(),
     // Kernel Mode Code
     SegmentDescriptor::UNLIMITED
         .with_present(true)
@@ -73,7 +36,7 @@ static mut GDT: [SegmentDescriptor; GDT_LEN] = [
     SegmentDescriptor::UNLIMITED
         .with_present(true)
         // Allow unprivileged access.
-        .with_descriptor_privilege_level(u2::new(3))
+        .with_descriptor_privilege_level(3u8)
         .with_type(true)
         .with_executable(true)
         // Means we can read, since this is a code segment.
@@ -82,33 +45,33 @@ static mut GDT: [SegmentDescriptor; GDT_LEN] = [
     SegmentDescriptor::UNLIMITED
         .with_present(true)
         // Allow unprivileged access.
-        .with_descriptor_privilege_level(u2::new(3))
+        .with_descriptor_privilege_level(3u8)
         .with_type(true)
         // Means we can write, since this is a data segment.
         .with_read_write(true),
-    SegmentDescriptor::DEFAULT
+    SegmentDescriptor::default()
         .with_accessed(true)
         // Executable doesn't actually mean executable here, we just have to
         // set flags in a particular way since this is a TSS.
         .with_executable(true)
-        .with_limit(u20::new(size_of::<TaskStateSegment>() as u32 - 1))
+        .with_limit(size_of::<TaskStateSegment>() as u32 - 1)
         .with_present(true),
 ];
 
-pub const KERNEL_CODE_SELECTOR: u16 = SegmentSelector::DEFAULT.with_index(u13::new(1)).raw_value();
-pub const KERNEL_DATA_SELECTOR: u16 = SegmentSelector::DEFAULT.with_index(u13::new(2)).raw_value();
-pub const USER_CODE_SELECTOR: u16 = SegmentSelector::DEFAULT
-    .with_requested_privilege_level(u2::new(3))
-    .with_index(u13::new(3))
-    .raw_value();
-pub const USER_DATA_SELECTOR: u16 = SegmentSelector::DEFAULT
-    .with_requested_privilege_level(u2::new(3))
-    .with_index(u13::new(4))
-    .raw_value();
+pub const KERNEL_CODE_SELECTOR: u16 = SegmentSelector::default().with_index(1).load();
+pub const KERNEL_DATA_SELECTOR: u16 = SegmentSelector::default().with_index(2).load();
+pub const USER_CODE_SELECTOR: u16 = SegmentSelector::default()
+    .with_requested_privilege_level(3)
+    .with_index(3u16)
+    .load();
+pub const USER_DATA_SELECTOR: u16 = SegmentSelector::default()
+    .with_requested_privilege_level(3)
+    .with_index(4)
+    .load();
 const TSS_INDEX: usize = 5;
-const TSS_SELECTOR: u16 = SegmentSelector::DEFAULT
-    .with_index(u13::new(TSS_INDEX as u16))
-    .raw_value();
+const TSS_SELECTOR: u16 = SegmentSelector::default()
+    .with_index(TSS_INDEX as u16)
+    .load();
 
 static mut GDT_DESCRIPTOR: GDTDescriptor = GDTDescriptor {
     size: size_of::<[SegmentDescriptor; GDT_LEN]>() as u16 - 1,
@@ -123,8 +86,7 @@ pub unsafe fn load() {
     GDT[TSS_INDEX] = GDT[TSS_INDEX].with_base(addr_of!(TASK_STATE_SEGMENT).cast::<u8>() as u32);
     GDT_DESCRIPTOR.offset = GDT.as_ptr() as u32;
 
-    // We need to use att_syntax since Rust doesn't appear to understand intel
-    // long jump syntax...
+    // We need to use att_syntax since Rust doesn't appear to understand Intel long jump syntax...
     asm!(
         "
         lgdt 0({0})

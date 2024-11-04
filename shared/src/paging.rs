@@ -2,27 +2,29 @@
 // https://wiki.osdev.org/Setting_Up_Paging
 
 use crate::{
+    bit_array::BitArray,
+    bitfield,
     mem::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
     },
     video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
 };
-use arbitrary_int::{u10, u12, u20};
-use bitbybit::bitfield;
 use core::{
     alloc::{Allocator, Layout},
     arch::asm,
+    clone::Clone,
     mem::size_of,
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 use lazy_static::lazy_static;
+use paste::paste;
 
 const PAGE_DIRECTORY_LEN: usize = PAGE_FRAME_SIZE / size_of::<PageDirectoryEntry>();
 
 #[derive(Clone)]
-#[repr(align(4096))]
+#[repr(align(4096), C)]
 struct PageDirectory([PageDirectoryEntry; PAGE_DIRECTORY_LEN]);
 
 impl Default for PageDirectory {
@@ -45,40 +47,35 @@ impl DerefMut for PageDirectory {
     }
 }
 
+#[allow(clippy::mut_from_ref)]
 impl PageDirectory {
     fn page_table(
         &self,
         page_directory_index: usize,
         phys_to_alloc_addr_offset: usize,
     ) -> *mut PageTable {
-        let page_table_frame = self[page_directory_index].page_table_frame().value() as usize;
+        let page_table_frame = self[page_directory_index].page_table_frame() as usize;
         ((page_table_frame * size_of::<PageTable>()) + phys_to_alloc_addr_offset) as *mut PageTable
     }
 }
 
-#[bitfield(u32, default = 0)]
-struct PageDirectoryEntry {
-    #[bit(0, rw)]
-    present: bool,
-    #[bit(1, rw)]
-    read_write: bool,
-    #[bit(2, rw)]
-    user_supervisor: bool,
-    #[bit(3, rw)]
-    write_through: bool,
-    #[bit(4, rw)]
-    cache_disable: bool,
-    #[bit(5, rw)]
-    accessed: bool,
-    #[bit(7, rw)]
-    page_size: bool,
-    #[bits(12..=31, rw)]
-    page_table_frame: u20,
-}
+bitfield!(
+    PageDirectoryEntry, u32
+    { (u32, page_table_frame, 12, 31) }
+    {
+        (present, 0),
+        (read_write, 1),
+        (user_supervisor, 2),
+        (write_through, 3),
+        (cache_disable, 4),
+        (accessed, 5),
+        (page_size, 7),
+    }
+);
 
 const PAGE_TABLE_LEN: usize = PAGE_FRAME_SIZE / size_of::<PageTableEntry>();
 
-#[repr(align(4096))]
+#[repr(align(4096), C)]
 struct PageTable([PageTableEntry; PAGE_TABLE_LEN]);
 
 impl Default for PageTable {
@@ -101,45 +98,36 @@ impl DerefMut for PageTable {
     }
 }
 
-#[bitfield(u32, default = 0)]
-struct PageTableEntry {
-    #[bit(0, rw)]
-    present: bool,
-    #[bit(1, rw)]
-    read_write: bool,
-    #[bit(2, rw)]
-    user_supervisor: bool,
-    #[bit(3, rw)]
-    write_through: bool,
-    #[bit(4, rw)]
-    cache_disable: bool,
-    #[bit(5, rw)]
-    accessed: bool,
-    #[bit(6, rw)]
-    dirty: bool,
-    #[bit(7, rw)]
-    page_attribute_table: bool,
-    #[bit(8, rw)]
-    global: bool,
-    #[bits(12..=31, rw)]
-    page_frame: u20,
-}
+bitfield!(
+    PageTableEntry, u32
+    { (u32, page_table_frame, 12, 31) }
+    {
+        (present, 0),
+        (read_write, 1),
+        (user_supervisor, 2),
+        (write_through, 3),
+        (cache_disable, 4),
+        (accessed, 5),
+        (dirty, 6),
+        (page_attribute_table, 7),
+        (global, 8),
+    }
+);
 
 fn virt_parts(virt_addr: usize) -> (usize, usize) {
-    #[bitfield(u32)]
-    struct VirtualAddress {
-        #[bits(22..=31, r)]
-        page_directory_index: u10,
-        #[bits(12..=21, r)]
-        page_table_index: u10,
-        #[bits(0..=11, r)]
-        offset: u12,
-    }
+    bitfield!(
+        VirtualAddress, u32
+        {
+            (u16, page_directory_index, 22, 31),
+            (u16, page_table_index, 12, 21),
+            (u16, offset, 0, 11),
+        } {}
+    );
 
-    let virt_addr = VirtualAddress::new_with_raw_value(virt_addr as u32);
+    let virt_addr = VirtualAddress::new(virt_addr as u32);
     (
-        virt_addr.page_directory_index().value() as usize,
-        virt_addr.page_table_index().value() as usize,
+        virt_addr.page_directory_index() as usize,
+        virt_addr.page_table_index() as usize,
     )
 }
 
@@ -258,7 +246,7 @@ impl<A: Allocator> PageManager<A> {
                 .with_present(true)
                 .with_read_write(write)
                 .with_user_supervisor(user)
-                .with_page_table_frame(u20::new(page_table_frame as u32));
+                .with_page_table_frame(page_table_frame as u32);
             page_table
         } else {
             // NOTE: For a page to be considered writable, the read_write bit
@@ -286,7 +274,7 @@ impl<A: Allocator> PageManager<A> {
             .with_present(true)
             .with_read_write(write)
             .with_user_supervisor(user)
-            .with_page_frame(u20::new(phys_frame));
+            .with_page_table_frame(phys_frame);
     }
 
     /// Like map, except with length `HUGE_PAGE_SIZE`. `virt_addr` must have an
@@ -323,7 +311,7 @@ impl<A: Allocator> PageManager<A> {
             .with_read_write(write)
             .with_user_supervisor(user)
             .with_page_size(true)
-            .with_page_table_frame(u20::new((phys_addr / PAGE_FRAME_SIZE) as u32));
+            .with_page_table_frame((phys_addr / PAGE_FRAME_SIZE) as u32);
     }
 
     /// Maps virtual addresses from `virt_start..(virt_start + len)` to the
@@ -415,12 +403,11 @@ impl<A: Allocator> PageManager<A> {
             return false;
         }
 
-        // Huge page, this point is mapped.
         if entry.page_size() {
+            // Huge page
             return !write || entry.read_write();
         }
 
-        // A bit unsettling...
         let page_table =
             unsafe { &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset) };
         let entry = &page_table.0[pti];
@@ -489,7 +476,7 @@ impl<A: Allocator> Drop for PageManager<A> {
                 continue;
             }
 
-            let page_table_addr = pde.page_table_frame().value() as usize * size_of::<PageTable>()
+            let page_table_addr = pde.page_table_frame() as usize * size_of::<PageTable>()
                 + self.phys_to_alloc_addr_offset;
             let Some(page_table_addr) = NonNull::new(page_table_addr as *mut u8) else {
                 panic!("present page directory entry contained null page table address");
@@ -517,18 +504,14 @@ impl<A: Allocator> Drop for PageManager<A> {
 /// with those tables must not cause any existing pointers to refer to anything
 /// they shouldn't.
 pub unsafe fn enable() {
-    #[bitfield(u32, default = 0)]
-    struct CR0 {
-        #[bit(16, rw)]
-        write_protect: bool,
-        #[bit(31, rw)]
-        paging: bool,
-    }
+    bitfield!(
+        CR0, u32 {} { (write_protect, 16), (paging, 31) }
+    );
 
-    const MASK: u32 = CR0::DEFAULT
+    const MASK: u32 = CR0::default()
         .with_write_protect(true)
         .with_paging(true)
-        .raw_value();
+        .load();
 
     asm!(
         "
@@ -544,66 +527,58 @@ pub unsafe fn enable() {
 
 lazy_static! {
     static ref PSE_SUPPORTED: bool = {
-        #[bitfield(u32, default = 0)]
-        struct EFlags {
-            #[bit(21, rw)]
-            id: bool,
-        }
+        bitfield!(
+            EFlags, u32{} { (id, 21) }
+        );
 
         let eflags_diff: u32;
         unsafe {
-            asm!(
-                "
-        pushfd // Save original EFLAGS.
+            asm!("
+                pushfd // Save original EFLAGS.
 
-        // Get a copy of EFLAGS and modify it to toggle the mask bit.
-        pushfd
-        pop {0}
-        xor {0}, {mask}
-        push {0}
+                // Get a copy of EFLAGS and modify it to toggle the mask bit.
+                pushfd
+                pop {0}
+                xor {0}, {mask}
+                push {0}
 
-        popfd // Move the copy into EFLAGS.
+                popfd // Move the copy into EFLAGS.
 
-        // Get a diff of what changed in EFLAGS after the attempted
-        // modification.
-        pushfd
-        pop {0}
-        xor {0}, [esp]
+                // Get a diff of what changed in EFLAGS after the attempted
+                // modification.
+                pushfd
+                pop {0}
+                xor {0}, [esp]
 
-        popfd // Restore original EFLAGS.
+                popfd // Restore original EFLAGS.
                 ",
                 out(reg) eflags_diff,
-                mask = const EFlags::DEFAULT.with_id(true).raw_value(),
+                mask = const EFlags::default().with_id(true).load() as u8,
             )
         };
 
         // If the attempted modification didn't change the id bit, then cpuid
         // isn't supported.
-        if !EFlags::new_with_raw_value(eflags_diff).id() {
+        if !EFlags::new(eflags_diff).id() {
             return false;
         }
 
-        #[bitfield(u32, default = 0)]
-        struct CPUIDEdx {
-            #[bit(3, rw)]
-            pse: bool,
-        }
+        bitfield!(
+            CPUIDEdx, u32 {} { (pse, 3) }
+        );
 
         let core::arch::x86::CpuidResult { edx, .. } = unsafe { core::arch::x86::__cpuid(0) };
-        CPUIDEdx::new_with_raw_value(edx).pse()
+        CPUIDEdx::new(edx).pse()
     };
     static ref PSE_ENABLED: bool = {
-        // Check if PSE is already enabled (from the trapoline, if we're running
-        // in the kernel).
-        #[bitfield(u32, default = 0)]
-        struct CR4 {
-            #[bit(4, rw)]
-            pse: bool,
-        }
+        // Check if PSE is already enabled (from the trampoline, if we're running  in the kernel).
+        bitfield!(
+            CR4, u32 {} { (pse, 4) }
+        );
 
         let cr4: u32;
         unsafe { asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack)) };
-        let cr4 = CR4::new_with_raw_value(cr4);
+        let cr4 = CR4::new(cr4);
         if cr4.pse() {
             // If it is, early return true.
             return true;
@@ -615,7 +590,7 @@ lazy_static! {
         }
 
         // Otherwise, enable it and return true.
-        unsafe { asm!("mov cr4, {}", in(reg) cr4.with_pse(true).raw_value() as usize, options(nostack)) };
+        unsafe { asm!("mov cr4, {}", in(reg) cr4.with_pse(true).load() as usize, options(nostack)) };
         true
     };
 }
