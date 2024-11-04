@@ -1,7 +1,7 @@
 // https://wiki.osdev.org/%228042%22_PS/2_Controller#PS/2_Controller_IO_Ports
-
 use crate::system::unwrap_system;
-
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
 use kidneyos_shared::serial::inb;
 
 /// Data port           Read/Write
@@ -14,13 +14,13 @@ static _STATUS_REGISTER: u16 = 0x64; // Unused
 static _COMMAND_REGISTER: u16 = 0x64; // Unused
 
 // Modifier Keys
-static mut L_SHIFT: bool = false;
-static mut R_SHIFT: bool = false;
-static mut L_CTRL: bool = false;
-static mut R_CTRL: bool = false;
-static mut L_ALT: bool = false;
-static mut R_ALT: bool = false;
-static mut CAPS_LOCK: bool = false;
+static L_SHIFT: AtomicBool = AtomicBool::new(false);
+static R_SHIFT: AtomicBool = AtomicBool::new(false);
+static L_CTRL: AtomicBool = AtomicBool::new(false);
+static R_CTRL: AtomicBool = AtomicBool::new(false);
+static L_ALT: AtomicBool = AtomicBool::new(false);
+static R_ALT: AtomicBool = AtomicBool::new(false);
+static CAPS_LOCK: AtomicBool = AtomicBool::new(false);
 
 struct Keymap {
     first_scancode: u16,
@@ -132,10 +132,10 @@ static SHIFTED_KEYMAP: &[Keymap] = &[
 
 pub fn on_keyboard_interrupt() {
     // Modifier keys
-    let shift: bool = unsafe { L_SHIFT || R_SHIFT };
+    let shift: bool = L_SHIFT.load(Relaxed) || R_SHIFT.load(Relaxed);
     // TODO: Handle ctrl and alt?
-    let _ctrl: bool = unsafe { L_CTRL || R_CTRL };
-    let _alt: bool = unsafe { L_ALT || R_ALT };
+    let _ctrl: bool = L_CTRL.load(Relaxed) || R_CTRL.load(Relaxed);
+    let _alt: bool = L_ALT.load(Relaxed) || R_ALT.load(Relaxed);
 
     // Read the scancode
     let mut code = unsafe { inb(DATA_PORT) } as u16;
@@ -151,7 +151,9 @@ pub fn on_keyboard_interrupt() {
     // Caps Lock
     if code == 0x3A {
         if !release {
-            unsafe { CAPS_LOCK = !CAPS_LOCK };
+            // True  xor True = False
+            // False xor True = True
+            CAPS_LOCK.fetch_xor(true, AcqRel);
         }
         return;
     }
@@ -180,7 +182,7 @@ pub fn on_keyboard_interrupt() {
         }
 
         // Ordinary character
-        if shift == unsafe { CAPS_LOCK } {
+        if shift == CAPS_LOCK.load(Acquire) {
             c = c.to_ascii_lowercase();
         }
 
@@ -190,24 +192,12 @@ pub fn on_keyboard_interrupt() {
         // Modifier keys
 
         match code {
-            0x2A => unsafe {
-                L_SHIFT = !release;
-            },
-            0x36 => unsafe {
-                R_SHIFT = !release;
-            },
-            0x38 => unsafe {
-                L_ALT = !release;
-            },
-            0xE038 => unsafe {
-                R_ALT = !release;
-            },
-            0x1D => unsafe {
-                L_CTRL = !release;
-            },
-            0xE01D => unsafe {
-                R_CTRL = !release;
-            },
+            0x2A => L_SHIFT.store(!release, Relaxed),
+            0x36 => R_SHIFT.store(!release, Relaxed),
+            0x38 => L_ALT.store(!release, Relaxed),
+            0xE038 => R_ALT.store(!release, Relaxed),
+            0x1D => L_CTRL.store(!release, Relaxed),
+            0xE01D => R_CTRL.store(!release, Relaxed),
             _ => (),
         }
     }
