@@ -1,9 +1,12 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
+    fs::fs_manager::FileSystemID,
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
+    vfs::{INodeNum, OwnedPath},
     KERNEL_ALLOCATOR,
 };
 use alloc::boxed::Box;
@@ -35,23 +38,34 @@ pub enum ThreadStatus {
 
 pub struct ProcessControlBlock {
     pub pid: Pid,
+    // The Pid of the process' parent
+    pub ppid: Pid,
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
     pub wait_list: Vec<Tid>,
 
-    // TODO: (file I/O) file descriptor table
     pub exit_code: Option<i32>,
+    /// filesystem and inode of current working directory
+    pub cwd: (FileSystemID, INodeNum),
+    /// path to cwd (needed for getcwd syscall)
+    pub cwd_path: OwnedPath,
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &mut ProcessState) -> Pid {
+    pub fn create(state: &mut ProcessState, parent_pid: Pid) -> Pid {
         let pid = state.allocate_pid();
+        let mut root = crate::fs::fs_manager::ROOT.lock();
+        // open stdin, stdout, stderr
+        root.open_standard_fds(pid);
         let pcb = Self {
             pid,
+            ppid: parent_pid,
             child_tids: Vec::new(),
             wait_list: Vec::new(),
             exit_code: None,
+            cwd: root.get_root().unwrap(),
+            cwd_path: "/".into(),
         };
 
         state.table.add(Box::new(pcb));
@@ -93,7 +107,15 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
-        let pid: Pid = ProcessControlBlock::create(state);
+        let ppid = unsafe {
+            unwrap_system()
+                .threads
+                .running_thread
+                .as_ref()
+                .map_or(0, |_| running_thread_ppid())
+        };
+
+        let pid: Pid = ProcessControlBlock::create(state, ppid);
 
         let mut page_manager = PageManager::default();
 

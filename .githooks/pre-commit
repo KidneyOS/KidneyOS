@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# Prevent accidental commits of disk images.
+if git diff --cached --name-only | grep -q '\.img$'; then
+  echo "WARNING: You are about to commit a disk image."
+  echo "If you are sure you want to do this, use 'git commit --no-verify'."
+  exit 1
+fi
+
 make -f programs.mk
 cargo clippy --target i686-unknown-linux-gnu -- -D warnings
 cargo fmt -- --quiet --check
