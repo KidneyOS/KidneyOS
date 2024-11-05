@@ -46,7 +46,7 @@ unsafe fn clean_up_thread(mut dying_thread: Box<ThreadControlBlock>) {
     let threads = &mut unwrap_system_mut().threads;
 
     dying_thread.reap();
-    
+
     // Page manager must be loaded to be dropped.
     dying_thread.page_manager.load();
     drop(dying_thread);
