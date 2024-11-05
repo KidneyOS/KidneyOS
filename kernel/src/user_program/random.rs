@@ -25,7 +25,7 @@ fn generate_random_i32() -> Option<i32> {
 /// Fills a buffer with random bytes from the CPU's RDRAND instruction.
 /// Returns the number of bytes written, or -1 if an error occurs.
 /// Currently no flags are implemented, if there is no random data available,
-/// an error code is returned.
+/// the random data generated so far is returned.
 pub fn getrandom(buffer: &mut [u8], length: usize, _flags: usize) -> isize {
     let mut bytes_written: usize = 0;
     let chunks = length / 4;

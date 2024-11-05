@@ -114,11 +114,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             };
 
             let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
-
-            let res = getrandom(buffer, arg1, arg2);
-
-            println!("{:?}", buffer);
-            res
+            getrandom(buffer, arg1, arg2)
         }
         _ => -ENOSYS,
     }
