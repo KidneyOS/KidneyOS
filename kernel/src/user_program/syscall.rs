@@ -14,6 +14,7 @@ use crate::user_program::elf::Elf;
 use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
+use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
 
@@ -108,10 +109,16 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             0
         }
         SYS_GETRANDOM => {
-            let Some(buffer) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
+            let Some(buffer_ptr) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
                 return -1;
             };
-            getrandom(buffer, arg1, arg2)
+
+            let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
+
+            let res = getrandom(buffer, arg1, arg2);
+
+            println!("{:?}", buffer);
+            res
         }
         _ => -ENOSYS,
     }

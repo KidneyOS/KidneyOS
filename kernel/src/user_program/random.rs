@@ -1,5 +1,4 @@
 use core::arch::asm;
-use core::ptr;
 
 /// Generates a random int using the CPU's RDRAND instruction.
 fn generate_random_i32() -> Option<i32> {
@@ -27,7 +26,7 @@ fn generate_random_i32() -> Option<i32> {
 /// Returns the number of bytes written, or -1 if an error occurs.
 /// Currently no flags are implemented, if there is no random data available,
 /// an error code is returned.
-pub fn getrandom(buffer: *mut u8, length: usize, _flags: usize) -> isize {
+pub fn getrandom(buffer: &mut [u8], length: usize, _flags: usize) -> isize {
     let mut bytes_written: usize = 0;
     let chunks = length / 4;
     let remainder = length % 4;
@@ -36,10 +35,7 @@ pub fn getrandom(buffer: *mut u8, length: usize, _flags: usize) -> isize {
         match generate_random_i32() {
             Some(random_int) => {
                 let random_bytes = random_int.to_le_bytes();
-                for (j, &byte) in random_bytes.iter().enumerate() {
-                    unsafe { ptr::write(buffer.add(i * 4 + j), byte) };
-                }
-                bytes_written += 4;
+                buffer[i * 4..i * 4 + 4].copy_from_slice(&random_bytes);
             }
             None => return bytes_written.try_into().unwrap(),
         }
@@ -50,7 +46,7 @@ pub fn getrandom(buffer: *mut u8, length: usize, _flags: usize) -> isize {
         if let Some(random_int) = generate_random_i32() {
             let random_bytes = random_int.to_le_bytes();
             for (i, &byte) in random_bytes.iter().enumerate().take(remainder) {
-                unsafe { ptr::write(buffer.add(chunks * 4 + i), byte) };
+                buffer[chunks * 4 + i] = byte;
             }
             bytes_written += remainder;
         }
