@@ -14,7 +14,7 @@ fn generate_random_i32() -> Option<i32> {
             options(nostack, nomem),
         );
     }
-    
+
     (success == 1).then_some(random_int)
 }
 
