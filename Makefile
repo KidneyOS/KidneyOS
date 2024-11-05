@@ -101,7 +101,8 @@ run-bochs: $(ISO)
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
 QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) \
 			  -drive format=raw,file=${ATADISK},if=ide \
-			  -boot d
+			  -boot d \
+			  -cpu Haswell,+rdrand
 
 .PHONY: run-qemu
 run-qemu: $(ISO)
