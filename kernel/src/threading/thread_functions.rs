@@ -42,7 +42,7 @@ pub fn exit_thread(exit_code: i32) -> ! {
     }
 }
 
-unsafe fn clean_up_thread(mut dying_thread: Box<ThreadControlBlock>) {
+pub unsafe fn clean_up_thread(mut dying_thread: Box<ThreadControlBlock>) {
     let threads = &mut unwrap_system_mut().threads;
 
     dying_thread.reap();
