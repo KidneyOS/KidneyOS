@@ -14,12 +14,8 @@ fn generate_random_i32() -> Option<i32> {
             options(nostack, nomem),
         );
     }
-
-    if success == 1 {
-        Some(random_int)
-    } else {
-        None
-    }
+    
+    (success == 1).then_some(random_int)
 }
 
 /// Fills a buffer with random bytes from the CPU's RDRAND instruction.
