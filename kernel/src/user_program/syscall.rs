@@ -1,6 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use core::cell::RefCell;
 
 use crate::fs::syscalls::{
@@ -9,6 +9,7 @@ use crate::fs::syscalls::{
 };
 use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
+use crate::sync::rwlock::sleep::RwLock;
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -66,7 +67,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                     .as_ref()
                     .expect("A syscall was called without a running thread.")
                     .as_ref()
-                    .borrow()
+                    .read()
             };
 
             let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
@@ -83,7 +84,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 unwrap_system_mut()
                     .threads
                     .scheduler
-                    .push(Rc::new(RefCell::new(control)));
+                    .push(Arc::new(RwLock::new(control)));
             }
 
             scheduler_yield_and_die();

@@ -1,8 +1,9 @@
-use core::cell::{Ref, RefMut};
+use core::borrow::BorrowMut;
 
 use crate::block::block_core::BlockManager;
 use crate::drivers::input::input_core::InputBuffer;
 use crate::sync::mutex::Mutex;
+use crate::sync::rwlock::sleep::{RwLockReadGuard, RwLockWriteGuard};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
@@ -34,14 +35,14 @@ pub unsafe fn unwrap_system_mut() -> &'static mut SystemState {
 /// # Safety
 ///
 /// SYSTEM/thread references cannot be accessed simultaneously on different threads.
-pub fn running_thread() -> Ref<'static, ThreadControlBlock> {
+pub fn running_thread() -> RwLockReadGuard<'static, ThreadControlBlock> {
     let tcb = unsafe {
         unwrap_system()
             .threads
             .running_thread
             .as_ref()
             .unwrap()
-            .borrow()
+            .read()
     };
     tcb
 }
@@ -52,7 +53,7 @@ pub fn running_thread() -> Ref<'static, ThreadControlBlock> {
 ///
 /// SYSTEM/thread references cannot be accessed simultaneously on different threads.
 #[allow(dead_code)]
-pub fn running_thread_mut() -> RefMut<'static, ThreadControlBlock> {
+pub fn running_thread_mut() -> RwLockWriteGuard<'static, ThreadControlBlock> {
     let tcb = unsafe {
         unwrap_system_mut()
             .threads
@@ -60,6 +61,7 @@ pub fn running_thread_mut() -> RefMut<'static, ThreadControlBlock> {
             .as_mut()
             .unwrap()
             .borrow_mut()
+            .write()
     };
     tcb
 }
@@ -73,9 +75,9 @@ pub fn running_thread_tid() -> Tid {
 /// # Safety
 ///
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
-pub fn running_process() -> Ref<'static, ProcessControlBlock> {
-    // running_thread().pcb.borrow()
-    let pid = running_thread().pcb.borrow().pid;
+pub fn running_process() -> RwLockReadGuard<'static, ProcessControlBlock> {
+    // running_thread().pcb.read()
+    let pid = running_thread().pcb.read().pid;
     unsafe { unwrap_system().process.table.get(pid).unwrap() }
 }
 
@@ -84,14 +86,14 @@ pub fn running_process() -> Ref<'static, ProcessControlBlock> {
 /// # Safety
 ///
 /// SYSTEM/process references cannot be accessed simultaneously on different threads.
-pub fn running_process_mut() -> RefMut<'static, ProcessControlBlock> {
+pub fn running_process_mut() -> RwLockWriteGuard<'static, ProcessControlBlock> {
     // running_thread_mut().pcb.borrow_mut()
-    let pid = running_thread().pcb.borrow().pid;
+    let pid = running_thread().pcb.read().pid;
     unsafe { unwrap_system_mut().process.table.get_mut(pid).unwrap() }
 }
 
 pub fn running_thread_pid() -> Pid {
-    running_thread().pcb.borrow().pid
+    running_thread().pcb.read().pid
 }
 
 // Returns zero if parent process is 'None' (implying kernel process)
@@ -99,6 +101,6 @@ pub fn running_thread_ppid() -> Pid {
     running_process()
         .ppcb
         .as_ref()
-        .map(|ppcb| ppcb.borrow().pid)
+        .map(|ppcb| ppcb.read().pid)
         .unwrap_or(0)
 }

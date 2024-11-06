@@ -1,12 +1,15 @@
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
+use crate::sync::rwlock::sleep::RwLock;
 use crate::system::unwrap_system_mut;
 use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
 };
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use core::arch::asm;
+use core::borrow::BorrowMut;
 use core::cell::RefCell;
+use core::ops::DerefMut;
 use core::ptr;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
@@ -31,23 +34,23 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // SAFETY: Interrupts must be off.
     unsafe {
         let threads = &mut unwrap_system_mut().threads;
-        let mut current_thread_ptr = threads
+        threads
             .running_thread
-            .take()
+            .as_mut()
             .expect("Why is nothing running!?")
-            .as_ptr();
-        let mut current_thread = ptr::read(current_thread_ptr);
-        current_thread.set_exit_code(exit_code);
+            .borrow_mut()
+            .write()
+            .deref_mut()
+            .set_exit_code(exit_code);
 
         // Replace and yield.
-        threads.running_thread = Some(Rc::new(RefCell::new(current_thread)));
         scheduler_yield_and_die();
     }
 }
 
 // Focibly stops the thread associated with the TCB
-pub fn stop_thread(tcb_ref: Rc<RefCell<ThreadControlBlock>>) {
-    let mut tcb = tcb_ref.borrow_mut();
+pub fn stop_thread(mut tcb_ref: Arc<RwLock<ThreadControlBlock>>) {
+    let mut tcb = tcb_ref.borrow_mut().write();
     tcb.status = ThreadStatus::Dying;
     tcb.set_exit_code(-1);
 }
@@ -66,10 +69,10 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let switched_to = Rc::new(RefCell::new(switched_to));
+    let switched_to = Arc::new(RwLock::new(switched_to));
 
     let (eip, esp, pcb) = {
-        let switched_to_ref = switched_to.borrow();
+        let switched_to_ref = switched_to.read();
         (
             switched_to_ref.eip,
             switched_to_ref.esp,
@@ -93,11 +96,11 @@ unsafe extern "C" fn run_thread(
             .as_ref()
             .unwrap()
             .as_ref()
-            .borrow()
+            .read()
             .page_manager
             .load();
     } else {
-        let switched_from = Rc::new(RefCell::new(switched_from));
+        let switched_from = Arc::new(RwLock::new(switched_from));
         threads.scheduler.push(switched_from);
     }
 
@@ -106,7 +109,7 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
-    if pcb.borrow().pid == 0 {
+    if pcb.read().pid == 0 {
         let entry_function = eip.as_ptr() as *const ThreadFunction;
         let exit_code = (*entry_function)();
 

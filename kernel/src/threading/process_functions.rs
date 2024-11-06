@@ -10,7 +10,7 @@ pub fn exit_process(exit_code: i32) -> ! {
     pcb.exit_code = Some(exit_code);
 
     if let Some(wait_tcb) = &pcb.waiting_thread {
-        thread_wakeup(wait_tcb.borrow().tid);
+        thread_wakeup(wait_tcb.write().tid);
     }
 
     let running_thread_tid = running_thread().tid;
@@ -18,7 +18,7 @@ pub fn exit_process(exit_code: i32) -> ! {
     // Kill all threads which are part of this process
     pcb.child_tcbs
         .iter()
-        .filter(|tcb| tcb.borrow().tid != running_thread_tid)
+        .filter(|tcb| tcb.read().tid != running_thread_tid)
         .for_each(|tcb| {
             stop_thread(tcb.clone());
         });

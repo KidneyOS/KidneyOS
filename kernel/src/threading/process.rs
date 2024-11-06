@@ -1,6 +1,8 @@
+use crate::sync::rwlock::sleep::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use super::thread_control_block::ProcessControlBlock;
 use alloc::collections::BTreeMap;
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use core::{
     cell::{Ref, RefCell, RefMut},
     sync::atomic::{AtomicU16, Ordering},
@@ -13,7 +15,7 @@ pub type AtomicTid = AtomicU16;
 
 #[derive(Default)]
 pub struct ProcessTable {
-    content: BTreeMap<Pid, Rc<RefCell<ProcessControlBlock>>>,
+    content: BTreeMap<Pid, Arc<RwLock<ProcessControlBlock>>>,
 }
 
 pub struct ProcessState {
@@ -51,26 +53,26 @@ impl ProcessState {
 }
 
 impl ProcessTable {
-    pub fn add(&mut self, pcb: Rc<RefCell<ProcessControlBlock>>) {
-        let pid = pcb.borrow().pid;
+    pub fn add(&mut self, pcb: Arc<RwLock<ProcessControlBlock>>) {
+        let pid = pcb.read().pid;
         assert!(
             !self.content.contains_key(&pid),
             "PCB with pid {} already added to process table.",
-            pcb.borrow().pid
+            pcb.read().pid
         );
         self.content.insert(pid, pcb);
     }
 
     #[allow(dead_code)]
-    pub fn remove(&mut self, pid: Pid) -> Option<Rc<RefCell<ProcessControlBlock>>> {
+    pub fn remove(&mut self, pid: Pid) -> Option<Arc<RwLock<ProcessControlBlock>>> {
         self.content.remove(&pid)
     }
 
-    pub fn get(&self, pid: Pid) -> Option<Ref<'_, ProcessControlBlock>> {
-        self.content.get(&pid).map(|entry| entry.borrow())
+    pub fn get(&self, pid: Pid) -> Option<RwLockReadGuard<'_, ProcessControlBlock>> {
+        self.content.get(&pid).map(|entry| entry.read())
     }
 
-    pub fn get_mut(&mut self, pid: Pid) -> Option<RefMut<'_, ProcessControlBlock>> {
-        self.content.get_mut(&pid).map(|entry| entry.borrow_mut())
+    pub fn get_mut(&mut self, pid: Pid) -> Option<RwLockWriteGuard<'_, ProcessControlBlock>> {
+        self.content.get_mut(&pid).map(|entry| entry.write())
     }
 }

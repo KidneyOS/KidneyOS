@@ -1,4 +1,6 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use crate::sync::mutex::Mutex;
+use crate::sync::rwlock::sleep::RwLock;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -8,7 +10,7 @@ use crate::{
     vfs::{INodeNum, OwnedPath},
     KERNEL_ALLOCATOR,
 };
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     cell::RefCell,
@@ -16,6 +18,7 @@ use core::{
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use kidneyos_shared::println;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -39,11 +42,11 @@ pub enum ThreadStatus {
 pub struct ProcessControlBlock {
     pub pid: Pid,
     // The Pid of the process' parent
-    pub ppcb: Option<Rc<RefCell<ProcessControlBlock>>>,
+    pub ppcb: Option<Arc<RwLock<ProcessControlBlock>>>,
     // The TIDs of this process' children threads
-    pub child_tcbs: Vec<Rc<RefCell<ThreadControlBlock>>>,
+    pub child_tcbs: Vec<Arc<RwLock<ThreadControlBlock>>>,
     // The TIDs of the threads waiting on this process to end
-    pub waiting_thread: Option<Rc<RefCell<ThreadControlBlock>>>,
+    pub waiting_thread: Option<Arc<RwLock<ThreadControlBlock>>>,
 
     pub exit_code: Option<i32>,
     /// filesystem and inode of current working directory
@@ -55,8 +58,8 @@ pub struct ProcessControlBlock {
 impl ProcessControlBlock {
     pub fn create(
         state: &mut ProcessState,
-        parent_pcb: Option<Rc<RefCell<ProcessControlBlock>>>,
-    ) -> Rc<RefCell<ProcessControlBlock>> {
+        parent_pcb: Option<Arc<RwLock<ProcessControlBlock>>>,
+    ) -> Arc<RwLock<ProcessControlBlock>> {
         let pid = state.allocate_pid();
         let mut root = crate::fs::fs_manager::ROOT.lock();
         // open stdin, stdout, stderr
@@ -71,7 +74,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        let pcb_ref = Rc::new(RefCell::new(pcb));
+        let pcb_ref = Arc::new(RwLock::new(pcb));
         state.table.add(pcb_ref.clone());
 
         pcb_ref
@@ -96,11 +99,14 @@ pub struct ThreadControlBlock {
 
     pub tid: Tid,
     // The PCB of the parent PCB.
-    pub pcb: Rc<RefCell<ProcessControlBlock>>,
+    pub pcb: Arc<RwLock<ProcessControlBlock>>,
     pub status: ThreadStatus,
     pub exit_code: Option<i32>,
     pub page_manager: PageManager,
 }
+
+unsafe impl Send for ThreadControlBlock {}
+unsafe impl Sync for ThreadControlBlock {}
 
 impl ThreadControlBlock {
     pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> ThreadControlBlock {
@@ -184,7 +190,7 @@ impl ThreadControlBlock {
 
     pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
-        pcb: Rc<RefCell<ProcessControlBlock>>,
+        pcb: Arc<RwLock<ProcessControlBlock>>,
         page_manager: PageManager,
         state: &mut ProcessState,
     ) -> Self {
@@ -210,7 +216,7 @@ impl ThreadControlBlock {
     #[allow(unused)]
     pub fn new_with_setup(
         eip: NonNull<u8>,
-        pcb: Rc<RefCell<ProcessControlBlock>>,
+        pcb: Arc<RwLock<ProcessControlBlock>>,
         state: &mut ProcessState,
     ) -> Self {
         let mut new_thread = Self::new(eip, pcb, PageManager::default(), state);
@@ -245,7 +251,7 @@ impl ThreadControlBlock {
 
     pub fn new(
         entry_instruction: NonNull<u8>,
-        pcb: Rc<RefCell<ProcessControlBlock>>,
+        pcb: Arc<RwLock<ProcessControlBlock>>,
         mut page_manager: PageManager,
         state: &mut ProcessState,
     ) -> Self {
@@ -380,5 +386,11 @@ impl ThreadControlBlock {
         }
 
         self.status = ThreadStatus::Invalid;
+    }
+}
+
+impl Drop for ThreadControlBlock {
+    fn drop(&mut self) {
+        println!("dropping tcb: {}", self.tid);
     }
 }

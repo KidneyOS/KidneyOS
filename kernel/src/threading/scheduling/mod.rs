@@ -28,7 +28,7 @@ fn scheduler_yield(status_for_current_thread: ThreadStatus) {
 
         while let Some(switch_to) = scheduler.pop() {
             let is_blocked = {
-                let status = &switch_to.as_ref().borrow().status;
+                let status = &switch_to.as_ref().read().status;
                 *status == ThreadStatus::Blocked
             };
 

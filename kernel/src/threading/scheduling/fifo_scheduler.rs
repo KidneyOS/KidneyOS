@@ -1,12 +1,15 @@
 use super::super::ThreadControlBlock;
 use super::scheduler::Scheduler;
-use crate::threading::process::Tid;
+use crate::{
+    sync::rwlock::sleep::{RwLock, RwLockWriteGuard},
+    threading::process::Tid,
+};
 use alloc::collections::VecDeque;
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use core::cell::{RefCell, RefMut};
 
 pub struct FIFOScheduler {
-    ready_queue: VecDeque<Rc<RefCell<ThreadControlBlock>>>,
+    ready_queue: VecDeque<Arc<RwLock<ThreadControlBlock>>>,
 }
 
 // TODO: Will be removed, requires a change to stack type.
@@ -20,28 +23,28 @@ impl Scheduler for FIFOScheduler {
         }
     }
 
-    fn push(&mut self, thread: Rc<RefCell<ThreadControlBlock>>) {
+    fn push(&mut self, thread: Arc<RwLock<ThreadControlBlock>>) {
         self.ready_queue.push_back(thread);
     }
 
-    fn pop(&mut self) -> Option<Rc<RefCell<ThreadControlBlock>>> {
+    fn pop(&mut self) -> Option<Arc<RwLock<ThreadControlBlock>>> {
         self.ready_queue.pop_front()
     }
 
-    fn remove(&mut self, _tid: Tid) -> Option<Rc<RefCell<ThreadControlBlock>>> {
+    fn remove(&mut self, _tid: Tid) -> Option<Arc<RwLock<ThreadControlBlock>>> {
         let pos = self
             .ready_queue
             .iter()
-            .position(|tcb| tcb.borrow().tid == _tid);
+            .position(|tcb| tcb.read().tid == _tid);
         self.ready_queue.remove(pos?)
     }
 
-    fn get_mut(&mut self, _tid: Tid) -> Option<RefMut<'_, ThreadControlBlock>> {
+    fn get_mut(&mut self, _tid: Tid) -> Option<RwLockWriteGuard<'_, ThreadControlBlock>> {
         let pos = self
             .ready_queue
             .iter()
-            .position(|tcb| tcb.borrow().tid == _tid)?;
+            .position(|tcb| tcb.read().tid == _tid)?;
         let tcb = self.ready_queue.get_mut(pos)?;
-        Some(tcb.borrow_mut())
+        Some(tcb.write())
     }
 }

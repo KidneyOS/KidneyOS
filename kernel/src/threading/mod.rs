@@ -6,9 +6,7 @@ pub mod thread_control_block;
 pub mod thread_functions;
 pub mod thread_sleep;
 
-use alloc::rc::Rc;
-use core::cell::RefCell;
-
+use crate::sync::rwlock::sleep::RwLock;
 use crate::system::unwrap_system_mut;
 use crate::threading::scheduling::Scheduler;
 use crate::user_program::elf::Elf;
@@ -18,10 +16,11 @@ use crate::{
     threading::scheduling::{create_scheduler, scheduler_yield_and_continue},
 };
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use thread_control_block::ThreadControlBlock;
 
 pub struct ThreadState {
-    pub running_thread: Option<Rc<RefCell<ThreadControlBlock>>>,
+    pub running_thread: Option<Arc<RwLock<ThreadControlBlock>>>,
     pub scheduler: Box<dyn Scheduler>,
 }
 
@@ -63,11 +62,11 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         let user_tcb = ThreadControlBlock::new_from_elf(elf, &mut system.process);
 
         // SAFETY: Interrupts must be disabled.
-        system.threads.running_thread = Some(Rc::new(RefCell::new(kernel_tcb)));
+        system.threads.running_thread = Some(Arc::new(RwLock::new(kernel_tcb)));
         system
             .threads
             .scheduler
-            .push(Rc::new(RefCell::new(user_tcb)));
+            .push(Arc::new(RwLock::new(user_tcb)));
     }
 
     intr_enable();
