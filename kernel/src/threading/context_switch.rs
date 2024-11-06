@@ -6,9 +6,8 @@ use crate::{
 use alloc::sync::Arc;
 use core::{
     borrow::BorrowMut,
-    cell::RefCell,
     mem::offset_of,
-    ops::{Deref, DerefMut},
+    ops::{DerefMut},
     ptr,
 };
 use kidneyos_shared::println;

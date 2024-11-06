@@ -1,5 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::sync::mutex::Mutex;
+
 use crate::sync::rwlock::sleep::RwLock;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
@@ -13,7 +13,6 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
-    cell::RefCell,
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };

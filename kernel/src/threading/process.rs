@@ -4,7 +4,6 @@ use super::thread_control_block::ProcessControlBlock;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::{
-    cell::{Ref, RefCell, RefMut},
     sync::atomic::{AtomicU16, Ordering},
 };
 

@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
-use core::cell::{RefCell, RefMut};
+
 
 pub struct FIFOScheduler {
     ready_queue: VecDeque<Arc<RwLock<ThreadControlBlock>>>,
