@@ -30,15 +30,19 @@ use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
 use crate::drivers::input::input_core::InputBuffer;
 use crate::sync::mutex::Mutex;
+use crate::sync::rwlock::sleep::RwLock;
 use crate::system::{SystemState, SYSTEM};
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
-use alloc::boxed::Box;
+use alloc::string::ToString;
+use alloc::sync::Arc;
+use alloc::vec;
 use core::ptr::NonNull;
 use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+use threading::thread_control_block::ProcessControlBlock;
 use threading::{create_thread_state, thread_system_start};
 use vfs::tempfs::TempFS;
 
@@ -52,7 +56,7 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-const INIT: &[u8] = include_bytes!("../../programs/exit/exit").as_slice();
+const INIT: &[u8] = include_bytes!("../../programs/example_c/build/example_c").as_slice();
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
@@ -87,12 +91,26 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         println!("Finished Thread System initialization. Ready to start threading.");
 
         let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0, &mut process);
+
+        let ide_pcb = ProcessControlBlock {
+            pid: 0,
+            ppcb: None,
+            child_tcbs: vec![],
+            waiting_thread: None,
+            exit_code: None,
+            cwd: (0, 0),
+            cwd_path: "".to_string(),
+        };
+
+        let ide_pcb_ref = Arc::new(RwLock::new(ide_pcb));
+        process.table.add(ide_pcb_ref.clone());
+
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, ide_pcb_ref, &mut process);
 
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());
 
-        threads.scheduler.push(Box::new(ide_tcb));
+        threads.scheduler.push(Arc::new(RwLock::new(ide_tcb)));
 
         SYSTEM = Some(SystemState {
             threads,

@@ -1,12 +1,16 @@
-use super::process::Tid;
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
+use crate::sync::rwlock::sleep::RwLock;
 use crate::system::unwrap_system_mut;
 use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
 };
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::arch::asm;
+use core::borrow::BorrowMut;
+
+use core::ops::DerefMut;
+use core::ptr;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
     task_state_segment::TASK_STATE_SEGMENT,
@@ -30,22 +34,23 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // SAFETY: Interrupts must be off.
     unsafe {
         let threads = &mut unwrap_system_mut().threads;
-        let mut current_thread = threads
+        threads
             .running_thread
-            .take()
-            .expect("Why is nothing running!?");
-        current_thread.set_exit_code(exit_code);
+            .as_mut()
+            .expect("Why is nothing running!?")
+            .borrow_mut()
+            .write()
+            .deref_mut()
+            .set_exit_code(exit_code);
 
         // Replace and yield.
-        threads.running_thread = Some(current_thread);
         scheduler_yield_and_die();
     }
 }
 
-// Focibly stops the thread specified by Tid
-pub fn stop_thread(tid: Tid) {
-    let scheduler = unsafe { unwrap_system_mut().threads.scheduler.as_mut() };
-    let tcb = scheduler.get_mut(tid).expect("Why is nothing running !?");
+// Focibly stops the thread associated with the TCB
+pub fn stop_thread(mut tcb_ref: Arc<RwLock<ThreadControlBlock>>) {
+    let mut tcb = tcb_ref.borrow_mut().write();
     tcb.status = ThreadStatus::Dying;
     tcb.set_exit_code(-1);
 }
@@ -56,7 +61,7 @@ unsafe extern "C" fn run_thread(
     switched_to: *mut ThreadControlBlock,
 ) -> ! {
     let threads = &mut unwrap_system_mut().threads;
-    let mut switched_to = Box::from_raw(switched_to);
+    let mut switched_to = ptr::read(switched_to);
 
     // We assume that switched_from had its status changed already.
     // We must only mark this thread as running.
@@ -64,12 +69,21 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
+    let switched_to = Arc::new(RwLock::new(switched_to));
+
+    let (eip, esp, pcb) = {
+        let switched_to_ref = switched_to.read();
+        (
+            switched_to_ref.eip,
+            switched_to_ref.esp,
+            switched_to_ref.pcb.clone(),
+        )
+    };
 
     // Reschedule our threads.
     threads.running_thread = Some(switched_to);
 
-    let mut switched_from = Box::from_raw(switched_from);
+    let mut switched_from = ptr::read(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
         switched_from.reap();
@@ -77,8 +91,16 @@ unsafe extern "C" fn run_thread(
         // Page manager must be loaded to be dropped.
         switched_from.page_manager.load();
         drop(switched_from);
-        threads.running_thread.as_ref().unwrap().page_manager.load();
+        threads
+            .running_thread
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .read()
+            .page_manager
+            .load();
     } else {
+        let switched_from = Arc::new(RwLock::new(switched_from));
         threads.scheduler.push(switched_from);
     }
 
@@ -87,7 +109,7 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
-    if pid == 0 {
+    if pcb.read().pid == 0 {
         let entry_function = eip.as_ptr() as *const ThreadFunction;
         let exit_code = (*entry_function)();
 

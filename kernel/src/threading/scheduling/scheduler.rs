@@ -1,6 +1,9 @@
 use super::super::ThreadControlBlock;
-use crate::threading::process::Tid;
-use alloc::boxed::Box;
+use crate::{
+    sync::rwlock::sleep::{RwLock, RwLockWriteGuard},
+    threading::process::Tid,
+};
+use alloc::sync::Arc;
 
 pub trait Scheduler {
     fn new() -> Self
@@ -8,8 +11,8 @@ pub trait Scheduler {
         Self: Sized,
         Self: Sync;
 
-    fn push(&mut self, thread: Box<ThreadControlBlock>);
-    fn pop(&mut self) -> Option<Box<ThreadControlBlock>>;
-    fn remove(&mut self, tid: Tid) -> Option<Box<ThreadControlBlock>>;
-    fn get_mut(&mut self, tid: Tid) -> Option<&mut ThreadControlBlock>;
+    fn push(&mut self, thread: Arc<RwLock<ThreadControlBlock>>);
+    fn pop(&mut self) -> Option<Arc<RwLock<ThreadControlBlock>>>;
+    fn remove(&mut self, tid: Tid) -> Option<Arc<RwLock<ThreadControlBlock>>>;
+    fn get_mut(&mut self, tid: Tid) -> Option<RwLockWriteGuard<'_, ThreadControlBlock>>;
 }

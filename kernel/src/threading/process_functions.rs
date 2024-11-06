@@ -6,21 +6,22 @@ use super::{
 };
 
 pub fn exit_process(exit_code: i32) -> ! {
-    let pcb = unsafe { running_process_mut() };
+    let mut pcb = running_process_mut();
     pcb.exit_code = Some(exit_code);
 
-    if let Some(wait_tid) = pcb.waiting_thread {
-        thread_wakeup(wait_tid);
+    if let Some(wait_tcb) = &pcb.waiting_thread {
+        thread_wakeup(wait_tcb.write().tid);
     }
 
     let running_thread_tid = running_thread().tid;
 
     // Kill all threads which are part of this process
-    pcb.child_tids.iter().for_each(|tid| {
-        if *tid != running_thread_tid {
-            stop_thread(*tid)
-        }
-    });
+    pcb.child_tcbs
+        .iter()
+        .filter(|tcb| tcb.read().tid != running_thread_tid)
+        .for_each(|tcb| {
+            stop_thread(tcb.clone());
+        });
 
     thread_functions::exit_thread(-1);
 }

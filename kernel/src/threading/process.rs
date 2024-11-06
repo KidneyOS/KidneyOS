@@ -1,7 +1,11 @@
+use crate::sync::rwlock::sleep::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use super::thread_control_block::ProcessControlBlock;
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use core::sync::atomic::{AtomicU16, Ordering};
+use alloc::sync::Arc;
+use core::{
+    sync::atomic::{AtomicU16, Ordering},
+};
 
 pub type Pid = u16;
 pub type Tid = u16;
@@ -10,7 +14,7 @@ pub type AtomicTid = AtomicU16;
 
 #[derive(Default)]
 pub struct ProcessTable {
-    content: BTreeMap<Pid, Box<ProcessControlBlock>>,
+    content: BTreeMap<Pid, Arc<RwLock<ProcessControlBlock>>>,
 }
 
 pub struct ProcessState {
@@ -36,36 +40,38 @@ impl ProcessState {
         }
         pid
     }
+
     pub fn allocate_tid(&self) -> Tid {
         // SAFETY: Atomically accesses a shared variable.
         let tid = self.next_tid.fetch_add(1, Ordering::SeqCst);
         if tid == 0 {
-            panic!("PID overflow"); // TODO: handle overflow properly
+            panic!("TID overflow"); // TODO: handle overflow properly
         }
         tid
     }
 }
 
 impl ProcessTable {
-    pub fn add(&mut self, pcb: Box<ProcessControlBlock>) {
+    pub fn add(&mut self, pcb: Arc<RwLock<ProcessControlBlock>>) {
+        let pid = pcb.read().pid;
         assert!(
-            !self.content.contains_key(&pcb.pid),
+            !self.content.contains_key(&pid),
             "PCB with pid {} already added to process table.",
-            pcb.pid
+            pcb.read().pid
         );
-        self.content.insert(pcb.pid, pcb);
+        self.content.insert(pid, pcb);
     }
 
     #[allow(dead_code)]
-    pub fn remove(&mut self, pid: Pid) -> Option<Box<ProcessControlBlock>> {
+    pub fn remove(&mut self, pid: Pid) -> Option<Arc<RwLock<ProcessControlBlock>>> {
         self.content.remove(&pid)
     }
 
-    pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
-        self.content.get(&pid).map(|pcb| &**pcb)
+    pub fn get(&self, pid: Pid) -> Option<RwLockReadGuard<'_, ProcessControlBlock>> {
+        self.content.get(&pid).map(|entry| entry.read())
     }
 
-    pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {
-        self.content.get_mut(&pid).map(|pcb| &mut **pcb)
+    pub fn get_mut(&mut self, pid: Pid) -> Option<RwLockWriteGuard<'_, ProcessControlBlock>> {
+        self.content.get_mut(&pid).map(|entry| entry.write())
     }
 }
