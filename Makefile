@@ -22,7 +22,7 @@ RAW_TRAMPOLINE := $(ARTIFACT_DIR)/libkidneyos_trampoline.a
 TRAMPOLINE_DIR := build/trampoline
 TRAMPOLINE := $(TRAMPOLINE_DIR)/libkidneyos_trampoline.a
 ISO := build/kidneyos.iso
-ATADISK := gpt_fat16_50MiB.img
+ATADISK := mbr_ext4_50MiB.img
 
 .PHONY: default
 default: $(ISO)
@@ -101,7 +101,8 @@ run-bochs: $(ISO)
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
 QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) \
 			  -drive format=raw,file=${ATADISK},if=ide \
-			  -boot d
+			  -boot d \
+			  -cpu Haswell,+rdrand
 
 .PHONY: run-qemu
 run-qemu: $(ISO)
