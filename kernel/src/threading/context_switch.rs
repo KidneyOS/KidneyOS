@@ -46,7 +46,11 @@ pub unsafe fn switch_threads(
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
 
-    println!("context swtiching from {} to {}", (*switch_from).tid,(*switch_to).tid);
+    println!(
+        "context swtiching from {} to {}",
+        (*switch_from).tid,
+        (*switch_to).tid
+    );
 
     let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
 

@@ -429,21 +429,66 @@ impl<A: Allocator> PageManager<A> {
             .all(|ptr| self.is_mapped(ptr))
     }
 
-    /// Marks every pte entry as invalid so it can be re-mapped
-    ///
-    /// # Safety
-    ///
-    /// This should never be called on any already-mapped page table
-    /// Currently it should only be used to re-map a new process on fork
-    pub unsafe fn zero_page_table(&mut self) {
-        let page_directory = &mut self.root.as_mut();
+    pub fn fork(&self, new_page_manager: &mut PageManager<A>) {
+        let page_directory = unsafe { self.root.as_ref() };
 
         for pdi in 0..PAGE_DIRECTORY_LEN {
-            if !page_directory[pdi].present() {
-                continue;
+            if page_directory[pdi].present() {
+                let mut new_page_table_addr = new_page_manager
+                    .alloc
+                    .allocate(PAGE_TABLE_LAYOUT)
+                    .expect("allocation failed")
+                    .cast::<PageTable>();
+
+                let new_page_table = unsafe { new_page_table_addr.as_mut() };
+                *new_page_table = PageTable::default();
+
+                let new_page_directory = unsafe { new_page_manager.root.as_mut() };
+
+                new_page_directory[pdi] = PageDirectoryEntry::default()
+                    .with_present(true)
+                    .with_read_write(page_directory[pdi].read_write())
+                    .with_user_supervisor(page_directory[pdi].user_supervisor())
+                    .with_page_table_frame(
+                        ((new_page_table_addr.as_ptr() as usize - self.phys_to_alloc_addr_offset)
+                            / size_of::<PageTable>())
+                        .try_into()
+                        .unwrap(),
+                    );
+
+                let reference_page_table =
+                    page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
+
+                for pti in 0..PAGE_TABLE_LEN {
+                    if reference_page_table[pti].present() {
+                        let new_phys_page = new_page_manager
+                            .alloc
+                            .allocate(
+                                Layout::from_size_align(PAGE_FRAME_SIZE, PAGE_FRAME_SIZE).unwrap(),
+                            )
+                            .expect("allocation failed")
+                            .cast::<u8>()
+                            .as_ptr() as usize;
+
+                        let old_phys_page = (reference_page_table[pti].page_table_frame() as usize)
+                            * PAGE_FRAME_SIZE;
+
+                        unsafe {
+                            core::ptr::copy_nonoverlapping(
+                                old_phys_page as *const u8,
+                                new_phys_page as *mut u8,
+                                PAGE_FRAME_SIZE,
+                            );
+                        }
+
+                        new_page_table[pti] = PageTableEntry::default()
+                            .with_present(true)
+                            .with_read_write(reference_page_table[pti].read_write())
+                            .with_user_supervisor(reference_page_table[pti].user_supervisor())
+                            .with_page_table_frame((new_phys_page / PAGE_FRAME_SIZE) as u32);
+                    }
+                }
             }
-            let page_table = page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
-            *page_table = PageTable::default();
         }
     }
 }

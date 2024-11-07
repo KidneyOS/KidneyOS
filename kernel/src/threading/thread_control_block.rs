@@ -11,7 +11,6 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use kidneyos_shared::println;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
@@ -190,27 +189,10 @@ impl ThreadControlBlock {
 
     pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
         let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
+        let mut page_manager = PageManager::default();
+        self.page_manager.fork(&mut page_manager);
 
-        let mut page_manager = self.page_manager.clone();
-        // let mut page_manager = PageManager::default();
-        // unsafe { page_manager.zero_page_table() }
-
-        let new_tcb= Self::new_with_page_manager(self.eip, pid, page_manager, state);
-
-        unsafe {
-            copy_nonoverlapping(
-                self.kernel_stack.as_ptr(),
-                new_tcb.kernel_stack.as_ptr(),
-                KERNEL_THREAD_STACK_SIZE,
-            );
-            copy_nonoverlapping(
-                self.user_stack.as_ptr(),
-                new_tcb.user_stack.as_ptr(),
-                USER_THREAD_STACK_SIZE,
-            )
-        }
-
-        new_tcb
+        Self::new_with_page_manager(self.eip, pid, page_manager, state)
     }
 
     pub fn new_with_page_manager(

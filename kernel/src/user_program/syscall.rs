@@ -8,10 +8,10 @@ use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::process::Pid;
+use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_sleep::thread_sleep;
-use crate::threading::process_functions;
 use crate::user_program::elf::Elf;
 use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
@@ -37,11 +37,8 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             let system = unsafe { unwrap_system_mut() };
             let running_thread = system.threads.running_thread.as_ref().unwrap();
 
-
-
             let child_tcb = running_thread.new_from_fork(&mut system.process);
             let child_pid = child_tcb.pid;
-
 
             system.threads.scheduler.push(Box::new(child_tcb));
 
