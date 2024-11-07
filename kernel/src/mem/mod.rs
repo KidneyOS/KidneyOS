@@ -121,7 +121,7 @@ impl KernelAllocator {
     /// # Safety
     ///
     /// This function can only be called when the allocator is uninitialized.
-    pub unsafe fn init(&mut self, mem_upper: usize) {
+    pub unsafe fn init(&mut self, mem_upper: usize) -> *mut u8 {
         let KernelAllocatorState::Uninitialized = self.state.get_mut() else {
             panic!("init called while kernel allocator was already initialized");
         };
@@ -150,6 +150,8 @@ impl KernelAllocator {
             ),
             subblock_allocators: Vec::new_in(bootstrap_allocator),
         };
+
+        frames_base
     }
 
     /// # Safety
@@ -241,6 +243,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 .next_multiple_of(PAGE_FRAME_SIZE)
                 / PAGE_FRAME_SIZE,
         ) else {
+            // Evict page for swapping
             halt!("Out of virtual memory!");
         };
 

@@ -1,5 +1,6 @@
 use crate::block::block_core::BlockManager;
 use crate::drivers::input::input_core::InputBuffer;
+use crate::swapping::swapping_utils::SwapSpace;
 use crate::sync::mutex::Mutex;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
@@ -9,7 +10,7 @@ use crate::threading::ThreadState;
 pub struct SystemState {
     pub threads: ThreadState,
     pub process: ProcessState,
-
+    pub swap_space: SwapSpace,
     pub block_manager: BlockManager,
     pub input_buffer: Mutex<InputBuffer>,
 }

@@ -18,6 +18,7 @@ pub mod fs;
 mod interrupts;
 pub mod mem;
 mod paging;
+pub mod swapping;
 pub mod sync;
 mod system;
 mod threading;
@@ -39,6 +40,8 @@ use fs::fs_manager::ROOT;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
+use swapping::swapping_utils::SwapSpace;
+
 use threading::{create_thread_state, thread_system_start};
 use vfs::tempfs::TempFS;
 
@@ -62,7 +65,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
     // SAFETY: Single core, interrupts disabled.
     unsafe {
-        KERNEL_ALLOCATOR.init(mem_upper);
+        let mem_base = KERNEL_ALLOCATOR.init(mem_upper);
 
         println!("Setting up IDTR");
         idt::load();
@@ -92,12 +95,16 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());
 
+        println!("Setting up swap space");
+        let swap_space = SwapSpace::new(mem_base);
+        println!("Swap space initialized!");
+
         threads.scheduler.push(Box::new(ide_tcb));
 
         SYSTEM = Some(SystemState {
             threads,
             process,
-
+            swap_space,
             block_manager,
             input_buffer,
         });
