@@ -64,7 +64,7 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
+    let ThreadControlBlock { eip, esp, is_kernel, .. } = *switched_to;
 
     // Reschedule our threads.
     threads.running_thread = Some(switched_to);
@@ -87,9 +87,9 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
-    if pid == 0 {
-        let entry_function = eip.as_ptr() as *const ThreadFunction;
-        let exit_code = (*entry_function)();
+    if is_kernel {
+        let entry_function: ThreadFunction = unsafe { core::mem::transmute(eip.as_ptr()) };
+        let exit_code = entry_function();
 
         // Safely exit the thread.
         exit_thread(exit_code);

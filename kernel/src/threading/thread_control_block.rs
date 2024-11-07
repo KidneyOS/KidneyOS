@@ -93,6 +93,9 @@ pub struct ThreadControlBlock {
     pub tid: Tid,
     // The PID of the parent PCB.
     pub pid: Pid,
+    // If true, we'll make an effort to run this thread in kernel mode.
+    // Otherwise, we'll run this thread in user mode.
+    pub is_kernel: bool,
     pub status: ThreadStatus,
     pub exit_code: Option<i32>,
     pub page_manager: PageManager,
@@ -192,7 +195,7 @@ impl ThreadControlBlock {
         page_manager: PageManager,
         state: &mut ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
+        let mut new_thread = Self::new(entry_instruction, false, pid, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -212,8 +215,8 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid, state: &mut ProcessState) -> Self {
-        let mut new_thread = Self::new(eip, pid, PageManager::default(), state);
+    pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &mut ProcessState) -> Self {
+        let mut new_thread = Self::new(eip, is_kernel, state.allocate_pid(), PageManager::default(), state);
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -236,8 +239,8 @@ impl ThreadControlBlock {
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
 
-        new_thread.eip = prepare_thread_context;
-
+        new_thread.eip = eip; // !!!
+        
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
         new_thread
@@ -245,6 +248,7 @@ impl ThreadControlBlock {
 
     pub fn new(
         entry_instruction: NonNull<u8>,
+        is_kernel: bool,
         pid: Pid,
         mut page_manager: PageManager,
         state: &mut ProcessState,
@@ -263,6 +267,7 @@ impl ThreadControlBlock {
             user_stack,
             tid,
             pid, // Potentially could be swapped to directly copy the pid of the running thread
+            is_kernel,
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,
@@ -318,6 +323,7 @@ impl ThreadControlBlock {
             user_stack: NonNull::dangling(),
             tid: state.allocate_tid(),
             pid: state.allocate_pid(),
+            is_kernel: true,
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,
