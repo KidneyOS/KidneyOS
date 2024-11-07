@@ -98,13 +98,24 @@ pub struct ThreadControlBlock {
     pub page_manager: PageManager,
 }
 
+#[derive(Debug)]
+pub enum ThreadElfCreateError {
+    UnsupportedArchitecture,
+    NotExecutable,
+    InvalidEntryPoint,
+}
+
 impl ThreadControlBlock {
-    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> ThreadControlBlock {
+    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> Result<ThreadControlBlock, ThreadElfCreateError> {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
-        if elf.header.architecture != ElfArchitecture::X86 && executable {
-            panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
+        if !executable {
+            return Err(ThreadElfCreateError::NotExecutable)
+        }
+        
+        if elf.header.architecture != ElfArchitecture::X86 {
+            return Err(ThreadElfCreateError::UnsupportedArchitecture)
         }
 
         let ppid = unsafe {
@@ -177,13 +188,13 @@ impl ThreadControlBlock {
             }
         }
 
-        ThreadControlBlock::new_with_page_manager(
+        Ok(ThreadControlBlock::new_with_page_manager(
             NonNull::new(elf.header.program_entry as *mut u8)
-                .expect("fail to create PCB entry point"),
+                .ok_or(ThreadElfCreateError::InvalidEntryPoint)?,
             pid,
             page_manager,
             state,
-        )
+        ))
     }
 
     pub fn new_with_page_manager(

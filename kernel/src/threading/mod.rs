@@ -57,7 +57,8 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
         let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
 
         // Create the initial user program thread.
-        let user_tcb = ThreadControlBlock::new_from_elf(elf, &mut system.process);
+        let user_tcb = ThreadControlBlock::new_from_elf(elf, &mut system.process)
+            .expect("Failed to parse Elf for initial program.");
 
         // SAFETY: Interrupts must be disabled.
         system.threads.running_thread = Some(Box::new(kernel_tcb));

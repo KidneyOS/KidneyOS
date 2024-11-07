@@ -4,8 +4,7 @@ use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
-use crate::mem::user::check_and_copy_user_memory;
-use crate::mem::util::get_mut_from_user_space;
+use crate::mem::util::{get_cstr_from_user_space, get_mut_from_user_space, CStrError};
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -17,6 +16,7 @@ use alloc::boxed::Box;
 use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
+use crate::fs::read_file;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -57,23 +57,25 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             todo!("waitpid syscall")
         }
         SYS_EXECVE => {
-            let thread = unsafe {
-                unwrap_system_mut()
-                    .threads
-                    .running_thread
-                    .as_ref()
-                    .expect("A syscall was called without a running thread.")
+            let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {
+                Ok(cstr) => cstr,
+                Err(CStrError::Fault) => return -EFAULT,
+                Err(CStrError::BadUtf8) => return -ENOENT, // ?
             };
 
-            let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
-            let elf = elf_bytes
-                .as_ref()
-                .and_then(|bytes| Elf::parse_bytes(bytes).ok());
+            let data = match read_file(cstr) {
+                Ok(data) => data,
+                Err(_) => return -EIO,
+            };
 
-            let Some(elf) = elf else { return -1 };
+            let elf = Elf::parse_bytes(&data).ok();
+
+            let Some(elf) = elf else { return -ENOEXEC };
 
             let system = unsafe { unwrap_system_mut() };
-            let control = ThreadControlBlock::new_from_elf(elf, &mut system.process);
+            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &mut system.process) else {
+                return -ENOEXEC
+            };
 
             unsafe {
                 unwrap_system_mut()
