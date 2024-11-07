@@ -1373,11 +1373,11 @@ mod test {
         while offset < n {
             let dirent_ptr: *const Dirent = unsafe { dirents_ptr.add(offset).cast() };
             assert!(dirent_ptr.is_aligned());
-            let dirent: Dirent = unsafe { dirent_ptr.read() };
+            let dirent: &Dirent = unsafe { &*dirent_ptr };
             let name_offset = std::mem::offset_of!(Dirent, name);
             let name_ptr = unsafe { dirent_ptr.cast::<std::ffi::c_char>().add(name_offset) };
             let name: &str = unsafe { CStr::from_ptr(name_ptr) }.to_str().unwrap();
-            entries.push((name.to_owned(), dirent));
+            entries.push((name.to_owned(), *dirent));
             offset += usize::from(dirent.reclen);
         }
         // seek back to entries[2] to test that lseek works correctly for directories
