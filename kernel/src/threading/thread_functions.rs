@@ -1,3 +1,4 @@
+use super::process::Tid;
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use crate::system::unwrap_system;
 use crate::{
@@ -33,6 +34,14 @@ pub fn exit_thread(exit_code: i32) -> ! {
     drop(guard);
     // Yield.
     scheduler_yield_and_die();
+}
+
+// Focibly stops the thread specified by Tid
+pub fn stop_thread(tid: Tid) {
+    let mut scheduler = unwrap_system().threads.scheduler.lock();
+    let tcb = scheduler.get_mut(tid).expect("Why is nothing running !?");
+    tcb.status = ThreadStatus::Dying;
+    tcb.set_exit_code(-1);
 }
 
 /// A wrapper function to execute a thread's true function.

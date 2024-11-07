@@ -28,6 +28,7 @@ extern crate alloc;
 
 use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
+use crate::drivers::input::input_core::InputBuffer;
 use crate::fs::fs_manager::RootFileSystem;
 use crate::sync::mutex::Mutex;
 use crate::sync::rwlock::sleep::RwLock;
@@ -90,6 +91,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, 0, &mut process);
 
         let block_manager = BlockManager::default();
+        let input_buffer = Mutex::new(InputBuffer::new());
 
         threads.scheduler.lock().push(Box::new(ide_tcb));
 
@@ -102,9 +104,9 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         crate::system::init_system(SystemState {
             threads,
             process,
-
             block_manager: RwLock::new(block_manager),
             root_filesystem: Mutex::new(root),
+            input_buffer,
         });
         println!("initialized system");
 

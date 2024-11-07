@@ -1,5 +1,6 @@
 mod context_switch;
 pub mod process;
+pub mod process_functions;
 pub mod scheduling;
 pub mod thread_control_block;
 pub mod thread_functions;

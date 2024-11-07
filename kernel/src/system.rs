@@ -1,4 +1,5 @@
 use crate::block::block_core::BlockManager;
+use crate::drivers::input::input_core::InputBuffer;
 use crate::fs::fs_manager::RootFileSystem;
 use crate::sync::mutex::Mutex;
 use crate::sync::rwlock::sleep::RwLock;
@@ -13,6 +14,7 @@ pub struct SystemState {
 
     pub block_manager: RwLock<BlockManager>,
     pub root_filesystem: Mutex<RootFileSystem>,
+    pub input_buffer: Mutex<InputBuffer>,
 }
 
 impl core::fmt::Debug for SystemState {
