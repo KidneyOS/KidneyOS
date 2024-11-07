@@ -53,7 +53,7 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
 }
 
 const INIT: &[u8] =
-    include_bytes!("../../programs/execve/target/i686-unknown-linux-gnu/release/execve").as_slice();
+    include_bytes!("../../programs/exit/exit").as_slice();
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {

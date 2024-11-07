@@ -63,9 +63,8 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 Err(CStrError::BadUtf8) => return -ENOENT, // ?
             };
 
-            let data = match read_file(cstr) {
-                Ok(data) => data,
-                Err(_) => return -EIO,
+            let Ok(data) = read_file(cstr) else { 
+                return -EIO
             };
 
             let elf = Elf::parse_bytes(&data).ok();
