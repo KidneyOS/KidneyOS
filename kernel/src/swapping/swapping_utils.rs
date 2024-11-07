@@ -25,7 +25,11 @@ pub struct SwapSpace {
 
 // Bit 8 for swap bit.
 impl SwapSpace {
-    pub fn new(mem_start: *mut u8) -> Self {
+
+    /// # Safety
+    /// 
+    ///  mem_start + SWAP_SIZE is within bounds.
+    pub unsafe fn new(mem_start: *mut u8) -> Self {
         let mem_limit = unsafe { mem_start.add(SWAP_SIZE as usize) };
 
         Self {
@@ -35,12 +39,12 @@ impl SwapSpace {
         }
     }
 
-    // Read data into (simulated) physical memory into 'frame' from 'swap_offset'
+    /// Read data into (simulated) physical memory into 'frame' from 'swap_offset'
+    ///
+    /// # Safety
     //
-    // SAFETY
-    //
-    // - Assumes <frame> is valid, and not out of bounds.
-    // - We do not change the PTE bits here.
+    /// Assumes <frame> is valid, and not out of bounds.
+    /// We do not change the PTE bits here.
     pub unsafe fn swap_in(&mut self, swap_idx: usize, frame: usize) {
         if swap_idx >= FRAMES {
             panic!("swap_offset out of bounds!");
@@ -77,12 +81,12 @@ impl SwapSpace {
         self.bitmap[swap_idx] = 0;
     }
 
-    // Write data from (simulated) physical memory from 'frame' into 'swap_offset'
-    //
-    // SAFETY
-    //
-    // - Assumes <frame> is valid, and not out of bounds.
-    // - We do not change the PTE bits here.
+    /// Write data from (simulated) physical memory from 'frame' into 'swap_offset'
+    ///
+    /// # Safety
+    ///
+    /// Assumes <frame> is valid, and not out of bounds.
+    /// We do not change the PTE bits here.
     pub unsafe fn swap_out(&mut self, swap_idx: usize, frame: usize) {
         if swap_idx >= FRAMES {
             panic!("swap_offset out of bounds!");

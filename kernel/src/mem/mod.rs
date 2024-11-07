@@ -3,7 +3,6 @@ mod frame_allocator;
 pub mod user;
 pub mod util;
 
-
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
 use core::{

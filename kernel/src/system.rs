@@ -1,10 +1,10 @@
 use crate::block::block_core::BlockManager;
 use crate::drivers::input::input_core::InputBuffer;
+use crate::swapping::swapping_utils::SwapSpace;
 use crate::sync::mutex::Mutex;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
-use crate::swapping::swapping_utils::SwapSpace;
 
 // Synchronizing this primitive in a safe way is hard.
 pub struct SystemState {
