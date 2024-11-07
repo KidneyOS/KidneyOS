@@ -64,7 +64,12 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, is_kernel, .. } = *switched_to;
+    let ThreadControlBlock {
+        eip,
+        esp,
+        is_kernel,
+        ..
+    } = *switched_to;
 
     // Reschedule our threads.
     threads.running_thread = Some(switched_to);

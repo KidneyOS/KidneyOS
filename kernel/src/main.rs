@@ -54,12 +54,6 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
 
 const INIT: &[u8] = include_bytes!("../../programs/exit/exit").as_slice();
 
-fn thread_do_nothing() {
-    loop {
-
-    }
-}
-
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
     unsafe {
@@ -94,15 +88,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
         let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, true, &mut process);
-        
-        let thread_do_nothin = NonNull::new(thread_do_nothing as *const () as *mut u8).unwrap();
-        let thread_do_nothing_tcb = ThreadControlBlock::new_with_setup(thread_do_nothin, true, &mut process);
 
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());
 
         threads.scheduler.push(Box::new(ide_tcb));
-        threads.scheduler.push(Box::new(thread_do_nothing_tcb));
 
         SYSTEM = Some(SystemState {
             threads,

@@ -216,7 +216,13 @@ impl ThreadControlBlock {
 
     #[allow(unused)]
     pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &mut ProcessState) -> Self {
-        let mut new_thread = Self::new(eip, is_kernel, state.allocate_pid(), PageManager::default(), state);
+        let mut new_thread = Self::new(
+            eip,
+            is_kernel,
+            state.allocate_pid(),
+            PageManager::default(),
+            state,
+        );
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -240,7 +246,7 @@ impl ThreadControlBlock {
         }
 
         new_thread.eip = eip; // !!!
-        
+
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
         new_thread
