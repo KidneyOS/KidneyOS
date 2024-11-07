@@ -106,16 +106,19 @@ pub enum ThreadElfCreateError {
 }
 
 impl ThreadControlBlock {
-    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> Result<ThreadControlBlock, ThreadElfCreateError> {
+    pub fn new_from_elf(
+        elf: Elf,
+        state: &mut ProcessState,
+    ) -> Result<ThreadControlBlock, ThreadElfCreateError> {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
         if !executable {
-            return Err(ThreadElfCreateError::NotExecutable)
+            return Err(ThreadElfCreateError::NotExecutable);
         }
-        
+
         if elf.header.architecture != ElfArchitecture::X86 {
-            return Err(ThreadElfCreateError::UnsupportedArchitecture)
+            return Err(ThreadElfCreateError::UnsupportedArchitecture);
         }
 
         let ppid = unsafe {

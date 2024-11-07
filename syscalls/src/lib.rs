@@ -250,7 +250,11 @@ pub extern "C" fn unmount(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn mount(device: *const c_char, target: *const c_char, filesystem_type: *const c_char) -> i32 {
+pub extern "C" fn mount(
+    device: *const c_char,
+    target: *const c_char,
+    filesystem_type: *const c_char,
+) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -282,7 +286,7 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
 pub extern "C" fn execve(
     filename: *const c_char,
     argv: *const *const c_char,
-    envp: *const *const c_char
+    envp: *const *const c_char,
 ) -> i32 {
     let result: i32;
 

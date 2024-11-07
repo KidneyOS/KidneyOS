@@ -1,5 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::fs::read_file;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
@@ -16,7 +17,6 @@ use alloc::boxed::Box;
 use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
-use crate::fs::read_file;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -74,7 +74,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let system = unsafe { unwrap_system_mut() };
             let Ok(control) = ThreadControlBlock::new_from_elf(elf, &mut system.process) else {
-                return -ENOEXEC
+                return -ENOEXEC;
             };
 
             unsafe {
