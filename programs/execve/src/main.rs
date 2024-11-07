@@ -13,33 +13,28 @@ const TARGET_PATH: *const c_char = c"/example_rust".as_ptr();
 pub extern "C" fn _start() -> ! {
     // TempFS - We'll create the file that we want to execute on the fly.
     let fd = kidneyos_syscalls::open(TARGET_PATH, O_CREATE);
-    
+
     if fd < 0 {
         kidneyos_syscalls::exit(fd);
     }
-    
+
     let result = kidneyos_syscalls::write(fd, TARGET_PROGRAM.as_ptr(), TARGET_PROGRAM.len());
-    
+
     if result < 0 {
         kidneyos_syscalls::exit(result);
     }
-    
+
     // Flush?
     kidneyos_syscalls::close(fd);
-    
-    let argv = [
-        TARGET_PATH,
-        core::ptr::null()
-    ];
 
-    let envp = [
-        core::ptr::null()
-    ];
+    let argv = [TARGET_PATH, core::ptr::null()];
+
+    let envp = [core::ptr::null()];
 
     let result = kidneyos_syscalls::execve(TARGET_PATH, argv.as_ptr(), envp.as_ptr());
-    
+
     kidneyos_syscalls::exit(result);
-    
+
     loop {}
 }
 
