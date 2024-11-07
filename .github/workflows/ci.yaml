@@ -28,7 +28,7 @@ jobs:
         flake_paths: ./nix#devShells.x86_64-linux.build
     - name: Check formatting
       if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
-      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c sh -c 'find -name "*.rs" -print0 | xargs -0 rustfmt --quiet --check -- --edition 2021'
+      run: nix --extra-experimental-features nix-command --extra-experimental-features flakes develop ./nix#build -i -k CARGO_TERM_COLOR -c sh -c 'find -name "*.rs" -print0 | xargs -0 rustfmt --quiet --check --edition 2021 --'
     - name: Build test programs
       id: test-programs
       if: ${{ !cancelled() && steps.cache-nix.outcome == 'success' }}
