@@ -4,6 +4,7 @@ use core::mem::offset_of;
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
 use crate::system::unwrap_system_mut;
 use alloc::boxed::Box;
+use kidneyos_shared::println;
 
 /// Public facing method to perform a context switch between two threads.
 /// # Safety
@@ -44,6 +45,8 @@ pub unsafe fn switch_threads(
 
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
+
+    println!("context swtiching from {} to {}", (*switch_from).tid,(*switch_to).tid);
 
     let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
 

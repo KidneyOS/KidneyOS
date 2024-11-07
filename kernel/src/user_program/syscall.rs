@@ -10,11 +10,13 @@ use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
 use crate::threading::process::Pid;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
-use crate::threading::thread_functions;
 use crate::threading::thread_sleep::thread_sleep;
+use crate::threading::process_functions;
 use crate::user_program::elf::Elf;
+use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
+use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
 
@@ -29,14 +31,17 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
         SYS_EXIT => {
-            thread_functions::exit_thread(arg0 as i32);
+            process_functions::exit_process(arg0 as i32);
         }
         SYS_FORK => {
             let system = unsafe { unwrap_system_mut() };
             let running_thread = system.threads.running_thread.as_ref().unwrap();
 
+
+
             let child_tcb = running_thread.new_from_fork(&mut system.process);
             let child_pid = child_tcb.pid;
+
 
             system.threads.scheduler.push(Box::new(child_tcb));
 
@@ -76,10 +81,12 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             };
 
             let system = unsafe { unwrap_system_mut() };
-            let running_tcb = system.threads.running_thread.as_ref().unwrap();
 
             if let Some(parnet_pcb) = system.process.table.get_mut(wait_pid) {
-                parnet_pcb.wait_list.push(running_tcb.pid);
+                if parnet_pcb.waiting_thread.is_some() {
+                    return -1;
+                }
+
                 let parent_pid = parnet_pcb.pid;
 
                 thread_sleep();
@@ -140,9 +147,16 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 return -1;
             };
 
-            println!("{:?}", timespec);
             *timespec_ptr = timespec;
             0
+        }
+        SYS_GETRANDOM => {
+            let Some(buffer_ptr) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
+                return -1;
+            };
+
+            let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
+            getrandom(buffer, arg1, arg2)
         }
         _ => -ENOSYS,
     }

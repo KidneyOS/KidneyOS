@@ -1,6 +1,5 @@
-use super::scheduling::scheduler_yield_and_continue;
+use super::process::Tid;
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
-use super::thread_sleep::thread_wakeup;
 use crate::system::unwrap_system_mut;
 use crate::{
     interrupts::{intr_disable, intr_enable},
@@ -27,22 +26,6 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // We will never return here so do not need to re-enable interrupts from here.
     intr_disable();
 
-    let system = unsafe { unwrap_system_mut() };
-    let process_table = &system.process.table;
-    let pcb = process_table
-        .get(system.threads.running_thread.as_ref().unwrap().pid)
-        .unwrap();
-
-    // Currently we just immediately yield the thread, in the future this could be set up to
-    // Put the thread on the sleep queue (although with the current sleep queue implementation
-    // that would not provide any performence benifits).
-    while pcb.wait_list.is_empty() {
-        // TODO: This puts the thread's status as 'Ready', however by now it is a zombie thread.
-        scheduler_yield_and_continue()
-    }
-
-    pcb.wait_list.iter().for_each(|pid| thread_wakeup(*pid));
-
     // Get the current thread.
     // SAFETY: Interrupts must be off.
     unsafe {
@@ -57,6 +40,14 @@ pub fn exit_thread(exit_code: i32) -> ! {
         threads.running_thread = Some(current_thread);
         scheduler_yield_and_die();
     }
+}
+
+// Focibly stops the thread specified by Tid
+pub fn stop_thread(tid: Tid) {
+    let scheduler = unsafe { unwrap_system_mut().threads.scheduler.as_mut() };
+    let tcb = scheduler.get_mut(tid).expect("Why is nothing running !?");
+    tcb.status = ThreadStatus::Dying;
+    tcb.set_exit_code(-1);
 }
 
 /// A wrapper function to execute a thread's true function.

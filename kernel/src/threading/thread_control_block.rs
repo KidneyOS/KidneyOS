@@ -11,6 +11,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use kidneyos_shared::println;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
@@ -44,7 +45,7 @@ pub struct ProcessControlBlock {
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
-    pub wait_list: Vec<Tid>,
+    pub waiting_thread: Option<Tid>,
 
     pub exit_code: Option<i32>,
     /// filesystem and inode of current working directory
@@ -63,7 +64,7 @@ impl ProcessControlBlock {
             pid,
             ppid: parent_pid,
             child_tids: Vec::new(),
-            wait_list: Vec::new(),
+            waiting_thread: None,
             exit_code: None,
             cwd: root.get_root().unwrap(),
             cwd_path: "/".into(),
@@ -189,23 +190,12 @@ impl ThreadControlBlock {
 
     pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
         let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
-        let tid: Tid = state.allocate_tid();
 
         let mut page_manager = self.page_manager.clone();
-        unsafe { page_manager.zero_page_table() }
+        // let mut page_manager = PageManager::default();
+        // unsafe { page_manager.zero_page_table() }
 
-        let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
-
-        let new_tcb: ThreadControlBlock = Self {
-            kernel_stack_pointer,
-            kernel_stack,
-            user_stack,
-            page_manager,
-            pid,
-            tid,
-            status: ThreadStatus::Ready,
-            ..*self
-        };
+        let new_tcb= Self::new_with_page_manager(self.eip, pid, page_manager, state);
 
         unsafe {
             copy_nonoverlapping(
@@ -219,6 +209,7 @@ impl ThreadControlBlock {
                 USER_THREAD_STACK_SIZE,
             )
         }
+
         new_tcb
     }
 
