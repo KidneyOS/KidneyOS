@@ -1,13 +1,12 @@
 #![allow(unused)]
 
 use crate::sync::mutex::TicketMutex;
-use crate::threading::thread_control_block::{ThreadStatus};
+use crate::system::unwrap_system;
+use crate::threading::process::Tid;
+use crate::threading::thread_control_block::ThreadStatus;
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
-use arbitrary_int::Number;
-use crate::system::unwrap_system;
-use crate::threading::process::Tid;
 
 pub struct SemaphorePermit {
     forgotten: bool,
