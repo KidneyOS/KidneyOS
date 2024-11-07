@@ -1,5 +1,4 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
-use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
@@ -1187,14 +1186,13 @@ impl RootFileSystem {
             let _ = self.close(ProcessFileDescriptor { pid, fd });
         }
         // decrement reference count to cwd
-        if let Some(pcb) = unsafe { unwrap_system() }.process.table.get(pid) {
+        if let Some(pcb) = unwrap_system().process.table.get(pid) {
+            let pcb = pcb.lock();
             let (cwd_fs, cwd_inode) = pcb.cwd;
             self.file_systems.get_mut(cwd_fs).dec_ref(cwd_inode);
         }
     }
 }
-
-pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
 
 #[cfg(test)]
 mod test {

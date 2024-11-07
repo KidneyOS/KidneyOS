@@ -134,6 +134,7 @@ fn virt_parts(virt_addr: usize) -> (usize, usize) {
 }
 
 /// Wraps lower-level paging data structures.
+#[derive(Debug)]
 pub struct PageManager<A: Allocator> {
     root: NonNull<PageDirectory>,
     alloc: A,

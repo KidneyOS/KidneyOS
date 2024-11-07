@@ -6,7 +6,7 @@ use crate::fs::syscalls::{
 };
 use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
+use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
@@ -38,7 +38,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) },
         SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) },
         SYS_LSEEK64 => unsafe { lseek64(arg0, arg1 as _, arg2 as _) },
-        SYS_CLOSE => unsafe { close(arg0) },
+        SYS_CLOSE => close(arg0),
         SYS_CHDIR => unsafe { chdir(arg0 as _) },
         SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) },
         SYS_MKDIR => unsafe { mkdir(arg0 as _) },
@@ -49,7 +49,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_LINK => unsafe { link(arg0 as _, arg1 as _) },
         SYS_SYMLINK => unsafe { symlink(arg0 as _, arg1 as _) },
         SYS_RENAME => unsafe { rename(arg0 as _, arg1 as _) },
-        SYS_FTRUNCATE => unsafe { ftruncate(arg0 as _, arg1 as _, arg2 as _) },
+        SYS_FTRUNCATE => ftruncate(arg0 as _, arg1 as _, arg2 as _),
         SYS_UNMOUNT => unsafe { unmount(arg0 as _) },
         SYS_MOUNT => unsafe { mount(arg0 as _, arg1 as _, arg2 as _) },
         SYS_SYNC => sync(),
@@ -57,30 +57,22 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             todo!("waitpid syscall")
         }
         SYS_EXECVE => {
-            let thread = unsafe {
-                unwrap_system_mut()
-                    .threads
-                    .running_thread
-                    .as_ref()
-                    .expect("A syscall was called without a running thread.")
-            };
-
+            let system = unwrap_system();
+            let guard = system.threads.running_thread.lock();
+            let thread = guard
+                .as_ref()
+                .expect("A syscall was called without a running thread.");
             let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
+            drop(guard);
             let elf = elf_bytes
                 .as_ref()
                 .and_then(|bytes| Elf::parse_bytes(bytes).ok());
 
             let Some(elf) = elf else { return -1 };
 
-            let system = unsafe { unwrap_system_mut() };
-            let control = ThreadControlBlock::new_from_elf(elf, &mut system.process);
+            let control = ThreadControlBlock::new_from_elf(elf, &system.process);
 
-            unsafe {
-                unwrap_system_mut()
-                    .threads
-                    .scheduler
-                    .push(Box::new(control));
-            }
+            system.threads.scheduler.lock().push(Box::new(control));
 
             scheduler_yield_and_die();
         }
