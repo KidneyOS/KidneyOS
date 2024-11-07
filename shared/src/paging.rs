@@ -113,6 +113,7 @@ bitfield!(
         (dirty, 6),
         (page_attribute_table, 7),
         (global, 8),
+        (swapped, 9),
     }
 );
 
