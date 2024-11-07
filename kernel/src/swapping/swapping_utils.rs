@@ -25,9 +25,8 @@ pub struct SwapSpace {
 
 // Bit 8 for swap bit.
 impl SwapSpace {
-
     /// # Safety
-    /// 
+    ///
     ///  mem_start + SWAP_SIZE is within bounds.
     pub unsafe fn new(mem_start: *mut u8) -> Self {
         let mem_limit = unsafe { mem_start.add(SWAP_SIZE as usize) };
