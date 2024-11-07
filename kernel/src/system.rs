@@ -4,12 +4,13 @@ use crate::sync::mutex::Mutex;
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::threading::thread_control_block::{ProcessControlBlock, ThreadControlBlock};
 use crate::threading::ThreadState;
+use crate::swapping::swapping_utils::SwapSpace;
 
 // Synchronizing this primitive in a safe way is hard.
 pub struct SystemState {
     pub threads: ThreadState,
     pub process: ProcessState,
-
+    pub swap_space: SwapSpace,
     pub block_manager: BlockManager,
     pub input_buffer: Mutex<InputBuffer>,
 }
