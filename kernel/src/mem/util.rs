@@ -1,36 +1,42 @@
-use crate::paging::{is_userspace_readable, is_userspace_writeable};
+use core::mem::size_of;
+use kidneyos_shared::mem::OFFSET as KMEM_OFFSET;
+use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 pub enum CStrError {
     Fault,
     BadUtf8,
 }
 
-/// Minimum possible page size. It's okay for this to be smaller than the actual page size.
-const MIN_PAGE_SIZE: usize = 4096;
+fn can_access_range<T>(start: *const T, count: usize, write: bool) -> bool {
+    let start = start as usize;
+    let Some(bytes) = count.checked_mul(size_of::<T>()) else {
+        return false;
+    };
+    if start >= KMEM_OFFSET {
+        return false;
+    }
+    let Some(end) = start.checked_add(bytes) else {
+        return false;
+    };
+    if end >= KMEM_OFFSET {
+        return false;
+    }
+    crate::system::unwrap_system()
+        .threads
+        .running_thread
+        .lock()
+        .as_ref()
+        .expect("A syscall was called without a running thread.")
+        .page_manager
+        .can_access_range(start, bytes, write)
+}
 
-#[must_use]
-fn can_access_address_range<T>(start: *const T, bytes: usize, write: bool) -> bool {
-    let check = if write {
-        is_userspace_writeable
-    } else {
-        is_userspace_readable
-    };
-    if !check(start) {
-        return false;
-    }
-    let Some(end) = (start as usize).checked_add(bytes) else {
-        // addition overflows so this definitely isn't valid
-        return false;
-    };
-    // round up to nearest page
-    let mut p = (start as usize).div_ceil(MIN_PAGE_SIZE) * MIN_PAGE_SIZE;
-    while p + MIN_PAGE_SIZE < end {
-        if !check(p as *const T) {
-            return false;
-        }
-        p += MIN_PAGE_SIZE;
-    }
-    true
+fn is_range_readable<T>(start: *const T, count: usize) -> bool {
+    can_access_range(start, count, false)
+}
+
+fn is_range_writeable<T>(start: *const T, count: usize) -> bool {
+    can_access_range(start, count, true)
 }
 
 /// Construct null-terminated string from userspace pointer
@@ -40,10 +46,9 @@ fn can_access_address_range<T>(start: *const T, bytes: usize, write: bool) -> bo
 /// The returned reference is invalidated if the page(s) containing the string are mapped out of memory.
 /// You must not hold any mutable references to any parts of the string
 /// while it is in scope (as is required by Rust).
-/// TODO: this doesn't actually check that ptr is mapped yet.
 pub unsafe fn get_cstr_from_user_space(ptr: *const u8) -> Result<&'static str, CStrError> {
     let mut len = 0usize;
-    if !is_userspace_readable(ptr) {
+    if !is_range_readable(ptr, 1) {
         return Err(CStrError::Fault);
     }
     loop {
@@ -54,7 +59,7 @@ pub unsafe fn get_cstr_from_user_space(ptr: *const u8) -> Result<&'static str, C
         let Some(end) = (ptr as usize).checked_add(len) else {
             return Err(CStrError::Fault);
         };
-        if end % MIN_PAGE_SIZE == 0 && !is_userspace_readable(end as *const u8) {
+        if end % PAGE_FRAME_SIZE == 0 && !is_range_readable(end as *const u8, 1) {
             return Err(CStrError::Fault);
         }
     }
@@ -72,8 +77,6 @@ pub unsafe fn get_cstr_from_user_space(ptr: *const u8) -> Result<&'static str, C
 /// You must not hold any other mutable references to any parts of the slice
 /// while it is in scope (as is required by Rust).
 /// Additionally, `ptr[..count]` must only contain valid values for `T` (e.g. it can't contain the byte `2` if `T` is `bool`).
-///
-/// TODO: this doesn't actually check that ptr is mapped yet.
 pub unsafe fn get_mut_slice_from_user_space<T>(
     ptr: *mut T,
     count: usize,
@@ -81,8 +84,7 @@ pub unsafe fn get_mut_slice_from_user_space<T>(
     if !ptr.is_aligned() {
         return None;
     }
-    let bytes = count.checked_mul(core::mem::size_of::<T>())?;
-    if !can_access_address_range(ptr, bytes, true) {
+    if !is_range_writeable(ptr, count) {
         return None;
     }
     Some(core::slice::from_raw_parts_mut(ptr.cast(), count))
@@ -98,14 +100,11 @@ pub unsafe fn get_mut_slice_from_user_space<T>(
 /// You must not hold any mutable references to any parts of the slice
 /// while it is in scope (as is required by Rust).
 /// Additionally, `ptr[..count]` must only contain valid values for `T` (e.g. it can't contain the byte `2` if `T` is `bool`).
-///
-/// TODO: this doesn't actually check that ptr is mapped yet.
 pub unsafe fn get_slice_from_user_space<T>(ptr: *const T, count: usize) -> Option<&'static [T]> {
     if !ptr.is_aligned() {
         return None;
     }
-    let bytes = count.checked_mul(core::mem::size_of::<T>())?;
-    if !can_access_address_range(ptr, bytes, false) {
+    if !is_range_readable(ptr, count) {
         return None;
     }
     let ptr: *const T = ptr.cast();
