@@ -7,10 +7,7 @@ pub enum CStrError {
     BadUtf8,
 }
 
-/// # Safety
-///
-/// TODO: This isn't safe currently, as there may be mut references to the running thread.
-unsafe fn can_access_range<T>(start: *const T, count: usize, write: bool) -> bool {
+fn can_access_range<T>(start: *const T, count: usize, write: bool) -> bool {
     let start = start as usize;
     let Some(bytes) = count.checked_mul(size_of::<T>()) else {
         return false;
@@ -27,23 +24,18 @@ unsafe fn can_access_range<T>(start: *const T, count: usize, write: bool) -> boo
     crate::system::unwrap_system()
         .threads
         .running_thread
+        .lock()
         .as_ref()
         .expect("A syscall was called without a running thread.")
         .page_manager
         .can_access_range(start, bytes, write)
 }
 
-/// # Safety
-///
-/// TODO: This isn't safe currently, as there may be mut references to the running thread.
-unsafe fn is_range_readable<T>(start: *const T, count: usize) -> bool {
+fn is_range_readable<T>(start: *const T, count: usize) -> bool {
     can_access_range(start, count, false)
 }
 
-/// # Safety
-///
-/// TODO: This isn't safe currently, as there may be mut references to the running thread.
-unsafe fn is_range_writeable<T>(start: *const T, count: usize) -> bool {
+fn is_range_writeable<T>(start: *const T, count: usize) -> bool {
     can_access_range(start, count, true)
 }
 
