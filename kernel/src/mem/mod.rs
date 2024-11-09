@@ -35,12 +35,7 @@ const UPPER_MEMORY_START: usize = MB + OFFSET;
 trait FrameAllocator {
     /// Creates a new FrameAllocator starting at "start" and using the provided "core_map"
     ///
-    /// The total number of frames in the system is given by the "num_frames_in_system" parameter
-    fn new_in(
-        start: NonNull<u8>,
-        core_map: Box<[CoreMapEntry]>,
-        num_frames_in_system: usize,
-    ) -> Self;
+    fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>) -> Self;
 
     /// Allocates "frames_requested" number of contiguous frames
     ///
@@ -146,7 +141,6 @@ impl KernelAllocator {
             NonNull::new(dummy_allocator.get_start_address() as *mut u8)
                 .expect("frames_base can't be null"),
             core_map,
-            num_frames_in_system,
         );
 
         *self.state.get_mut() = KernelAllocatorState::Initialized {
