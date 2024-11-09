@@ -14,18 +14,18 @@ impl DummyAllocatorSolution {
             end_address,
         }
     }
-    
-    /// Allocate a region of memory equals to "total_frames" * PAGE_FRAME_SIZE bytes for 
+
+    /// Allocate a region of memory equals to "total_frames" * PAGE_FRAME_SIZE bytes for
     /// the coremap
-    /// 
+    ///
     /// This allocation should do two things:
-    /// 
-    /// 1. Returns a piece of memory starting at "start_address" used to store the 
+    ///
+    /// 1. Returns a piece of memory starting at "start_address" used to store the
     /// CoreMap Entries for actual frames
-    /// 
+    ///
     /// 2. Increment "start_address" to point to the next free frame in memory
     ///
-    /// The region of memory allocated to the coremap should never be freed; it should 
+    /// The region of memory allocated to the coremap should never be freed; it should
     /// remain there until the kernel stops running
     pub fn alloc(&mut self, total_frames: usize) -> Result<NonNull<[u8]>, AllocError> {
         // Don't think this will ever happen, but good to have a check for it
