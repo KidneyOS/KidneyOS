@@ -5,7 +5,7 @@ use core::{
 
 use super::{FrameAllocator, FrameAllocatorSolution};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
-use kidneyos_shared::{println, eprintln};
+use kidneyos_shared::{eprintln, println};
 
 const SUBBLOCK_TYPE_COUNT: usize = 8;
 /// Allowed subblock sizes, which must be powers of 2.
@@ -16,7 +16,7 @@ const SUBBLOCK_SIZES: [usize; SUBBLOCK_TYPE_COUNT] = [16, 32, 64, 128, 256, 512,
 /// if the requested size is larger than the largest subblock size.
 fn get_best_subblock_size_idx(layout: Layout) -> usize {
     let num_bytes = layout.size().max(layout.align());
-    
+
     if num_bytes > PAGE_FRAME_SIZE {
         panic!("Requested memory size larger than page frame size");
     }
@@ -34,10 +34,10 @@ struct ListNode {
 
 pub struct SubblockAllocatorSolution {
     list_heads: [Option<&'static mut ListNode>; SUBBLOCK_TYPE_COUNT],
-    frame_allocator: FrameAllocatorSolution
+    frame_allocator: FrameAllocatorSolution,
 }
 
-impl SubblockAllocatorSolution where {
+impl SubblockAllocatorSolution {
     pub fn new(frame_allocator: FrameAllocatorSolution) -> SubblockAllocatorSolution {
         const EMPTY: Option<&'static mut ListNode> = None;
 
@@ -49,13 +49,13 @@ impl SubblockAllocatorSolution where {
 
     /// Allocate a fixed size block for the size requested by 'layout'
     ///
-    /// Allocations always come from the head of each LinkedList - this is very similar to 
+    /// Allocations always come from the head of each LinkedList - this is very similar to
     /// LinkedList.pop() operation
-    /// 
-    /// If the LinkedList is empty, a frame is allocated and dividing into chunks equal to 
+    ///
+    /// If the LinkedList is empty, a frame is allocated and dividing into chunks equal to
     /// the size of the subblock size corresponding to that LinkedList
-    /// 
-    /// TODO: Support allocations larger than one frame 
+    ///
+    /// TODO: Support allocations larger than one frame
     pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocError> {
         let subblock_size_index = get_best_subblock_size_idx(layout);
 
@@ -63,7 +63,7 @@ impl SubblockAllocatorSolution where {
             eprintln!(
                 "[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently"
             );
-            
+
             return Err(AllocError);
         };
 
@@ -91,7 +91,7 @@ impl SubblockAllocatorSolution where {
                     return Err(AllocError);
                 }
 
-                let new_frame =  self.frame_allocator.alloc(1)?;
+                let new_frame = self.frame_allocator.alloc(1)?;
 
                 let start_of_frame = new_frame.as_ptr() as *const u8;
                 let num_subblocks = PAGE_FRAME_SIZE / SUBBLOCK_SIZES[subblock_size_index];
@@ -102,7 +102,9 @@ impl SubblockAllocatorSolution where {
                     let new_node = ListNode { next };
 
                     unsafe {
-                        let start_of_subblock_ptr = start_of_frame.add(SUBBLOCK_SIZES[subblock_size_index] * i) as *mut ListNode;
+                        let start_of_subblock_ptr = start_of_frame
+                            .add(SUBBLOCK_SIZES[subblock_size_index] * i)
+                            as *mut ListNode;
                         start_of_subblock_ptr.write(new_node);
                         self.list_heads[subblock_size_index] = Some(&mut *start_of_subblock_ptr)
                     }
@@ -125,7 +127,7 @@ impl SubblockAllocatorSolution where {
     /// make the new ListNode the head of the linked list
     ///
     /// This is very similar to linked_list.insert_head() operation
-    /// 
+    ///
     /// TODO: Figure out a way to reclaim fully freed frames
     pub fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let subblock_size_index = get_best_subblock_size_idx(layout);
@@ -142,10 +144,10 @@ impl SubblockAllocatorSolution where {
             self.list_heads[subblock_size_index] = Some(&mut *new_node_ptr);
         }
     }
-    
+
     /// Return a mutable reference to underlying frame allocator
-    /// 
-    /// This function should be used for memory allocations that do not go through the kernel 
+    ///
+    /// This function should be used for memory allocations that do not go through the kernel
     /// allocator and instead requests directly from the frame allocator
     pub fn get_frame_allocator(&mut self) -> &mut FrameAllocatorSolution {
         &mut self.frame_allocator

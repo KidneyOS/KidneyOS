@@ -6,6 +6,7 @@ pub mod user;
 pub mod util;
 
 use alloc::{boxed::Box, vec};
+use core::sync::atomic::AtomicBool;
 use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
     cell::UnsafeCell,
@@ -14,9 +15,8 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use core::sync::atomic::AtomicBool;
-use frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
 use dummy_allocator::DummyAllocatorSolution;
+use frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
@@ -155,10 +155,7 @@ impl KernelAllocator {
     }
 
     pub fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
-        let KernelAllocatorState::Initialized {
-            subblock_allocator,
-        } = self.state.get_mut()
-        else {
+        let KernelAllocatorState::Initialized { subblock_allocator } = self.state.get_mut() else {
             return Err(AllocError);
         };
 
@@ -166,10 +163,7 @@ impl KernelAllocator {
     }
 
     pub fn frame_dealloc(&mut self, ptr: NonNull<u8>) {
-        let KernelAllocatorState::Initialized {
-            subblock_allocator,
-        } = self.state.get_mut()
-        else {
+        let KernelAllocatorState::Initialized { subblock_allocator } = self.state.get_mut() else {
             halt!("[KERNEL ALLOCATOR]: Dealloc called on DeInitialized or SetupState kernel");
         };
 
@@ -177,7 +171,10 @@ impl KernelAllocator {
     }
 
     pub fn deinit(&mut self) {
-        let KernelAllocatorState::Initialized { subblock_allocator, .. } = self.state.get_mut() else {
+        let KernelAllocatorState::Initialized {
+            subblock_allocator, ..
+        } = self.state.get_mut()
+        else {
             panic!("[KERNEL ALLOCATOR]: deinit called before initialization of kernel allocator");
         };
 
@@ -235,7 +232,9 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
             region.as_ptr().cast::<u8>()
         } else {
-            let KernelAllocatorState::Initialized { subblock_allocator , ..} = &mut *self.state.get()
+            let KernelAllocatorState::Initialized {
+                subblock_allocator, ..
+            } = &mut *self.state.get()
             else {
                 halt!("[KERNEL ALLOCATOR]: Allocation requested before kernel is Initialized");
             };
@@ -250,7 +249,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 Ok(t) => t,
                 Err(_) => halt!("[KERNEL ALLOCATOR]: Unable to allocate memory according to provided layout in SubblockAllocator"),
             };
-            
+
             TOTAL_NUM_ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
 
             ret_ptr
@@ -258,7 +257,9 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let KernelAllocatorState::Initialized { subblock_allocator, .. } = &mut *self.state.get()
+        let KernelAllocatorState::Initialized {
+            subblock_allocator, ..
+        } = &mut *self.state.get()
         else {
             halt!("[KERNEL ALLOCATOR]: dealloc called before initialization of kernel allocator");
         };

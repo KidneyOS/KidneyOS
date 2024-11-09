@@ -8,7 +8,6 @@ use core::{
 use core::{ops::Range, ptr::NonNull};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
-// For replacement policy and bookkeeping
 static CURR_NUM_FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 static CURR_POSITION: AtomicUsize = AtomicUsize::new(0);
 
@@ -53,7 +52,7 @@ impl FrameAllocator for FrameAllocatorSolution {
             total_number_of_frames,
         }
     }
-    
+
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
         if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
             > self.total_number_of_frames
@@ -75,7 +74,7 @@ impl FrameAllocator for FrameAllocatorSolution {
             range.len() * PAGE_FRAME_SIZE,
         ))
     }
-    
+
     fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize {
         let start =
             (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
