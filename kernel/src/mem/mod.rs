@@ -1,10 +1,11 @@
 mod buddy_allocator;
+mod dummy_allocator;
 mod frame_allocator;
 mod subblock_allocator;
 pub mod user;
 pub mod util;
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, vec};
 use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
     cell::UnsafeCell,
@@ -13,14 +14,17 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use frame_allocator::{CoreMapEntry, DummyAllocatorSolution, FrameAllocatorSolution};
+use core::sync::atomic::AtomicBool;
+use frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
+use dummy_allocator::DummyAllocatorSolution;
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     println,
     sizes::{KB, MB},
 };
-use subblock_allocator::SubblockAllocator;
+use subblock_allocator::SubblockAllocatorSolution;
 
+static FIRST_ALLOCATION: AtomicBool = AtomicBool::new(true);
 static TOTAL_NUM_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 static TOTAL_NUM_DEALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 
@@ -29,65 +33,26 @@ const MAX_SUPPORTED_ALIGN: usize = 4096;
 const UPPER_MEMORY_START: usize = MB + OFFSET;
 
 trait FrameAllocator {
-    /// Create a new FrameAllocator.
+    /// Creates a new FrameAllocator starting at "start" and using the provided "core_map"
+    ///
+    /// The total number of frames in the system is given by the "num_frames_in_system" parameter
     fn new_in(
         start: NonNull<u8>,
         core_map: Box<[CoreMapEntry]>,
         num_frames_in_system: usize,
     ) -> Self;
 
-    /// Allocate the specified number of frames if possible,
-    /// Input: The numbers of frames wanted
-    /// Output: Pointer to piece of memory satisfying requirements or AllocError if not enough
-    /// room available
+    /// Allocates "frames_requested" number of contiguous frames
+    ///
+    /// This function should return a pointer to the start of the memory region on success and
+    /// AllocError on failure
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>;
 
-    /// Deallocate the previously allocated range of frames that begins at start.
-    /// Input: Pointer to region of memory to be deallocated
-    /// Output: The number of frames deallocated
+    /// Deallocates the frame or frames pointed to by "ptr_to_dealloc"
+    ///
+    /// This function should return the number of frames deallocated on success
+    /// TODO: Add what this does on failure (i.e. if the pointer is invalid)
     fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize;
-}
-
-struct FrameAllocatorWrapper {
-    frame_allocator: FrameAllocatorSolution,
-}
-
-impl FrameAllocatorWrapper {
-    fn new_in(
-        start: NonNull<u8>,
-        core_map: Box<[CoreMapEntry]>,
-        num_frames_in_system: usize,
-    ) -> Self {
-        Self {
-            frame_allocator: FrameAllocatorSolution::new_in(start, core_map, num_frames_in_system),
-        }
-    }
-
-    pub fn alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
-        self.frame_allocator.alloc(frames)
-    }
-
-    pub fn dealloc(&mut self, ptr: NonNull<u8>) -> usize {
-        self.frame_allocator.dealloc(ptr)
-    }
-
-    pub fn has_room(&self, frames: usize) -> bool {
-        self.frame_allocator.has_room(frames)
-    }
-}
-
-enum KernelAllocatorState {
-    DeInitialized,
-    SetupState {
-        dummy_allocator: DummyAllocatorSolution,
-    },
-    Initialized {
-        subblock_allocator: SubblockAllocator,
-    },
-}
-
-pub struct KernelAllocator {
-    state: UnsafeCell<KernelAllocatorState>,
 }
 
 // halt is used for cases where we would panic in KernelAllocator, but can't
@@ -104,6 +69,20 @@ macro_rules! halt {
     }};
 }
 
+enum KernelAllocatorState {
+    DeInitialized,
+    SetupState {
+        dummy_allocator: DummyAllocatorSolution,
+    },
+    Initialized {
+        subblock_allocator: SubblockAllocatorSolution,
+    },
+}
+
+pub struct KernelAllocator {
+    state: UnsafeCell<KernelAllocatorState>,
+}
+
 impl KernelAllocator {
     pub const fn new() -> KernelAllocator {
         Self {
@@ -113,9 +92,9 @@ impl KernelAllocator {
         }
     }
 
-    /// Initialize the kernel allocator. size is the size of kernel memory to
-    /// prepare in bytes. mem_upper is the size of upper memory in kilobytes.
-    /// Returns a pointer to the first
+    /// Initialize the kernel allocator
+    ///
+    /// "mem_upper" is the size of upper memory in kilobytes
     ///
     /// # Safety
     ///
@@ -156,7 +135,6 @@ impl KernelAllocator {
         // Check that the dummy allocator actually updated its internal state
         // I.e. the start address should have moved to accommodate Coremap Entries
         // The Coremap should take up 128 frames
-        //
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
         println!(
             "[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
@@ -164,7 +142,7 @@ impl KernelAllocator {
             dummy_allocator.get_start_address()
         );
 
-        let frame_allocator = FrameAllocatorWrapper::new_in(
+        let frame_allocator = FrameAllocatorSolution::new_in(
             NonNull::new(dummy_allocator.get_start_address() as *mut u8)
                 .expect("frames_base can't be null"),
             core_map,
@@ -172,13 +150,13 @@ impl KernelAllocator {
         );
 
         *self.state.get_mut() = KernelAllocatorState::Initialized {
-            subblock_allocator: SubblockAllocator::new(frame_allocator),
+            subblock_allocator: SubblockAllocatorSolution::new(frame_allocator),
         };
     }
 
     pub fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
         let KernelAllocatorState::Initialized {
-            subblock_allocator, ..
+            subblock_allocator,
         } = self.state.get_mut()
         else {
             return Err(AllocError);
@@ -189,7 +167,7 @@ impl KernelAllocator {
 
     pub fn frame_dealloc(&mut self, ptr: NonNull<u8>) {
         let KernelAllocatorState::Initialized {
-            subblock_allocator, ..
+            subblock_allocator,
         } = self.state.get_mut()
         else {
             halt!("[KERNEL ALLOCATOR]: Dealloc called on DeInitialized or SetupState kernel");
@@ -199,7 +177,7 @@ impl KernelAllocator {
     }
 
     pub fn deinit(&mut self) {
-        let KernelAllocatorState::Initialized { subblock_allocator } = self.state.get_mut() else {
+        let KernelAllocatorState::Initialized { subblock_allocator, .. } = self.state.get_mut() else {
             panic!("[KERNEL ALLOCATOR]: deinit called before initialization of kernel allocator");
         };
 
@@ -228,7 +206,7 @@ impl KernelAllocator {
 // - We never rely on allocations happening.
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) == 0 {
+        if FIRST_ALLOCATION.load(Ordering::Relaxed) {
             // If we are here, it should be the dummy allocator doing the allocation
             println!("[KERNEL ALLOCATOR]: Beginning Dummy Allocation for Coremap Entries");
 
@@ -252,13 +230,12 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 halt!("[KERNEL ALLOCATOR]: Unable to allocate memory according to provided layout in DummyAllocator");
             };
 
-            // At this point, we know the allocation was successful; increment global statistics
-            let new_total_allocs = TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) + 1;
-            TOTAL_NUM_ALLOCATIONS.store(new_total_allocs, Ordering::Relaxed);
+            // We should never use dummy allocator again
+            FIRST_ALLOCATION.store(false, Ordering::Relaxed);
 
             region.as_ptr().cast::<u8>()
         } else {
-            let KernelAllocatorState::Initialized { subblock_allocator } = &mut *self.state.get()
+            let KernelAllocatorState::Initialized { subblock_allocator , ..} = &mut *self.state.get()
             else {
                 halt!("[KERNEL ALLOCATOR]: Allocation requested before kernel is Initialized");
             };
@@ -273,70 +250,63 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 Ok(t) => t,
                 Err(_) => halt!("[KERNEL ALLOCATOR]: Unable to allocate memory according to provided layout in SubblockAllocator"),
             };
-
-            // At this point, we know the allocation was successful; increment global statistics
-            let new_total_allocs = TOTAL_NUM_ALLOCATIONS.load(Ordering::Relaxed) + 1;
-            TOTAL_NUM_ALLOCATIONS.store(new_total_allocs, Ordering::Relaxed);
+            
+            TOTAL_NUM_ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
 
             ret_ptr
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let KernelAllocatorState::Initialized { subblock_allocator } = &mut *self.state.get()
+        let KernelAllocatorState::Initialized { subblock_allocator, .. } = &mut *self.state.get()
         else {
             halt!("[KERNEL ALLOCATOR]: dealloc called before initialization of kernel allocator");
         };
 
         subblock_allocator.deallocate(ptr, layout);
 
-        let new_total_deallocs = TOTAL_NUM_DEALLOCATIONS.load(Ordering::Relaxed) + 1;
-        TOTAL_NUM_DEALLOCATIONS.store(new_total_deallocs, Ordering::Relaxed);
+        TOTAL_NUM_DEALLOCATIONS.fetch_add(1, Ordering::Relaxed);
     }
 }
 
-#[allow(dead_code)]
-fn test_box() {
-    let heap_val_1 = Box::new(10);
-    let heap_val_2 = Box::new(3.2);
-    assert_eq!(*heap_val_1, 10);
-    assert_eq!(*heap_val_2, 3.2);
-}
-
-#[allow(dead_code)]
-fn test_vec() {
-    let n = 20;
-    let mut test_vec = Vec::new();
-    for i in 1..=n {
-        test_vec.push(i)
-    }
-
-    assert_eq!(test_vec[0], 1);
-    assert_eq!(test_vec[10], 11);
-    assert_eq!(test_vec.iter().sum::<u64>(), (n + 1) * (n / 2));
-}
-
-#[allow(dead_code)]
-fn test_larger_vec() {
-    let large_n = 60;
-    let mut large_test_vec = Vec::new();
-    for i in 1..=large_n {
-        large_test_vec.push(i)
-    }
-
-    assert_eq!(large_test_vec[40], 41);
-    assert_eq!(large_test_vec[52], 53);
-    assert_eq!(
-        large_test_vec.iter().sum::<u64>(),
-        (large_n + 1) * (large_n / 2)
-    );
-}
-
-// Run tests to see if GlobalAllocator is working properly
 #[cfg(test)]
-#[test]
-pub fn subblock_allocation_tests() {
-    test_box();
-    test_vec();
-    test_larger_vec();
+mod test {
+    use alloc::{boxed::Box, vec::Vec};
+
+    #[test]
+    fn test_box() {
+        let heap_val_1 = Box::new(10);
+        let heap_val_2 = Box::new(3.2);
+        assert_eq!(*heap_val_1, 10);
+        assert_eq!(*heap_val_2, 3.2);
+    }
+
+    #[test]
+    fn test_vec() {
+        let n = 20;
+        let mut test_vec = Vec::new();
+        for i in 1..=n {
+            test_vec.push(i)
+        }
+
+        assert_eq!(test_vec[0], 1);
+        assert_eq!(test_vec[10], 11);
+        assert_eq!(test_vec.iter().sum::<u64>(), (n + 1) * (n / 2));
+    }
+
+    #[test]
+    fn test_larger_vec() {
+        let large_n = 60;
+        let mut large_test_vec = Vec::new();
+        for i in 1..=large_n {
+            large_test_vec.push(i)
+        }
+
+        assert_eq!(large_test_vec[40], 41);
+        assert_eq!(large_test_vec[52], 53);
+        assert_eq!(
+            large_test_vec.iter().sum::<u64>(),
+            (large_n + 1) * (large_n / 2)
+        );
+    }
 }

@@ -12,60 +12,6 @@ use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 static CURR_NUM_FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
 static CURR_POSITION: AtomicUsize = AtomicUsize::new(0);
 
-pub struct DummyAllocatorSolution {
-    start_address: usize,
-    end_address: usize,
-}
-
-impl DummyAllocatorSolution {
-    pub const fn new_in(start_address: usize, end_address: usize) -> Self {
-        DummyAllocatorSolution {
-            start_address,
-            end_address,
-        }
-    }
-
-    /*
-    Dummy Allocator does 2 things
-    1. Returns a piece of memory used to store the CoreMap Entries for actual frames
-    2. Increments the start address by the number of frames the CoreMap Entries (we do this
-    because we never want to free the region of memory storing the CoreMap Entries)
-    */
-    pub fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
-        // Don't think this will ever happen, but good to have a check for it
-        if self.start_address + (PAGE_FRAME_SIZE * frames_requested) > self.end_address {
-            return Err(AllocError);
-        }
-
-        let new_addr = (self.start_address + (PAGE_FRAME_SIZE * frames_requested))
-            .next_multiple_of(PAGE_FRAME_SIZE);
-
-        let ret = Ok(NonNull::slice_from_raw_parts(
-            NonNull::new(self.start_address as *mut u8).ok_or(AllocError)?,
-            frames_requested * PAGE_FRAME_SIZE,
-        ));
-
-        self.start_address = new_addr;
-        ret
-    }
-
-    pub fn get_start_address(&self) -> usize {
-        self.start_address
-    }
-
-    pub fn get_end_address(&self) -> usize {
-        self.end_address
-    }
-
-    pub fn set_start_address(&mut self, new_start: usize) {
-        self.start_address = new_start;
-    }
-
-    pub fn set_end_address(&mut self, new_end: usize) {
-        self.end_address = new_end;
-    }
-}
-
 // TODO: Verify the correctness of all placement policy algorithms
 #[bitfield(u8, default = 0)]
 pub struct CoreMapEntry {
@@ -87,10 +33,11 @@ pub struct FrameAllocatorSolution {
 }
 
 #[allow(unused)]
+#[allow(clippy::enum_variant_names)]
 pub enum PlacementPolicy {
-    Next,
-    First,
-    Best,
+    NextFit,
+    FirstFit,
+    BestFit,
 }
 
 impl FrameAllocator for FrameAllocatorSolution {
@@ -102,16 +49,11 @@ impl FrameAllocator for FrameAllocatorSolution {
         FrameAllocatorSolution {
             start,
             core_map,
-            placement_policy: PlacementPolicy::Next,
+            placement_policy: PlacementPolicy::NextFit,
             total_number_of_frames,
         }
     }
-
-    /*
-    Allocate the total number of requested frames
-        Success: Return a NonNull<[u8]> pointer to the start of memory address
-        Failure: Return AllocError
-     */
+    
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
         if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
             > self.total_number_of_frames
@@ -120,9 +62,9 @@ impl FrameAllocator for FrameAllocatorSolution {
         }
 
         let Some(range) = (match self.placement_policy {
-            PlacementPolicy::Next => self.next_fit(frames_requested),
-            PlacementPolicy::First => self.first_fit(frames_requested),
-            PlacementPolicy::Best => self.best_fit(frames_requested),
+            PlacementPolicy::NextFit => self.next_fit(frames_requested),
+            PlacementPolicy::FirstFit => self.first_fit(frames_requested),
+            PlacementPolicy::BestFit => self.best_fit(frames_requested),
         }) else {
             return Err(AllocError);
         };
@@ -133,12 +75,7 @@ impl FrameAllocator for FrameAllocatorSolution {
             range.len() * PAGE_FRAME_SIZE,
         ))
     }
-
-    /*
-    Deallocate a given pointer to a frame(s) and mark the frame as free
-        Success: Return the number of frames freed
-        Failure: TBD
-     */
+    
     fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize {
         let start =
             (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;

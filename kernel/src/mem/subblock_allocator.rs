@@ -3,9 +3,9 @@ use core::{
     mem::size_of,
 };
 
-use super::FrameAllocatorWrapper;
+use super::{FrameAllocator, FrameAllocatorSolution};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
-use kidneyos_shared::println;
+use kidneyos_shared::{println, eprintln};
 
 const SUBBLOCK_TYPE_COUNT: usize = 8;
 /// Allowed subblock sizes, which must be powers of 2.
@@ -14,7 +14,9 @@ const SUBBLOCK_SIZES: [usize; SUBBLOCK_TYPE_COUNT] = [16, 32, 64, 128, 256, 512,
 /// Returns the smallest subblock size that fits the given number of bytes
 /// in terms of its index in `SUBBLOCK_SIZES`. Returns SUBBLOCK_TYPE_COUNT
 /// if the requested size is larger than the largest subblock size.
-fn get_best_subblock_size_idx(num_bytes: usize) -> usize {
+fn get_best_subblock_size_idx(layout: Layout) -> usize {
+    let num_bytes = layout.size().max(layout.align());
+    
     if num_bytes > PAGE_FRAME_SIZE {
         panic!("Requested memory size larger than page frame size");
     }
@@ -30,16 +32,16 @@ struct ListNode {
     next: Option<&'static mut ListNode>,
 }
 
-pub struct SubblockAllocator {
+pub struct SubblockAllocatorSolution {
     list_heads: [Option<&'static mut ListNode>; SUBBLOCK_TYPE_COUNT],
-    frame_allocator: FrameAllocatorWrapper,
+    frame_allocator: FrameAllocatorSolution
 }
 
-impl SubblockAllocator {
-    pub fn new(frame_allocator: FrameAllocatorWrapper) -> Self {
+impl SubblockAllocatorSolution where {
+    pub fn new(frame_allocator: FrameAllocatorSolution) -> SubblockAllocatorSolution {
         const EMPTY: Option<&'static mut ListNode> = None;
 
-        SubblockAllocator {
+        SubblockAllocatorSolution {
             list_heads: [EMPTY; SUBBLOCK_TYPE_COUNT],
             frame_allocator,
         }
@@ -47,13 +49,21 @@ impl SubblockAllocator {
 
     /// Allocate a fixed size block for the size requested by 'layout'
     ///
+    /// Allocations always come from the head of each LinkedList - this is very similar to 
+    /// LinkedList.pop() operation
+    /// 
+    /// If the LinkedList is empty, a frame is allocated and dividing into chunks equal to 
+    /// the size of the subblock size corresponding to that LinkedList
+    /// 
+    /// TODO: Support allocations larger than one frame 
     pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocError> {
-        let subblock_size_index = get_best_subblock_size_idx(layout.size());
+        let subblock_size_index = get_best_subblock_size_idx(layout);
 
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
-            println!(
+            eprintln!(
                 "[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently"
             );
+            
             return Err(AllocError);
         };
 
@@ -81,23 +91,18 @@ impl SubblockAllocator {
                     return Err(AllocError);
                 }
 
-                let new_frame = match self.frame_allocator.alloc(1) {
-                    Err(AllocError) => return Err(AllocError),
-                    Ok(v) => v,
-                };
-                let start_of_frame_addr = new_frame.as_ptr() as *const u8 as usize;
+                let new_frame =  self.frame_allocator.alloc(1)?;
+
+                let start_of_frame = new_frame.as_ptr() as *const u8;
                 let num_subblocks = PAGE_FRAME_SIZE / SUBBLOCK_SIZES[subblock_size_index];
 
                 // Begin to divide the frame into the required subblock sizes
                 for i in 0..num_subblocks {
-                    let start_of_subblock_addr =
-                        start_of_frame_addr + (SUBBLOCK_SIZES[subblock_size_index] * i);
-                    let start_of_subblock_ptr = start_of_subblock_addr as *mut u8 as *mut ListNode;
-
                     let next = self.list_heads[subblock_size_index].take();
                     let new_node = ListNode { next };
 
                     unsafe {
+                        let start_of_subblock_ptr = start_of_frame.add(SUBBLOCK_SIZES[subblock_size_index] * i) as *mut ListNode;
                         start_of_subblock_ptr.write(new_node);
                         self.list_heads[subblock_size_index] = Some(&mut *start_of_subblock_ptr)
                     }
@@ -120,8 +125,10 @@ impl SubblockAllocator {
     /// make the new ListNode the head of the linked list
     ///
     /// This is very similar to linked_list.insert_head() operation
+    /// 
+    /// TODO: Figure out a way to reclaim fully freed frames
     pub fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
-        let subblock_size_index = get_best_subblock_size_idx(layout.size());
+        let subblock_size_index = get_best_subblock_size_idx(layout);
 
         assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
@@ -135,6 +142,14 @@ impl SubblockAllocator {
             self.list_heads[subblock_size_index] = Some(&mut *new_node_ptr);
         }
     }
+    
+    /// Return a mutable reference to underlying frame allocator
+    /// 
+    /// This function should be used for memory allocations that do not go through the kernel 
+    /// allocator and instead requests directly from the frame allocator
+    pub fn get_frame_allocator(&mut self) -> &mut FrameAllocatorSolution {
+        &mut self.frame_allocator
+    }
 
     /// Uninitialize the subblock and frame allocator
     ///
@@ -142,10 +157,5 @@ impl SubblockAllocator {
     /// TODO
     pub fn deinit(&mut self) -> bool {
         true
-    }
-
-    /// Return mutable reference to frame allocator
-    pub fn get_frame_allocator(&mut self) -> &mut FrameAllocatorWrapper {
-        &mut self.frame_allocator
     }
 }
