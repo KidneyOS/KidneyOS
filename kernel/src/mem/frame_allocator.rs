@@ -4,15 +4,9 @@ use super::FrameAllocator;
 use crate::mem::frame_allocator::placement_algorithms::next_fit;
 use alloc::boxed::Box;
 use bitbybit::bitfield;
-use core::{
-    alloc::AllocError,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::alloc::AllocError;
 use core::{ops::Range, ptr::NonNull};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
-
-static CURR_NUM_FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
-static CURR_POSITION: AtomicUsize = AtomicUsize::new(0);
 
 #[bitfield(u8, default = 0)]
 pub struct CoreMapEntry {
@@ -30,7 +24,13 @@ pub struct CoreMapEntry {
 pub struct FrameAllocatorSolution {
     start: NonNull<u8>,
     core_map: Box<[CoreMapEntry]>,
-    placement_algorithm: fn(&[CoreMapEntry], usize, usize) -> Result<Range<usize>, AllocError>,
+    placement_algorithm: fn(
+        core_map: &[CoreMapEntry],
+        frames_requested: usize,
+        _position: usize,
+    ) -> Result<Range<usize>, AllocError>,
+    frames_allocated: usize,
+    position: usize,
 }
 
 impl FrameAllocator for FrameAllocatorSolution {
@@ -39,29 +39,25 @@ impl FrameAllocator for FrameAllocatorSolution {
             start,
             core_map,
             placement_algorithm: next_fit,
+            frames_allocated: 0,
+            position: 0,
         }
     }
 
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
-        if CURR_NUM_FRAMES_ALLOCATED.load(Ordering::Relaxed) + frames_requested
-            > self.core_map.len()
-        {
+        if self.frames_allocated + frames_requested > self.core_map.len() {
             return Err(AllocError);
         }
 
-        let range = (self.placement_algorithm)(
-            &self.core_map,
-            frames_requested,
-            CURR_POSITION.load(Ordering::Relaxed),
-        )?;
+        let range = (self.placement_algorithm)(&self.core_map, frames_requested, self.position)?;
 
         for i in range.clone() {
             assert!(!self.core_map[i].allocated());
             self.core_map[i] = self.core_map[i].with_next(true).with_allocated(true);
         }
 
-        CURR_POSITION.store(range.end, Ordering::Relaxed);
-        CURR_NUM_FRAMES_ALLOCATED.fetch_add(frames_requested, Ordering::Relaxed);
+        self.position = range.end;
+        self.frames_allocated += frames_requested;
 
         Ok(NonNull::slice_from_raw_parts(
             NonNull::new(unsafe { self.start.as_ptr().add(range.start * PAGE_FRAME_SIZE) })
@@ -73,7 +69,7 @@ impl FrameAllocator for FrameAllocatorSolution {
     fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize {
         let start =
             (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
-        let mut num_frames_to_free = 0;
+        let mut frames_freed = 0;
 
         while start < self.core_map.len() {
             if !self.core_map[start].next() {
@@ -84,22 +80,17 @@ impl FrameAllocator for FrameAllocatorSolution {
 
             self.core_map[start] = self.core_map[start].with_next(false).with_allocated(false);
 
-            num_frames_to_free += 1;
+            frames_freed += 1;
         }
 
-        CURR_NUM_FRAMES_ALLOCATED.fetch_sub(num_frames_to_free, Ordering::Relaxed);
+        self.frames_allocated -= frames_freed;
 
-        num_frames_to_free
+        frames_freed
     }
 }
 
 impl FrameAllocatorSolution {
     pub fn has_room(&self, frames_requested: usize) -> bool {
-        (self.placement_algorithm)(
-            &self.core_map,
-            frames_requested,
-            CURR_POSITION.load(Ordering::Relaxed),
-        )
-        .is_ok()
+        (self.placement_algorithm)(&self.core_map, frames_requested, self.position).is_ok()
     }
 }

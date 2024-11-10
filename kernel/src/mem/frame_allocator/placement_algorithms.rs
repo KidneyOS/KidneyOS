@@ -2,6 +2,23 @@ use crate::mem::frame_allocator::CoreMapEntry;
 use core::alloc::AllocError;
 use core::ops::Range;
 
+/// This file contains the implementation for some common frame placement policies
+///
+/// Any implementation needs to follow the following function signature (as defined
+/// in frame_allocator.rs)
+///
+/// fn(core_map: &[CoreMapEntry], frames_requested: usize, _position: usize) -> Result<Range<usize>, AllocError>,
+///
+/// where
+///
+/// core_map: reference to a slice of all CoreMap Entries
+/// frames_requested: the number of frames requested to be allocated
+/// _position: the current position relative to the last allocation. This parameter may not be
+/// needed for certain placement policies
+///
+/// Any implementation should return a range of indices indicating the frames to be allocated
+/// on success or Err(AllocError) if there is insufficient space.
+
 pub fn next_fit(
     core_map: &[CoreMapEntry],
     frames_requested: usize,
@@ -18,11 +35,11 @@ pub fn next_fit(
 
         let mut free_frames_found = 0;
 
-        if core_map[i].allocated() {
+        if !core_map[i].allocated() {
             free_frames_found += 1;
 
             for j in 1..frames_requested {
-                if core_map[i + j].allocated() {
+                if !core_map[i + j].allocated() {
                     free_frames_found += 1;
                 }
             }
@@ -47,11 +64,11 @@ pub fn first_fit(
     for i in 0..=total_frames - frames_requested {
         let mut free_frames_found = 0;
 
-        if core_map[i].allocated() {
+        if !core_map[i].allocated() {
             free_frames_found += 1;
 
             for j in 1..frames_requested {
-                if core_map[i + j].allocated() {
+                if !core_map[i + j].allocated() {
                     free_frames_found += 1;
                 }
             }
@@ -78,7 +95,7 @@ pub fn best_fit(
     let mut i = 0;
 
     while i < total_frames {
-        if core_map[i].allocated() {
+        if !core_map[i].allocated() {
             let start_index = i;
             let mut chunk_size = 0;
 
@@ -107,4 +124,49 @@ pub fn best_fit(
     }
 
     Ok(best_start_index_so_far..best_start_index_so_far + frames_requested)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mem::frame_allocator::CoreMapEntry;
+
+    #[test]
+    fn test_placement_algorithms() {
+        let mut core_map = [CoreMapEntry::default(); 30];
+
+        let next_fit_range = next_fit(&core_map, 14, 11).unwrap();
+
+        assert_eq!(next_fit_range.start, 11);
+        assert_eq!(next_fit_range.end, 25);
+
+        for i in next_fit_range {
+            assert!(!core_map[i].allocated());
+            core_map[i] = core_map[i].with_next(true).with_allocated(true);
+        }
+
+        let first_fit_range = first_fit(&core_map, 3, 13).unwrap();
+
+        assert_eq!(first_fit_range.start, 0);
+        assert_eq!(first_fit_range.end, 3);
+
+        for i in first_fit_range {
+            assert!(!core_map[i].allocated());
+            core_map[i] = core_map[i].with_next(true).with_allocated(true);
+        }
+
+        let best_fit_range = best_fit(&core_map, 3, 29).unwrap();
+
+        assert_eq!(best_fit_range.start, 25);
+        assert_eq!(best_fit_range.end, 28);
+
+        for i in best_fit_range {
+            assert!(!core_map[i].allocated());
+            core_map[i] = core_map[i].with_next(true).with_allocated(true);
+        }
+
+        let no_room = first_fit(&core_map, 10, 30);
+
+        assert!(no_room.is_err());
+    }
 }
