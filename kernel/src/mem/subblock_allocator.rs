@@ -1,11 +1,11 @@
+use super::{FrameAllocator, FrameAllocatorSolution};
+use core::ptr::NonNull;
 use core::{
     alloc::{AllocError, Layout},
     mem::size_of,
 };
-
-use super::{FrameAllocator, FrameAllocatorSolution};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
-use kidneyos_shared::{eprintln, println};
+use kidneyos_shared::println;
 
 const SUBBLOCK_TYPE_COUNT: usize = 8;
 /// Allowed subblock sizes, which must be powers of 2.
@@ -55,16 +55,26 @@ impl SubblockAllocatorSolution {
     /// If the LinkedList is empty, a frame is allocated and dividing into chunks equal to
     /// the size of the subblock size corresponding to that LinkedList
     ///
-    /// TODO: Support allocations larger than one frame
+    /// If the allocation size is larger than the largest subblock size (2048 bytes), a frame(s)
+    /// is allocated instead of dividing into subblocks
     pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocError> {
         let subblock_size_index = get_best_subblock_size_idx(layout);
 
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
-            eprintln!(
-                "[SUBBLOCK ALLOCATOR]: Size requests larger than one frame not supported currently"
-            );
+            println!("[SUBBLOCK ALLOCATOR] Allocation is larger than subblock sizes, using frame allocator");
 
-            return Err(AllocError);
+            let num_frames = layout
+                .size()
+                .max(layout.align())
+                .next_multiple_of(PAGE_FRAME_SIZE);
+
+            if !self.frame_allocator.has_room(num_frames) {
+                return Err(AllocError);
+            }
+
+            let new_frame = self.frame_allocator.alloc(num_frames)?;
+
+            return Ok(new_frame.as_ptr() as *mut u8);
         };
 
         match self.list_heads[subblock_size_index].take() {
@@ -128,20 +138,29 @@ impl SubblockAllocatorSolution {
     ///
     /// This is very similar to linked_list.insert_head() operation
     ///
-    /// TODO: Figure out a way to reclaim fully freed frames
+    /// TODO: Reclaim fully freed frames from free subblocks
     pub fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let subblock_size_index = get_best_subblock_size_idx(layout);
 
-        assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
+        if subblock_size_index == SUBBLOCK_TYPE_COUNT {
+            println!("[SUBBLOCK ALLOCATOR] Deallocating pointer larger than subblock sizes");
+            self.frame_allocator.dealloc(NonNull::new(ptr).unwrap());
+        } else {
+            assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
-        let new_node = ListNode {
-            next: self.list_heads[subblock_size_index].take(),
-        };
+            println!(
+                "[SUBBLOCK ALLOCATOR] Deallocating subblock size: {}",
+                SUBBLOCK_SIZES[subblock_size_index]
+            );
+            let new_node = ListNode {
+                next: self.list_heads[subblock_size_index].take(),
+            };
 
-        let new_node_ptr = ptr as *mut ListNode;
-        unsafe {
-            new_node_ptr.write(new_node);
-            self.list_heads[subblock_size_index] = Some(&mut *new_node_ptr);
+            let new_node_ptr = ptr as *mut ListNode;
+            unsafe {
+                new_node_ptr.write(new_node);
+                self.list_heads[subblock_size_index] = Some(&mut *new_node_ptr);
+            }
         }
     }
 
