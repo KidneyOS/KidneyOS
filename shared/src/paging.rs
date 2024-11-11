@@ -8,7 +8,7 @@ use crate::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
     },
-    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
+    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE}, println,
 };
 use core::{
     alloc::{Allocator, Layout},
@@ -18,6 +18,7 @@ use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
 };
+
 use lazy_static::lazy_static;
 use paste::paste;
 
@@ -429,69 +430,78 @@ impl<A: Allocator> PageManager<A> {
             .all(|ptr| self.is_mapped(ptr))
     }
 
-    pub fn fork(&self, new_page_manager: &mut PageManager<A>) {
-        let page_directory = unsafe { self.root.as_ref() };
-
-        for pdi in 0..PAGE_DIRECTORY_LEN {
-            if page_directory[pdi].present() {
-                let mut new_page_table_addr = new_page_manager
-                    .alloc
-                    .allocate(PAGE_TABLE_LAYOUT)
-                    .expect("allocation failed")
-                    .cast::<PageTable>();
-
-                let new_page_table = unsafe { new_page_table_addr.as_mut() };
-                *new_page_table = PageTable::default();
-
-                let new_page_directory = unsafe { new_page_manager.root.as_mut() };
-
-                new_page_directory[pdi] = PageDirectoryEntry::default()
-                    .with_present(true)
-                    .with_read_write(page_directory[pdi].read_write())
-                    .with_user_supervisor(page_directory[pdi].user_supervisor())
-                    .with_page_table_frame(
-                        ((new_page_table_addr.as_ptr() as usize - self.phys_to_alloc_addr_offset)
-                            / size_of::<PageTable>())
-                        .try_into()
-                        .unwrap(),
-                    );
-
-                let reference_page_table =
-                    page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
-
-                for pti in 0..PAGE_TABLE_LEN {
-                    if reference_page_table[pti].present() {
-                        let new_phys_page = new_page_manager
-                            .alloc
-                            .allocate(
-                                Layout::from_size_align(PAGE_FRAME_SIZE, PAGE_FRAME_SIZE).unwrap(),
-                            )
-                            .expect("allocation failed")
-                            .cast::<u8>()
-                            .as_ptr() as usize;
-
-                        let old_phys_page = (reference_page_table[pti].page_table_frame() as usize)
-                            * PAGE_FRAME_SIZE;
-
-                        unsafe {
-                            core::ptr::copy_nonoverlapping(
-                                old_phys_page as *const u8,
-                                new_phys_page as *mut u8,
-                                PAGE_FRAME_SIZE,
-                            );
-                        }
-
-                        new_page_table[pti] = PageTableEntry::default()
-                            .with_present(true)
-                            .with_read_write(reference_page_table[pti].read_write())
-                            .with_user_supervisor(reference_page_table[pti].user_supervisor())
-                            .with_page_table_frame((new_phys_page / PAGE_FRAME_SIZE) as u32);
-                    }
-                }
-            }
+    pub fn mapped_ranges(&self) -> MappedRangesIterator {
+        MappedRangesIterator {
+            page_directory: unsafe { self.root.as_ref() },
+            phys_to_alloc_addr_offset: self.phys_to_alloc_addr_offset,
+            pdi: 0,
+            pti: 0,
+            current_range: None,
         }
     }
+
 }
+
+pub struct MappedRangesIterator<'a> {
+    page_directory: &'a PageDirectory,
+    phys_to_alloc_addr_offset: usize,
+    pdi: usize,
+    pti: usize,
+    current_range: Option<MappingRange>,
+}
+
+impl<'a> Iterator for MappedRangesIterator<'a> {
+    type Item = MappingRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.pdi < self.page_directory.len() {
+            let pd_entry = &self.page_directory[self.pdi];
+
+            if pd_entry.present() {
+                let page_table = self.page_directory.page_table(self.pdi, self.phys_to_alloc_addr_offset);
+
+                while self.pti < page_table.len() {
+                    let pt_entry = &page_table[self.pti];
+                    let virt_addr = ((self.pdi << 22) | (self.pti << 12)) + OFFSET;
+                    
+                    if pt_entry.present() {
+                        let phys_addr = (pt_entry.page_table_frame() as usize) * PAGE_FRAME_SIZE;
+                        let write = pd_entry.read_write() && pt_entry.read_write();
+                        let user = pd_entry.user_supervisor() && pt_entry.user_supervisor();
+
+                        match &mut self.current_range {
+                            Some(range) if range.write == write && range.user == user &&
+                                           range.virt_start + range.len == virt_addr => {
+                                range.len += PAGE_FRAME_SIZE;
+                            }
+                            _ => {
+                                if let Some(range) = self.current_range.take() {
+                                    self.pti += 1;
+                                    return Some(range);
+                                }
+                                self.current_range = Some(MappingRange {
+                                    phys_start: phys_addr,
+                                    virt_start: virt_addr,
+                                    len: PAGE_FRAME_SIZE,
+                                    write,
+                                    user,
+                                });
+                            }
+                        }
+                    } else if let Some(range) = self.current_range.take() {
+                        self.pti += 1;
+                        return Some(range);
+                    }
+                    self.pti += 1;
+                }
+            }
+            self.pdi += 1;
+            self.pti = 0;
+        }
+        self.current_range.take()
+    }
+}
+
 
 impl<A: Allocator + Copy> Clone for PageManager<A> {
     fn clone(&self) -> Self {

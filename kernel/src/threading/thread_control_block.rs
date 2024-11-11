@@ -189,10 +189,36 @@ impl ThreadControlBlock {
 
     pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
         let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
-        let mut page_manager = PageManager::default();
-        self.page_manager.fork(&mut page_manager);
+        let mut page_manager = PageManager::default();    
 
-        Self::new_with_page_manager(self.eip, pid, page_manager, state)
+        for mapping in self.page_manager.mapped_ranges() {
+            let phys_start = mapping.phys_start;
+            let virt_start = mapping.virt_start;
+            let len = mapping.len;
+            let writable = mapping.write;
+
+            let new_phys_addr = unsafe { KERNEL_ALLOCATOR
+                .frame_alloc(len / PAGE_FRAME_SIZE)
+                .expect("Failed to allocate frame for fork")
+                .cast::<u8>().as_ptr() } as usize;
+    
+            unsafe {
+                copy_nonoverlapping(
+                    phys_start as *const u8,
+                    new_phys_addr as *mut u8,
+                    len,
+                );
+            }
+    
+            unsafe { page_manager.map_range(phys_start, virt_start, len, writable, true) };
+        }
+    
+        let tcb = ThreadControlBlock::new_with_page_manager(self.eip, pid, page_manager, state);
+
+        ThreadControlBlock {
+            esp: self.esp,
+            ..tcb
+        }
     }
 
     pub fn new_with_page_manager(
