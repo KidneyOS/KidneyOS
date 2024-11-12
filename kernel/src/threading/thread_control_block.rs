@@ -189,10 +189,15 @@ impl ThreadControlBlock {
 
     pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
         let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
-        let mut page_manager = PageManager::default();
+        let mut page_manager = PageManager::empty();
 
         for mapping in self.page_manager.mapped_ranges() {
             let phys_start = mapping.phys_start;
+            let write_virt_addr = if phys_start != 0xB8000 {
+                phys_start + OFFSET
+            } else {
+                phys_start
+            };
             let virt_start = mapping.virt_start;
             let len = mapping.len;
             let writable = mapping.write;
@@ -206,7 +211,11 @@ impl ThreadControlBlock {
             } as usize;
 
             unsafe {
-                copy_nonoverlapping(phys_start as *const u8, new_phys_addr as *mut u8, len);
+                copy_nonoverlapping(
+                    write_virt_addr as *const u8,
+                    new_phys_addr as *mut u8,
+                    len,
+                );
             }
 
             unsafe { page_manager.map_range(phys_start, virt_start, len, writable, true) };

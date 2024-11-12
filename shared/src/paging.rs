@@ -138,7 +138,7 @@ fn virt_parts(virt_addr: usize) -> (usize, usize) {
 pub struct PageManager<A: Allocator> {
     root: NonNull<PageDirectory>,
     alloc: A,
-    phys_to_alloc_addr_offset: usize,
+    pub phys_to_alloc_addr_offset: usize,
 }
 
 const PAGE_DIRECTORY_LAYOUT: Layout = Layout::new::<PageDirectory>();
@@ -457,46 +457,66 @@ impl<'a> Iterator for MappedRangesIterator<'a> {
             let pd_entry = &self.page_directory[self.pdi];
 
             if pd_entry.present() {
-                let page_table = self
-                    .page_directory
-                    .page_table(self.pdi, self.phys_to_alloc_addr_offset);
+                // is huge page
+                if pd_entry.page_size() {
+                    let phys_addr = (pd_entry.page_table_frame() as usize) * PAGE_FRAME_SIZE;
+                    let write = pd_entry.read_write();
+                    let user = pd_entry.user_supervisor();
 
-                while self.pti < page_table.len() {
-                    let pt_entry = &page_table[self.pti];
-                    let virt_addr = ((self.pdi << 22) | (self.pti << 12)) + OFFSET;
+                    let virt_addr = (self.pdi << 22);
 
-                    if pt_entry.present() {
-                        let phys_addr = (pt_entry.page_table_frame() as usize) * PAGE_FRAME_SIZE;
-                        let write = pd_entry.read_write() && pt_entry.read_write();
-                        let user = pd_entry.user_supervisor() && pt_entry.user_supervisor();
+                    self.pdi += 1;
+                    self.pti = 0;
 
-                        match &mut self.current_range {
-                            Some(range)
+                    return Some(MappingRange {
+                        phys_start: phys_addr,
+                        virt_start: virt_addr,
+                        len: PAGE_FRAME_SIZE,
+                        write,
+                        user,
+                    })
+                } else {
+                    let page_table = self
+                        .page_directory
+                        .page_table(self.pdi, self.phys_to_alloc_addr_offset);
+
+                    while self.pti < page_table.len() {
+                        let pt_entry = &page_table[self.pti];
+                        let virt_addr = ((self.pdi << 22) | (self.pti << 12));
+
+                        if pt_entry.present() {
+                            let phys_addr = (pt_entry.page_table_frame() as usize) * PAGE_FRAME_SIZE;
+                            let write = pd_entry.read_write() && pt_entry.read_write();
+                            let user = pd_entry.user_supervisor() && pt_entry.user_supervisor();
+
+                            match &mut self.current_range {
+                                Some(range)
                                 if range.write == write
                                     && range.user == user
                                     && range.virt_start + range.len == virt_addr =>
-                            {
-                                range.len += PAGE_FRAME_SIZE;
-                            }
-                            _ => {
-                                if let Some(range) = self.current_range.take() {
-                                    self.pti += 1;
-                                    return Some(range);
+                                    {
+                                        range.len += PAGE_FRAME_SIZE;
+                                    }
+                                _ => {
+                                    if let Some(range) = self.current_range.take() {
+                                        self.pti += 1;
+                                        return Some(range);
+                                    }
+                                    self.current_range = Some(MappingRange {
+                                        phys_start: phys_addr,
+                                        virt_start: virt_addr,
+                                        len: PAGE_FRAME_SIZE,
+                                        write,
+                                        user,
+                                    });
                                 }
-                                self.current_range = Some(MappingRange {
-                                    phys_start: phys_addr,
-                                    virt_start: virt_addr,
-                                    len: PAGE_FRAME_SIZE,
-                                    write,
-                                    user,
-                                });
                             }
+                        } else if let Some(range) = self.current_range.take() {
+                            self.pti += 1;
+                            return Some(range);
                         }
-                    } else if let Some(range) = self.current_range.take() {
                         self.pti += 1;
-                        return Some(range);
                     }
-                    self.pti += 1;
                 }
             }
             self.pdi += 1;

@@ -117,6 +117,11 @@ run-qemu-ng: $(ISO)
 	# NOTE: You can quit with Ctrl-A X
 	qemu-system-i386 -nographic $(QEMU_FLAGS)
 
+.PHONY: run-qemu-ng-gdb
+run-qemu-ng-gdb: $(ISO) build/kernel.sym
+	# NOTE: You can quit with Ctrl-A X
+	qemu-system-i386 -s -S -nographic $(QEMU_FLAGS)
+
 # Docs
 
 .PHONY: docs

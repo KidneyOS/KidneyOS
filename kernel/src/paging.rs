@@ -8,11 +8,16 @@ pub type PageManager<A = Global> = paging::PageManager<A>;
 
 pub trait PageManagerDefault {
     fn default() -> Self;
+    fn empty() -> Self;
 }
 
 impl PageManagerDefault for PageManager<Global> {
     fn default() -> Self {
         PageManager::from_mapping_ranges_in(kernel_mapping_ranges(), Global, OFFSET)
+    }
+
+    fn empty() -> Self {
+        PageManager::new_in(Global, OFFSET)
     }
 }
 
