@@ -1,5 +1,4 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
-use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
@@ -1187,19 +1186,20 @@ impl RootFileSystem {
             let _ = self.close(ProcessFileDescriptor { pid, fd });
         }
         // decrement reference count to cwd
-        if let Some(pcb) = unsafe { unwrap_system() }.process.table.get(pid) {
+        if let Some(pcb) = unwrap_system().process.table.get(pid) {
+            let pcb = pcb.lock();
             let (cwd_fs, cwd_inode) = pcb.cwd;
             self.file_systems.get_mut(cwd_fs).dec_ref(cwd_inode);
         }
     }
 }
 
-pub static ROOT: Mutex<RootFileSystem> = Mutex::new(RootFileSystem::new());
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::user_program::syscall;
     use crate::vfs::tempfs::TempFS;
+    use std::ffi::CStr;
     fn test_pcb(root: &RootFileSystem) -> ProcessControlBlock {
         ProcessControlBlock {
             pid: 0,
@@ -1216,6 +1216,22 @@ mod test {
         let pid = 0;
         let fd = root.open(&test_pcb(root), path, mode)?;
         Ok(ProcessFileDescriptor { fd, pid })
+    }
+    // create file with the given contents
+    fn create(
+        root: &mut RootFileSystem,
+        name: &str,
+        mut contents: &[u8],
+    ) -> Result<ProcessFileDescriptor> {
+        let pcb = test_pcb(root);
+        let fd = root.open(&pcb, name, Mode::CreateReadWrite)?;
+        let fd = ProcessFileDescriptor { fd, pid: pcb.pid };
+        while !contents.is_empty() {
+            let n = root.write(fd, contents)?;
+            assert!(n > 0);
+            contents = &contents[n..];
+        }
+        Ok(fd)
     }
     #[test]
     fn test_one_filesystem_simple() {
@@ -1264,5 +1280,140 @@ mod test {
         ));
         root.unmount(&pcb, "/2/3").unwrap();
         root.unmount(&pcb, "/2").unwrap();
+    }
+    #[test]
+    fn unlink() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount_root(fs).unwrap();
+        let pcb = test_pcb(&root);
+        let fd = open(&mut root, "/file", Mode::CreateReadWrite).unwrap();
+        root.unlink(&pcb, "/file").unwrap();
+        // should still be able to write to file...
+        root.write(fd, b"hello").unwrap();
+        // but not open it
+        assert!(matches!(
+            root.open(&pcb, "/file", Mode::ReadWrite).unwrap_err(),
+            Error::NotFound
+        ));
+        root.close(fd).unwrap();
+        assert!(matches!(root.close(fd).unwrap_err(), Error::BadFd));
+    }
+    #[test]
+    fn link_symlink() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount_root(fs).unwrap();
+        let pcb = test_pcb(&root);
+        let fd = create(&mut root, "/file", b"hello").unwrap();
+        for method in [RootFileSystem::link, RootFileSystem::symlink] {
+            method(&mut root, &pcb, "/file", "/file2").unwrap();
+            let fd2 = open(&mut root, "/file2", Mode::ReadWrite).unwrap();
+            let info1 = root.fstat(fd).unwrap();
+            let info2 = root.fstat(fd2).unwrap();
+            assert_eq!(info1.inode, info2.inode);
+            assert_eq!(info1.size, info2.size);
+            assert_eq!(info1.nlink, info2.nlink);
+            assert_eq!(info1.size, 5);
+            root.unlink(&pcb, "/file2").unwrap();
+            root.close(fd2).unwrap();
+        }
+        root.close(fd).unwrap();
+        root.mkdir(&pcb, "/mount").unwrap();
+        root.mount(&pcb, "/mount", TempFS::new()).unwrap();
+        // make sure we can't hardlink across filesystems
+        assert!(matches!(
+            root.link(&pcb, "/file", "/mount/file").unwrap_err(),
+            Error::HardLinkBetweenFileSystems
+        ));
+        // …but we can symlink across filesystems
+        root.symlink(&pcb, "/file", "/mount/file").unwrap();
+    }
+    #[test]
+    fn rename() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount_root(fs).unwrap();
+        let pcb = test_pcb(&root);
+        let fd = create(&mut root, "/file", b"hello").unwrap();
+        root.rename(&pcb, "/file", "/file2").unwrap();
+        root.close(fd).unwrap();
+        let fd = open(&mut root, "/file2", Mode::ReadWrite).unwrap();
+        let mut buf = [0; 6];
+        assert_eq!(root.read(fd, &mut buf).unwrap(), 5);
+        assert_eq!(&buf, b"hello\0");
+    }
+    #[test]
+    fn dirents() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount_root(fs).unwrap();
+        let pcb = test_pcb(&root);
+        let fd = create(&mut root, "/file", b"test").unwrap();
+        root.close(fd).unwrap();
+        let fd = create(&mut root, "/file2", b"test").unwrap();
+        root.close(fd).unwrap();
+        root.mkdir(&pcb, "/dir").unwrap();
+        assert!(std::mem::align_of::<u64>() >= std::mem::align_of::<Dirent>());
+        let mut dirents = vec![0u64; 1024];
+        let dir = open(&mut root, "/", Mode::ReadWrite).unwrap();
+        let n = unsafe {
+            root.getdents(
+                dir,
+                dirents.as_mut_ptr().cast(),
+                dirents.len() * std::mem::size_of_val(&dirents[0]),
+            )
+        }
+        .unwrap();
+        let mut offset = 0;
+        let mut entries = vec![];
+        let dirents_ptr: *const u8 = dirents.as_ptr().cast();
+        while offset < n {
+            let dirent_ptr: *const Dirent = unsafe { dirents_ptr.add(offset).cast() };
+            assert!(dirent_ptr.is_aligned());
+            let dirent: &Dirent = unsafe { &*dirent_ptr };
+            let name_offset = std::mem::offset_of!(Dirent, name);
+            let name_ptr = unsafe { dirent_ptr.cast::<std::ffi::c_char>().add(name_offset) };
+            let name: &str = unsafe { CStr::from_ptr(name_ptr) }.to_str().unwrap();
+            entries.push((name.to_owned(), *dirent));
+            offset += usize::from(dirent.reclen);
+        }
+        // seek back to entries[2] to test that lseek works correctly for directories
+        root.lseek(dir, SeekFrom::Start, entries[2].1.offset)
+            .unwrap();
+        let n = unsafe {
+            root.getdents(
+                dir,
+                dirents.as_mut_ptr().cast(),
+                dirents.len() * std::mem::size_of_val(&dirents[0]),
+            )
+        }
+        .unwrap();
+        let dirent: Dirent = unsafe { dirents.as_ptr().cast::<Dirent>().read() };
+        assert_eq!(dirent.inode, entries[2].1.inode);
+        assert_eq!(usize::from(dirent.reclen), n);
+        // now sort the directory entries, and make sure they are correct
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(entries[0].0, "dir");
+        assert_eq!(entries[1].0, "file");
+        assert_eq!(entries[2].0, "file2");
+        assert_eq!(entries[0].1.r#type, syscall::S_DIRECTORY);
+        assert_eq!(entries[1].1.r#type, syscall::S_REGULAR_FILE);
+        assert_eq!(entries[2].1.r#type, syscall::S_REGULAR_FILE);
+    }
+    #[test]
+    fn ftruncate() {
+        let mut root = RootFileSystem::new();
+        let fs = TempFS::new();
+        root.mount_root(fs).unwrap();
+        let fd = create(&mut root, "/file", b"test").unwrap();
+        root.ftruncate(fd, 10).unwrap();
+        let stat = root.fstat(fd).unwrap();
+        assert_eq!(stat.size, 10);
+        root.lseek(fd, SeekFrom::Start, 0).unwrap();
+        let mut buf = [0; 10];
+        root.read(fd, &mut buf).unwrap();
+        assert_eq!(&buf, b"test\0\0\0\0\0\0");
+        root.close(fd).unwrap();
     }
 }

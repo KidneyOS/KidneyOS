@@ -3,7 +3,7 @@
 use crate::block::block_core::{Block, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::block::partitions::partition_core::PartitionTable;
-use crate::system::unwrap_system_mut;
+use crate::system::unwrap_system;
 use kidneyos_shared::eprintln;
 
 /// Register a partition on a block device.
@@ -19,7 +19,7 @@ pub unsafe fn register_partition(
     p_type: BlockType,
     device: usize,
 ) -> Result<(), BlockError> {
-    let block_manager = unsafe { &mut unwrap_system_mut().block_manager };
+    let block_manager = &unwrap_system().block_manager.read();
     let block_device = block_manager
         .by_id(device)
         .ok_or(BlockError::DeviceNotFound)?;
@@ -29,7 +29,7 @@ pub unsafe fn register_partition(
     }
 
     if p_type == BlockType::Swap {
-        register_swap_partition(p_start, p_size, block_device)
+        register_swap_partition(p_start, p_size, &block_device)
     } else {
         panic!("Registering partition of type {} not supported", p_type);
     }
@@ -38,7 +38,7 @@ pub unsafe fn register_partition(
 fn register_swap_partition(
     p_start: BlockSector,
     p_size: BlockSector,
-    device: &mut Block,
+    device: &Block,
 ) -> Result<(), BlockError> {
     let mut buf: [u8; BLOCK_SECTOR_SIZE] = [0; BLOCK_SECTOR_SIZE];
 

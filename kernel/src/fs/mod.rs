@@ -2,7 +2,7 @@ pub mod fat;
 pub mod fs_manager;
 pub mod syscalls;
 use crate::fs::fs_manager::Mode;
-use crate::system::running_process;
+use crate::system::{root_filesystem, running_process, running_thread_pid};
 use crate::threading::process::Pid;
 use crate::vfs::{Path, Result};
 use alloc::{vec, vec::Vec};
@@ -17,12 +17,11 @@ pub struct ProcessFileDescriptor {
 
 /// Read entire contents of file to kernel memory.
 pub fn read_file(path: &Path) -> Result<Vec<u8>> {
-    let process = unsafe { running_process() };
-    let mut root = fs_manager::ROOT.lock();
-    let fd = root.open(process, path, Mode::ReadWrite)?;
+    let mut root = root_filesystem().lock();
+    let fd = root.open(&running_process().lock(), path, Mode::ReadWrite)?;
     let fd = ProcessFileDescriptor {
         fd,
-        pid: process.pid,
+        pid: running_thread_pid(),
     };
     let mut data = vec![];
     loop {

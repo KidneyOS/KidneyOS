@@ -6,7 +6,7 @@ use crate::fs::syscalls::{
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::mem::util::{get_cstr_from_user_space, get_mut_from_user_space, CStrError};
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
+use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
@@ -34,24 +34,24 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_FORK => {
             todo!("fork syscall")
         }
-        SYS_OPEN => unsafe { open(arg0 as _, arg1) },
-        SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) },
-        SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) },
-        SYS_LSEEK64 => unsafe { lseek64(arg0, arg1 as _, arg2 as _) },
-        SYS_CLOSE => unsafe { close(arg0) },
-        SYS_CHDIR => unsafe { chdir(arg0 as _) },
-        SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) },
-        SYS_MKDIR => unsafe { mkdir(arg0 as _) },
-        SYS_RMDIR => unsafe { rmdir(arg0 as _) },
-        SYS_FSTAT => unsafe { fstat(arg0 as _, arg1 as _) },
-        SYS_UNLINK => unsafe { unlink(arg0 as _) },
-        SYS_GETDENTS => unsafe { getdents(arg0, arg1 as _, arg2 as _) },
-        SYS_LINK => unsafe { link(arg0 as _, arg1 as _) },
-        SYS_SYMLINK => unsafe { symlink(arg0 as _, arg1 as _) },
-        SYS_RENAME => unsafe { rename(arg0 as _, arg1 as _) },
-        SYS_FTRUNCATE => unsafe { ftruncate(arg0 as _, arg1 as _, arg2 as _) },
-        SYS_UNMOUNT => unsafe { unmount(arg0 as _) },
-        SYS_MOUNT => unsafe { mount(arg0 as _, arg1 as _, arg2 as _) },
+        SYS_OPEN => open(arg0 as _, arg1),
+        SYS_READ => read(arg0, arg1 as _, arg2 as _),
+        SYS_WRITE => write(arg0, arg1 as _, arg2 as _),
+        SYS_LSEEK64 => lseek64(arg0, arg1 as _, arg2 as _),
+        SYS_CLOSE => close(arg0),
+        SYS_CHDIR => chdir(arg0 as _),
+        SYS_GETCWD => getcwd(arg0 as _, arg1 as _),
+        SYS_MKDIR => mkdir(arg0 as _),
+        SYS_RMDIR => rmdir(arg0 as _),
+        SYS_FSTAT => fstat(arg0 as _, arg1 as _),
+        SYS_UNLINK => unlink(arg0 as _),
+        SYS_GETDENTS => getdents(arg0, arg1 as _, arg2 as _),
+        SYS_LINK => link(arg0 as _, arg1 as _),
+        SYS_SYMLINK => symlink(arg0 as _, arg1 as _),
+        SYS_RENAME => rename(arg0 as _, arg1 as _),
+        SYS_FTRUNCATE => ftruncate(arg0 as _, arg1 as _, arg2 as _),
+        SYS_UNMOUNT => unmount(arg0 as _),
+        SYS_MOUNT => mount(arg0 as _, arg1 as _, arg2 as _),
         SYS_SYNC => sync(),
         SYS_WAITPID => {
             todo!("waitpid syscall")
@@ -67,21 +67,17 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 return -EIO;
             };
 
+            let system = unwrap_system();
+
             let elf = Elf::parse_bytes(&data).ok();
 
             let Some(elf) = elf else { return -ENOEXEC };
 
-            let system = unsafe { unwrap_system_mut() };
-            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &mut system.process) else {
+            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &system.process) else {
                 return -ENOEXEC;
             };
 
-            unsafe {
-                unwrap_system_mut()
-                    .threads
-                    .scheduler
-                    .push(Box::new(control));
-            }
+            system.threads.scheduler.lock().push(Box::new(control));
 
             scheduler_yield_and_die();
         }
