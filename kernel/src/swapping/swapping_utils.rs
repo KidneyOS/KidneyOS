@@ -4,6 +4,7 @@ use crate::block::block_core::{Block, BlockSector};
 use crate::system::unwrap_system_mut;
 use alloc::boxed::Box;
 use core::ptr::copy_nonoverlapping;
+use kidneyos_shared::bitfield;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 const SECTOR_SIZE: u32 = 512;
@@ -23,7 +24,7 @@ pub struct SwapSpace {
     mem_limit: *mut u8,
 }
 
-// Bit 8 for swap bit.
+// Bit 9 for swap bit.
 impl SwapSpace {
     /// # Safety
     ///
