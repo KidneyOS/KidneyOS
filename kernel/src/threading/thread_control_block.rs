@@ -106,7 +106,10 @@ pub enum ThreadElfCreateError {
 }
 
 impl ThreadControlBlock {
-    pub fn new_from_elf(elf: Elf, state: &ProcessState) -> Result<ThreadControlBlock, ThreadElfCreateError> {
+    pub fn new_from_elf(
+        elf: Elf,
+        state: &ProcessState,
+    ) -> Result<ThreadControlBlock, ThreadElfCreateError> {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
