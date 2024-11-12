@@ -10,6 +10,7 @@ pub extern "C" fn _start() -> ! {
         kidneyos_syscalls::exit(1);
     } else {
         // Parent will exit with the pid of its child
+        loop {}
         kidneyos_syscalls::exit(p as usize);
     }
 

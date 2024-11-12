@@ -1,3 +1,5 @@
+use kidneyos_shared::println;
+
 use crate::system::{running_process_mut, running_thread};
 
 use super::{
@@ -10,6 +12,7 @@ pub fn exit_process(exit_code: i32) -> ! {
     pcb.exit_code = Some(exit_code);
 
     if let Some(wait_tid) = pcb.waiting_thread {
+        println!("waking wait_tid {}", wait_tid);
         thread_wakeup(wait_tid);
     }
 

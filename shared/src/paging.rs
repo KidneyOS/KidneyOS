@@ -8,7 +8,8 @@ use crate::{
         phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
         virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
     },
-    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE}, println,
+    println,
+    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
 };
 use core::{
     alloc::{Allocator, Layout},
@@ -439,7 +440,6 @@ impl<A: Allocator> PageManager<A> {
             current_range: None,
         }
     }
-
 }
 
 pub struct MappedRangesIterator<'a> {
@@ -458,20 +458,25 @@ impl<'a> Iterator for MappedRangesIterator<'a> {
             let pd_entry = &self.page_directory[self.pdi];
 
             if pd_entry.present() {
-                let page_table = self.page_directory.page_table(self.pdi, self.phys_to_alloc_addr_offset);
+                let page_table = self
+                    .page_directory
+                    .page_table(self.pdi, self.phys_to_alloc_addr_offset);
 
                 while self.pti < page_table.len() {
                     let pt_entry = &page_table[self.pti];
                     let virt_addr = ((self.pdi << 22) | (self.pti << 12)) + OFFSET;
-                    
+
                     if pt_entry.present() {
                         let phys_addr = (pt_entry.page_table_frame() as usize) * PAGE_FRAME_SIZE;
                         let write = pd_entry.read_write() && pt_entry.read_write();
                         let user = pd_entry.user_supervisor() && pt_entry.user_supervisor();
 
                         match &mut self.current_range {
-                            Some(range) if range.write == write && range.user == user &&
-                                           range.virt_start + range.len == virt_addr => {
+                            Some(range)
+                                if range.write == write
+                                    && range.user == user
+                                    && range.virt_start + range.len == virt_addr =>
+                            {
                                 range.len += PAGE_FRAME_SIZE;
                             }
                             _ => {
@@ -501,7 +506,6 @@ impl<'a> Iterator for MappedRangesIterator<'a> {
         self.current_range.take()
     }
 }
-
 
 impl<A: Allocator + Copy> Clone for PageManager<A> {
     fn clone(&self) -> Self {

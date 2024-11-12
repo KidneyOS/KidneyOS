@@ -4,9 +4,10 @@ use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
+use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
+use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut, running_thread_tid};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -68,9 +69,13 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_SYNC => sync(),
         SYS_WAITPID => {
             let wait_pid = match arg0 {
-                0 => running_thread_pid(),
+                0 => running_thread_ppid(),
                 _ => arg0 as Pid,
             };
+
+            if wait_pid == running_thread_pid() {
+                return -1;
+            }
 
             let status_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut i32) } {
                 Some(ptr) => ptr,
@@ -79,21 +84,32 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let system = unsafe { unwrap_system_mut() };
 
-            if let Some(parnet_pcb) = system.process.table.get_mut(wait_pid) {
-                if parnet_pcb.waiting_thread.is_some() {
+            let parent_pid = if let Some(parent_pcb) = system.process.table.get_mut(wait_pid) {
+                if parent_pcb.waiting_thread.is_some() {
                     return -1;
                 }
 
-                let parent_pid = parnet_pcb.pid;
+                parent_pcb.waiting_thread = Some(running_thread_tid());
 
-                thread_sleep();
+                // This section needs to be executed atomically;
+                intr_disable();
+                if parent_pcb.exit_code.is_none() {
+                    thread_sleep();
+                }
+                intr_enable();
 
-                *status_ptr = (parnet_pcb.exit_code.unwrap() & 0xff) << 8;
-                parent_pid as isize
+                *status_ptr = (parent_pcb.exit_code.unwrap() & 0xff) << 8;
+
+                parent_pcb.pid
             } else {
                 // Parent TID not found
-                -1
-            }
+                return -1;
+            };
+
+            system.process.table.remove(parent_pid);
+
+            println!("exiting wait syscall");
+            parent_pid as isize
         }
         SYS_EXECVE => {
             let thread = unsafe {

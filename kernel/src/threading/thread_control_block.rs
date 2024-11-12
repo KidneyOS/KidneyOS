@@ -108,12 +108,14 @@ impl ThreadControlBlock {
             panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
         }
 
+        // running_thread_ppid()
+
         let ppid = unsafe {
             unwrap_system()
                 .threads
                 .running_thread
                 .as_ref()
-                .map_or(0, |_| running_thread_ppid())
+                .map_or(0, |_| 0)
         };
 
         let pid: Pid = ProcessControlBlock::create(state, ppid);
@@ -188,8 +190,9 @@ impl ThreadControlBlock {
     }
 
     pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
-        let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
-        let mut page_manager = PageManager::default();    
+        // FIX THIS running_thread_ppid()
+        let pid: Pid = ProcessControlBlock::create(state, 0);
+        let mut page_manager = PageManager::default();
 
         for mapping in self.page_manager.mapped_ranges() {
             let phys_start = mapping.phys_start;
@@ -197,22 +200,21 @@ impl ThreadControlBlock {
             let len = mapping.len;
             let writable = mapping.write;
 
-            let new_phys_addr = unsafe { KERNEL_ALLOCATOR
-                .frame_alloc(len / PAGE_FRAME_SIZE)
-                .expect("Failed to allocate frame for fork")
-                .cast::<u8>().as_ptr() } as usize;
-    
+            let new_phys_addr = unsafe {
+                KERNEL_ALLOCATOR
+                    .frame_alloc(len / PAGE_FRAME_SIZE)
+                    .expect("Failed to allocate frame for fork")
+                    .cast::<u8>()
+                    .as_ptr()
+            } as usize;
+
             unsafe {
-                copy_nonoverlapping(
-                    phys_start as *const u8,
-                    new_phys_addr as *mut u8,
-                    len,
-                );
+                copy_nonoverlapping(phys_start as *const u8, new_phys_addr as *mut u8, len);
             }
-    
+
             unsafe { page_manager.map_range(phys_start, virt_start, len, writable, true) };
         }
-    
+
         let tcb = ThreadControlBlock::new_with_page_manager(self.eip, pid, page_manager, state);
 
         ThreadControlBlock {
