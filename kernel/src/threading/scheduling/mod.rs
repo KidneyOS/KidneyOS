@@ -8,9 +8,9 @@ use alloc::boxed::Box;
 
 use super::{context_switch::switch_threads, thread_control_block::ThreadStatus};
 use crate::interrupts::{intr_get_level, mutex_irq::hold_interrupts, IntrLevel};
-use crate::system::unwrap_system_mut;
+use crate::system::unwrap_system;
 
-pub fn create_scheduler() -> Box<dyn Scheduler> {
+pub fn create_scheduler() -> Box<dyn Scheduler + Send> {
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
 
     // SAFETY: Interrupts should be off.
@@ -21,23 +21,24 @@ pub fn create_scheduler() -> Box<dyn Scheduler> {
 fn scheduler_yield(status_for_current_thread: ThreadStatus) {
     let _guard = hold_interrupts();
 
-    // SAFETY: Threads and Scheduler must be initialized and active.
-    // Interrupts must be disabled.
-    unsafe {
-        let scheduler = unwrap_system_mut().threads.scheduler.as_mut();
+    let mut scheduler = unwrap_system().threads.scheduler.lock();
 
-        while let Some(switch_to) = scheduler.pop() {
-            // Check if the thread is not blocked.
-            match switch_to.as_ref().status {
-                ThreadStatus::Blocked => {
-                    // If the thread is blocked, push it back onto the scheduler.
-                    scheduler.push(switch_to);
-                }
-                _ => {
+    while let Some(switch_to) = scheduler.pop() {
+        // Check if the thread is not blocked.
+        match switch_to.as_ref().status {
+            ThreadStatus::Blocked => {
+                // If the thread is blocked, push it back onto the scheduler.
+                scheduler.push(switch_to);
+            }
+            _ => {
+                drop(scheduler);
+                // SAFETY: Threads and Scheduler must be initialized and active.
+                // Interrupts must be disabled.
+                unsafe {
                     // Do not switch to ourselves.
                     switch_threads(status_for_current_thread, switch_to);
-                    break;
                 }
+                break;
             }
         }
     }

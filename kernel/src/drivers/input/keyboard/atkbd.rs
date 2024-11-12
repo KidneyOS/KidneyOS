@@ -187,7 +187,7 @@ pub fn on_keyboard_interrupt() {
         }
 
         // Add to buffer
-        unsafe { unwrap_system().input_buffer.lock().putc(c) };
+        unwrap_system().input_buffer.lock().putc(c);
     } else {
         // Modifier keys
 
