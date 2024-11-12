@@ -16,7 +16,6 @@ use core::{
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-use kidneyos_shared::println;
 use kidneyos_shared::sizes::KB;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
@@ -24,7 +23,7 @@ use kidneyos_shared::sizes::KB;
 // Windows: https://techcommunity.microsoft.com/t5/windows-blog-archive/pushing-the-limits-of-windows-processes-and-threads/ba-p/723824
 pub const KERNEL_THREAD_STACK_FRAMES: usize = 2;
 const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
-pub const USER_THREAD_STACK_FRAMES: usize = KB >> 2;
+pub const USER_THREAD_STACK_FRAMES: usize = KB << 2;
 pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
 
@@ -190,37 +189,35 @@ impl ThreadControlBlock {
 
     pub fn new_from_fork(&self, state: &mut ProcessState) -> ThreadControlBlock {
         let pid: Pid = ProcessControlBlock::create(state, running_thread_ppid());
-        let tid: Tid = state.allocate_tid();
+        let mut page_manager = PageManager::default();
 
-        let mut page_manager = self.page_manager.clone();
-        unsafe { page_manager.zero_page_table() }
+        for mapping in self.page_manager.mapped_ranges() {
+            let phys_start = mapping.phys_start;
+            let virt_start = mapping.virt_start;
+            let len = mapping.len;
+            let writable = mapping.write;
 
-        let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
+            let new_phys_addr = unsafe {
+                KERNEL_ALLOCATOR
+                    .frame_alloc(len / PAGE_FRAME_SIZE)
+                    .expect("Failed to allocate frame for fork")
+                    .cast::<u8>()
+                    .as_ptr()
+            } as usize;
 
-        let new_tcb: ThreadControlBlock = Self {
-            kernel_stack_pointer,
-            kernel_stack,
-            user_stack,
-            page_manager,
-            pid,
-            tid,
-            status: ThreadStatus::Ready,
-            ..*self
-        };
+            unsafe {
+                copy_nonoverlapping(phys_start as *const u8, new_phys_addr as *mut u8, len);
+            }
 
-        unsafe {
-            copy_nonoverlapping(
-                self.kernel_stack.as_ptr(),
-                new_tcb.kernel_stack.as_ptr(),
-                KERNEL_THREAD_STACK_SIZE,
-            );
-            copy_nonoverlapping(
-                self.user_stack.as_ptr(),
-                new_tcb.user_stack.as_ptr(),
-                USER_THREAD_STACK_SIZE,
-            )
+            unsafe { page_manager.map_range(phys_start, virt_start, len, writable, true) };
         }
-        new_tcb
+
+        let tcb = ThreadControlBlock::new_with_page_manager(self.eip, pid, page_manager, state);
+
+        ThreadControlBlock {
+            esp: self.esp,
+            ..tcb
+        }
     }
 
     pub fn new_with_page_manager(

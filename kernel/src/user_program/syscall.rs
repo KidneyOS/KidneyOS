@@ -4,17 +4,20 @@ use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
+use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
+use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut, running_thread_tid};
 use crate::threading::process::Pid;
+use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
-use crate::threading::thread_functions;
 use crate::threading::thread_sleep::thread_sleep;
 use crate::user_program::elf::Elf;
+use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
+use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
 
@@ -29,7 +32,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
         SYS_EXIT => {
-            thread_functions::exit_thread(arg0 as i32);
+            process_functions::exit_process(arg0 as i32);
         }
         SYS_FORK => {
             let system = unsafe { unwrap_system_mut() };
@@ -66,9 +69,13 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_SYNC => sync(),
         SYS_WAITPID => {
             let wait_pid = match arg0 {
-                0 => running_thread_pid(),
+                0 => running_thread_ppid(),
                 _ => arg0 as Pid,
             };
+
+            if wait_pid == running_thread_pid() {
+                return -1;
+            }
 
             let status_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut i32) } {
                 Some(ptr) => ptr,
@@ -77,18 +84,32 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let system = unsafe { unwrap_system_mut() };
 
-            let Some(wait_pcb) = system.process.table.get_mut(wait_pid) else {
+            let parent_pid = if let Some(parent_pcb) = system.process.table.get_mut(wait_pid) {
+                if parent_pcb.waiting_thread.is_some() {
+                    return -1;
+                }
+
+                parent_pcb.waiting_thread = Some(running_thread_tid());
+
+                // This section needs to be executed atomically;
+                intr_disable();
+                if parent_pcb.exit_code.is_none() {
+                    thread_sleep();
+                }
+                intr_enable();
+
+                *status_ptr = (parent_pcb.exit_code.unwrap() & 0xff) << 8;
+
+                parent_pcb.pid
+            } else {
+                // Parent TID not found
                 return -1;
-            }; 
+            };
 
-            while wait_pcb.exit_code.is_none() {
-                thread_sleep();
-            }
+            system.process.table.remove(parent_pid);
 
-            *status_ptr = (wait_pcb.exit_code.unwrap() & 0xff) << 8;
-            system.process.table.remove(wait_pid);
-            
-            wait_pid as isize
+            println!("exiting wait syscall");
+            parent_pid as isize
         }
         SYS_EXECVE => {
             let thread = unsafe {
@@ -139,9 +160,16 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 return -1;
             };
 
-            println!("{:?}", timespec);
             *timespec_ptr = timespec;
             0
+        }
+        SYS_GETRANDOM => {
+            let Some(buffer_ptr) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
+                return -1;
+            };
+
+            let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
+            getrandom(buffer, arg1, arg2)
         }
         _ => -ENOSYS,
     }
