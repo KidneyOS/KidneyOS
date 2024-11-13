@@ -44,7 +44,13 @@ pub unsafe fn clean_up_thread(mut dying_thread: Box<ThreadControlBlock>) {
     // Page manager must be loaded to be dropped.
     dying_thread.page_manager.load();
     drop(dying_thread);
-    threads.running_thread.lock().as_ref().unwrap().page_manager.load();
+    threads
+        .running_thread
+        .lock()
+        .as_ref()
+        .unwrap()
+        .page_manager
+        .load();
 }
 
 // Focibly stops the thread specified by Tid
