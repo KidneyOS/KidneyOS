@@ -94,3 +94,52 @@ impl FrameAllocatorSolution {
         (self.placement_algorithm)(&self.core_map, frames_requested, self.position).is_ok()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::{
+        alloc::{Allocator, Global, Layout},
+        error::Error,
+    };
+
+    #[test]
+    fn test_alloc() -> Result<(), Box<dyn Error>> {
+        const NUM_FRAMES: usize = 16;
+
+        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
+        let region = Global.allocate(layout)?;
+
+        let mut frame_allocator =
+            FrameAllocatorSolution::new_in(region.cast::<u8>(), Box::new(core_map));
+
+        // Check that the frame allocator reports to have room for exactly 16 frames
+        assert!(frame_allocator.has_room(16));
+        assert!(!frame_allocator.has_room(17));
+
+        let frame = frame_allocator.alloc(1)?;
+
+        // Check that the first allocation returns the first frame
+        assert!(region.cast::<u8>() == frame.cast::<u8>());
+        assert!(frame_allocator.core_map[0].allocated());
+        assert!(frame_allocator.frames_allocated == 1);
+        assert!(frame_allocator.position == 1);
+
+        let more_frames = frame_allocator.alloc(5)?;
+
+        assert!(
+            more_frames.cast::<u8>() == unsafe { region.cast::<u8>().byte_add(PAGE_FRAME_SIZE) }
+        );
+
+        // In total we have allocated the 6 frames at the start of region
+        assert!(frame_allocator.frames_allocated == 6);
+        assert!(frame_allocator.position == 6);
+        // Check that core map was also correctly updated
+        assert!(frame_allocator.has_room(10));
+        assert!(!frame_allocator.has_room(11));
+
+        Ok(())
+    }
+}
