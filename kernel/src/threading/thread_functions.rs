@@ -1,6 +1,6 @@
 use super::process::Tid;
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
-use crate::system::unwrap_system_mut;
+use crate::system::unwrap_system;
 use crate::{
     interrupts::{intr_disable, intr_enable},
     threading::scheduling::scheduler_yield_and_die,
@@ -26,36 +26,30 @@ pub fn exit_thread(exit_code: i32) -> ! {
     // We will never return here so do not need to re-enable interrupts from here.
     intr_disable();
 
-    // Get the current thread.
-    // SAFETY: Interrupts must be off.
-    unsafe {
-        let threads = &mut unwrap_system_mut().threads;
-        let mut current_thread = threads
-            .running_thread
-            .take()
-            .expect("Why is nothing running!?");
-        current_thread.set_exit_code(exit_code);
-
-        // Replace and yield.
-        threads.running_thread = Some(current_thread);
-        scheduler_yield_and_die();
-    }
+    // Set current thread's exit code.
+    let threads = &unwrap_system().threads;
+    let mut guard = threads.running_thread.lock();
+    let mut current_thread = guard.as_mut().expect("Why is nothing running!?");
+    current_thread.set_exit_code(exit_code);
+    drop(guard);
+    // Yield.
+    scheduler_yield_and_die();
 }
 
 pub unsafe fn clean_up_thread(mut dying_thread: Box<ThreadControlBlock>) {
-    let threads = &mut unwrap_system_mut().threads;
+    let threads = &unwrap_system().threads;
 
     dying_thread.reap();
 
     // Page manager must be loaded to be dropped.
     dying_thread.page_manager.load();
     drop(dying_thread);
-    threads.running_thread.as_ref().unwrap().page_manager.load();
+    threads.running_thread.lock().as_ref().unwrap().page_manager.load();
 }
 
 // Focibly stops the thread specified by Tid
 pub fn stop_thread(tid: Tid) {
-    let scheduler = unsafe { unwrap_system_mut().threads.scheduler.as_mut() };
+    let mut scheduler = unwrap_system().threads.scheduler.lock();
     let tcb = scheduler.remove(tid).expect("Why is nothing running !?");
     unsafe { clean_up_thread(tcb) };
 }
@@ -65,7 +59,7 @@ unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
     switched_to: *mut ThreadControlBlock,
 ) -> ! {
-    let threads = &mut unwrap_system_mut().threads;
+    let threads = &unwrap_system().threads;
     let mut switched_to = Box::from_raw(switched_to);
 
     // We assume that switched_from had its status changed already.
@@ -74,17 +68,22 @@ unsafe extern "C" fn run_thread(
 
     TASK_STATE_SEGMENT.esp0 = switched_to.kernel_stack.as_ptr() as u32;
 
-    let ThreadControlBlock { eip, esp, pid, .. } = *switched_to;
+    let ThreadControlBlock {
+        eip,
+        esp,
+        is_kernel,
+        ..
+    } = *switched_to;
 
     // Reschedule our threads.
-    threads.running_thread = Some(switched_to);
+    *threads.running_thread.lock() = Some(switched_to);
 
     let switched_from = Box::from_raw(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
         clean_up_thread(switched_from);
     } else {
-        threads.scheduler.push(switched_from);
+        threads.scheduler.lock().push(switched_from);
     }
 
     // Our scheduler will operate without interrupts.
@@ -92,9 +91,9 @@ unsafe extern "C" fn run_thread(
     intr_enable();
 
     // Kernel threads have no associated PCB, denoted by its PID being 0
-    if pid == 0 {
-        let entry_function = eip.as_ptr() as *const ThreadFunction;
-        let exit_code = (*entry_function)();
+    if is_kernel {
+        let entry_function: ThreadFunction = unsafe { core::mem::transmute(eip.as_ptr()) };
+        let exit_code = entry_function();
 
         // Safely exit the thread.
         exit_thread(exit_code);

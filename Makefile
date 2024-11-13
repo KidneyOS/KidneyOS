@@ -101,7 +101,8 @@ run-bochs: $(ISO)
 # QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO)
 QEMU_FLAGS := -no-reboot -no-shutdown -m 4G -d int,mmu,pcall,cpu_reset,guest_errors -cdrom $(ISO) \
 			  -drive format=raw,file=${ATADISK},if=ide \
-			  -boot d
+			  -boot d \
+			  -cpu Haswell,+rdrand
 
 .PHONY: run-qemu
 run-qemu: $(ISO)
@@ -115,6 +116,11 @@ run-qemu-gdb: $(ISO) build/kernel.sym
 run-qemu-ng: $(ISO)
 	# NOTE: You can quit with Ctrl-A X
 	qemu-system-i386 -nographic $(QEMU_FLAGS)
+
+.PHONY: run-qemu-ng-gdb
+run-qemu-ng-gdb: $(ISO) build/kernel.sym
+	# NOTE: You can quit with Ctrl-A X
+	qemu-system-i386 -nographic -s -S $(QEMU_FLAGS)
 
 # Docs
 

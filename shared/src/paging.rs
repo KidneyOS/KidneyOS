@@ -24,7 +24,7 @@ use paste::paste;
 const PAGE_DIRECTORY_LEN: usize = PAGE_FRAME_SIZE / size_of::<PageDirectoryEntry>();
 
 #[derive(Clone)]
-#[repr(align(4096))]
+#[repr(align(4096), C)]
 struct PageDirectory([PageDirectoryEntry; PAGE_DIRECTORY_LEN]);
 
 impl Default for PageDirectory {
@@ -53,11 +53,9 @@ impl PageDirectory {
         &self,
         page_directory_index: usize,
         phys_to_alloc_addr_offset: usize,
-    ) -> &mut PageTable {
+    ) -> *mut PageTable {
         let page_table_frame = self[page_directory_index].page_table_frame() as usize;
-        let page_table_addr = ((page_table_frame * size_of::<PageTable>())
-            + phys_to_alloc_addr_offset) as *mut PageTable;
-        unsafe { &mut *page_table_addr }
+        ((page_table_frame * size_of::<PageTable>()) + phys_to_alloc_addr_offset) as *mut PageTable
     }
 }
 
@@ -77,7 +75,7 @@ bitfield!(
 
 const PAGE_TABLE_LEN: usize = PAGE_FRAME_SIZE / size_of::<PageTableEntry>();
 
-#[repr(align(4096))]
+#[repr(align(4096), C)]
 struct PageTable([PageTableEntry; PAGE_TABLE_LEN]);
 
 impl Default for PageTable {
@@ -134,6 +132,7 @@ fn virt_parts(virt_addr: usize) -> (usize, usize) {
 }
 
 /// Wraps lower-level paging data structures.
+#[derive(Debug)]
 pub struct PageManager<A: Allocator> {
     root: NonNull<PageDirectory>,
     alloc: A,
@@ -392,10 +391,8 @@ impl<A: Allocator> PageManager<A> {
         self.map_range(start, start, frames_len, write, user);
     }
 
-    /// Returns true if this `pointer` is mapped in this PageManager.
-    ///
-    /// This doesn't return a &PageEntry because it would work strangely with huge pages.
-    pub fn is_mapped(&self, pointer: usize) -> bool {
+    /// Returns whether `pointer` is valid for reads if `write = false`, and writes if `write = true`.
+    pub fn can_access(&self, pointer: usize, write: bool) -> bool {
         let (pdi, pti) = virt_parts(pointer);
 
         let page_directory = unsafe { self.root.as_ref() };
@@ -407,26 +404,54 @@ impl<A: Allocator> PageManager<A> {
             return false;
         }
 
-        // Huge, page, this point is mapped.
         if entry.page_size() {
-            return true;
+            // Huge page
+            return !write || entry.read_write();
         }
 
-        // A bit unsettling...
-        let page_table = &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset);
-
-        page_table.0[pti].present()
+        let page_table =
+            unsafe { &*page_directory.page_table(pdi, self.phys_to_alloc_addr_offset) };
+        let entry = &page_table.0[pti];
+        if !entry.present() {
+            return false;
+        }
+        !write || entry.read_write()
     }
 
-    /// Returns true if `count` bytes after `pointer` are mapped in this PageManager.
-    pub fn is_range_mapped(&self, pointer: usize, count: usize) -> bool {
+    /// Returns whether `pointer..pointer+count` is valid for reads if `write = false`, and writes if `write = true`.
+    pub fn can_access_range(&self, pointer: usize, count: usize, write: bool) -> bool {
+        let Some(end) = pointer.checked_add(count) else {
+            return false;
+        };
         // Align downwards.
         let start = (pointer / PAGE_FRAME_SIZE) * PAGE_FRAME_SIZE;
 
         // Check if each 4K page is mapped.
-        (start..pointer + count)
+        (start..end)
             .step_by(PAGE_FRAME_SIZE)
-            .all(|ptr| self.is_mapped(ptr))
+            .all(|ptr| self.can_access(ptr, write))
+    }
+
+    /// Returns true if this `pointer` is mapped in this PageManager.
+    ///
+    /// This doesn't return a &PageEntry because it would work strangely with huge pages.
+    pub fn is_mapped(&self, pointer: usize) -> bool {
+        self.can_access(pointer, false)
+    }
+
+    /// Returns true if `count` bytes after `pointer` are mapped in this PageManager.
+    pub fn is_range_mapped(&self, pointer: usize, count: usize) -> bool {
+        self.can_access_range(pointer, count, false)
+    }
+
+    /// Returns true if `pointer` is writeable in this PageManager.
+    pub fn is_writeable(&self, pointer: usize) -> bool {
+        self.can_access(pointer, true)
+    }
+
+    /// Returns true if `count` bytes after `pointer` are writeable in this PageManager.
+    pub fn is_range_writeable(&self, pointer: usize, count: usize) -> bool {
+        self.can_access_range(pointer, count, true)
     }
 }
 

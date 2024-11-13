@@ -5,7 +5,7 @@ use crate::{
 use core::mem::offset_of;
 
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
-use crate::system::unwrap_system_mut;
+use crate::system::unwrap_system;
 use alloc::boxed::Box;
 
 /// Public facing method to perform a context switch between two threads.
@@ -16,13 +16,13 @@ pub unsafe fn switch_threads(
     status_for_current_thread: ThreadStatus,
     switch_to: Box<ThreadControlBlock>,
 ) {
-    let threads = &mut unwrap_system_mut().threads;
-
     assert_eq!(intr_get_level(), IntrLevel::IntrOff);
+    let threads = &unwrap_system().threads;
 
     let switch_from = Box::into_raw(
         threads
             .running_thread
+            .lock()
             .take()
             .expect("Why is nothing running!?"),
     );
@@ -54,12 +54,12 @@ pub unsafe fn switch_threads(
     (*switch_from).status = ThreadStatus::Running;
 
     // After threads have switched, we must update the scheduler and running thread.
-    threads.running_thread = Some(Box::from_raw(switch_from));
+    *threads.running_thread.lock() = Some(Box::from_raw(switch_from));
 
     if previous.status == ThreadStatus::Dying {
         clean_up_thread(previous);
     } else {
-        threads.scheduler.push(previous);
+        threads.scheduler.lock().push(previous);
     }
 }
 

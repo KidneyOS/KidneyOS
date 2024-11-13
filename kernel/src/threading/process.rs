@@ -1,6 +1,7 @@
 use super::thread_control_block::ProcessControlBlock;
-use alloc::boxed::Box;
+use crate::sync::{mutex::Mutex, rwlock::sleep::RwLock};
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU16, Ordering};
 
 pub type Pid = u16;
@@ -10,7 +11,7 @@ pub type AtomicTid = AtomicU16;
 
 #[derive(Default)]
 pub struct ProcessTable {
-    content: BTreeMap<Pid, Box<ProcessControlBlock>>,
+    content: RwLock<BTreeMap<Pid, Arc<Mutex<ProcessControlBlock>>>>,
 }
 
 pub struct ProcessState {
@@ -47,25 +48,22 @@ impl ProcessState {
 }
 
 impl ProcessTable {
-    pub fn add(&mut self, pcb: Box<ProcessControlBlock>) {
+    pub fn add(&self, pcb: ProcessControlBlock) {
+        let mut content = self.content.write();
         assert!(
-            !self.content.contains_key(&pcb.pid),
+            !content.contains_key(&pcb.pid),
             "PCB with pid {} already added to process table.",
             pcb.pid
         );
-        self.content.insert(pcb.pid, pcb);
+        content.insert(pcb.pid, Arc::new(Mutex::new(pcb)));
     }
 
     #[allow(dead_code)]
-    pub fn remove(&mut self, pid: Pid) -> Option<Box<ProcessControlBlock>> {
-        self.content.remove(&pid)
+    pub fn remove(&self, pid: Pid) -> Option<Arc<Mutex<ProcessControlBlock>>> {
+        self.content.write().remove(&pid)
     }
 
-    pub fn get(&self, pid: Pid) -> Option<&ProcessControlBlock> {
-        self.content.get(&pid).map(|pcb| &**pcb)
-    }
-
-    pub fn get_mut(&mut self, pid: Pid) -> Option<&mut ProcessControlBlock> {
-        self.content.get_mut(&pid).map(|pcb| &mut **pcb)
+    pub fn get(&self, pid: Pid) -> Option<Arc<Mutex<ProcessControlBlock>>> {
+        self.content.read().get(&pid).cloned()
     }
 }
