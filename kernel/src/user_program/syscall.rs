@@ -7,7 +7,7 @@ use crate::fs::syscalls::{
 use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system, running_process};
+use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
