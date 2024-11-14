@@ -18,8 +18,8 @@ use core::{
 use dummy_allocator::DummyAllocatorSolution;
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
 use kidneyos_shared::{
-    mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
-    println,
+    mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE}
+    ,
     sizes::{KB, MB},
 };
 use subblock_allocator::SubblockAllocatorSolution;
@@ -33,21 +33,19 @@ const MAX_SUPPORTED_ALIGN: usize = 4096;
 const UPPER_MEMORY_START: usize = MB + OFFSET;
 
 trait FrameAllocator {
-    /// Creates a new FrameAllocator starting at "start" and using the provided "core_map"
-    ///
-    fn new_in(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>) -> Self;
-
     /// Allocates "frames_requested" number of contiguous frames
     ///
     /// This function should return a pointer to the start of the memory region on success and
     /// AllocError on failure
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>;
 
-    /// Deallocates the frame or frames pointed to by "ptr_to_dealloc"
+    /// Deallocates the frame or frames pointed to by "ptr_to_dealloc" according to layout
     ///
     /// This function should return the number of frames deallocated on success
-    /// TODO: Add what this does on failure (i.e. if the pointer is invalid)
-    fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize;
+    ///
+    /// This function is unsafe because "ptr_to_dealloc" the caller must ensure that
+    /// ptr_to_dealloc must be owned by the allocator
+    unsafe fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize;
 }
 
 // halt is used for cases where we would panic in KernelAllocator, but can't
@@ -122,22 +120,15 @@ impl KernelAllocator {
 
         // This should ALWAYS be the first global allocation to take place - should use dummy allocator
         //
-        println!("[KERNEL ALLOCATOR]: Creating Coremap Entries for Frame Allocator");
         let core_map: Box<[CoreMapEntry]> =
             vec![CoreMapEntry::DEFAULT; num_frames_in_system].into_boxed_slice();
-        println!("[KERNEL ALLOCATOR]: Finished creating Coremap Entries for Frame Allocator");
 
         // Check that the dummy allocator actually updated its internal state
         // I.e. the start address should have moved to accommodate Coremap Entries
         // The Coremap should take up 128 frames
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
-        println!(
-            "[KERNEL ALLOCATOR]: Frame Base Address: {}, Dummy Allocator Start Address: {}",
-            frames_base_address,
-            dummy_allocator.get_start_address()
-        );
 
-        let frame_allocator = FrameAllocatorSolution::new_in(
+        let frame_allocator = FrameAllocatorSolution::new(
             NonNull::new(dummy_allocator.get_start_address() as *mut u8)
                 .expect("frames_base can't be null"),
             core_map,
@@ -161,7 +152,7 @@ impl KernelAllocator {
             halt!("[KERNEL ALLOCATOR]: Dealloc called on DeInitialized or SetupState kernel");
         };
 
-        subblock_allocator.get_frame_allocator().dealloc(ptr);
+        unsafe { subblock_allocator.get_frame_allocator().dealloc(ptr) };
     }
 
     pub fn deinit(&mut self) {
@@ -199,8 +190,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if FIRST_ALLOCATION.load(Ordering::Relaxed) {
             // If we are here, it should be the dummy allocator doing the allocation
-            println!("[KERNEL ALLOCATOR]: Beginning Dummy Allocation for Coremap Entries");
-
             let KernelAllocatorState::SetupState { dummy_allocator } = &mut *self.state.get()
             else {
                 halt!("[KERNEL ALLOCATOR]: Kernel initialized before Coremap Entries created")
@@ -264,6 +253,8 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 }
 
+// These tests do not use our global allocator
+// TODO: Find a way to test the subblock/global allocator
 #[cfg(test)]
 mod test {
     use alloc::{boxed::Box, vec::Vec};

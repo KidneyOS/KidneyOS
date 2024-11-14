@@ -108,9 +108,7 @@ pub fn best_fit(
                 i += 1;
             }
 
-            if chunk_size >= frames_requested
-                && chunk_size - frames_requested < best_chunk_size_so_far
-            {
+            if chunk_size >= frames_requested && chunk_size < best_chunk_size_so_far {
                 best_chunk_size_so_far = chunk_size;
                 best_start_index_so_far = start_index;
             }
@@ -131,42 +129,36 @@ mod tests {
     use super::*;
     use crate::mem::frame_allocator::CoreMapEntry;
 
+    fn fill_in_coremap(core_map: &mut [CoreMapEntry], indices: Range<usize>) {
+        for i in indices {
+            assert!(!core_map[i].allocated());
+            core_map[i] = core_map[i].with_next(true).with_allocated(true);
+        }
+    }
+
     #[test]
     fn test_placement_algorithms() {
         let mut core_map = [CoreMapEntry::default(); 30];
 
         let next_fit_range = next_fit(&core_map, 14, 11).unwrap();
-
         assert_eq!(next_fit_range.start, 11);
         assert_eq!(next_fit_range.end, 25);
 
-        for i in next_fit_range {
-            assert!(!core_map[i].allocated());
-            core_map[i] = core_map[i].with_next(true).with_allocated(true);
-        }
+        fill_in_coremap(&mut core_map, next_fit_range.clone());
 
         let first_fit_range = first_fit(&core_map, 3, 13).unwrap();
-
         assert_eq!(first_fit_range.start, 0);
         assert_eq!(first_fit_range.end, 3);
 
-        for i in first_fit_range {
-            assert!(!core_map[i].allocated());
-            core_map[i] = core_map[i].with_next(true).with_allocated(true);
-        }
+        fill_in_coremap(&mut core_map, first_fit_range.clone());
 
         let best_fit_range = best_fit(&core_map, 3, 29).unwrap();
-
         assert_eq!(best_fit_range.start, 25);
         assert_eq!(best_fit_range.end, 28);
 
-        for i in best_fit_range {
-            assert!(!core_map[i].allocated());
-            core_map[i] = core_map[i].with_next(true).with_allocated(true);
-        }
+        fill_in_coremap(&mut core_map, best_fit_range.clone());
 
         let no_room = first_fit(&core_map, 10, 30);
-
         assert!(no_room.is_err());
     }
 }

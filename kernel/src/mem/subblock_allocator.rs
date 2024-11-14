@@ -5,7 +5,6 @@ use core::{
     mem::size_of,
 };
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
-use kidneyos_shared::println;
 
 const SUBBLOCK_TYPE_COUNT: usize = 8;
 /// Allowed subblock sizes, which must be powers of 2.
@@ -61,8 +60,6 @@ impl SubblockAllocatorSolution {
         let subblock_size_index = get_best_subblock_size_idx(layout);
 
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
-            println!("[SUBBLOCK ALLOCATOR] Allocation is larger than subblock sizes, using frame allocator");
-
             let num_frames = layout
                 .size()
                 .max(layout.align())
@@ -82,10 +79,6 @@ impl SubblockAllocatorSolution {
                 // Set the new list head to be the next node from the current node
                 //
                 // Think of this as doing a linked_list.pop_from_head() operation
-                println!(
-                    "[SUBBLOCK ALLOCATOR]: List head exists, allocating subblock size: {}",
-                    SUBBLOCK_SIZES[subblock_size_index]
-                );
                 self.list_heads[subblock_size_index] = node.next.take();
                 Ok(node as *mut ListNode as *mut u8)
             }
@@ -94,7 +87,6 @@ impl SubblockAllocatorSolution {
                 //
                 // We first have to make sure the subblock size has enough room to hold a ListNode
                 // This should always be the case, but we check regardless
-                println!("[SUBBLOCK ALLOCATOR]: List head does not exist, requesting frame for subblock size: {}", SUBBLOCK_SIZES[subblock_size_index]);
                 assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
                 if !self.frame_allocator.has_room(1) {
@@ -139,28 +131,21 @@ impl SubblockAllocatorSolution {
     /// This is very similar to linked_list.insert_head() operation
     ///
     /// TODO: Reclaim fully freed frames from free subblocks
-    pub fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
+    pub unsafe fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let subblock_size_index = get_best_subblock_size_idx(layout);
 
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
-            println!("[SUBBLOCK ALLOCATOR] Deallocating pointer larger than subblock sizes");
             self.frame_allocator.dealloc(NonNull::new(ptr).unwrap());
         } else {
             assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
 
-            println!(
-                "[SUBBLOCK ALLOCATOR] Deallocating subblock size: {}",
-                SUBBLOCK_SIZES[subblock_size_index]
-            );
             let new_node = ListNode {
                 next: self.list_heads[subblock_size_index].take(),
             };
 
             let new_node_ptr = ptr as *mut ListNode;
-            unsafe {
-                new_node_ptr.write(new_node);
-                self.list_heads[subblock_size_index] = Some(&mut *new_node_ptr);
-            }
+            new_node_ptr.write(new_node);
+            self.list_heads[subblock_size_index] = Some(&mut *new_node_ptr);
         }
     }
 
