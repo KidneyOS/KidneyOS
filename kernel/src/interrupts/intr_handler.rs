@@ -1,5 +1,6 @@
 use core::arch::asm;
 
+use crate::system::running_process;
 use crate::drivers::ata::ata_interrupt;
 use crate::drivers::input::keyboard;
 use crate::interrupts::{pic, timer};
@@ -25,14 +26,23 @@ pub unsafe extern "C" fn unhandled_handler() -> ! {
 
 #[naked]
 pub unsafe extern "C" fn page_fault_handler() -> ! {
-    unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
+    unsafe fn inner(error_code: u32, return_eip: usize) {
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
-        panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");
+        let pcb = running_process();
+        let pcb = pcb.lock();
+        if !pcb.vmas.install_pte(vaddr) {
+            panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");
+        }
     }
 
     asm!(
-        "call {}",
+        "
+        pusha
+        call {}
+        popa
+        iretd
+        ",
         sym inner,
         options(noreturn),
     )

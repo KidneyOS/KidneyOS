@@ -4,6 +4,7 @@ use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     fs::fs_manager::FileSystemID,
+    mem::vma::{VMA, VMAList, VMAInfo},
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
@@ -49,6 +50,7 @@ pub struct ProcessControlBlock {
     pub cwd: (FileSystemID, INodeNum),
     /// path to cwd (needed for getcwd syscall)
     pub cwd_path: OwnedPath,
+    pub vmas: VMAList,
 }
 
 impl ProcessControlBlock {
@@ -57,13 +59,22 @@ impl ProcessControlBlock {
         let mut root = root_filesystem().lock();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
+        // TODO: inherit cwd from parent
+        let cwd = root.get_root().unwrap();
+        drop(root);
+        let mut vmas = VMAList::new();
+        // set up stack
+        let stack_avail = vmas.add_vma(VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true), USER_STACK_BOTTOM_VIRT);
+        assert!(stack_avail, "stack virtual address range not available");
+        
         let pcb = Self {
             pid,
             ppid: parent_pid,
             child_tids: Vec::new(),
             waiting_thread: None,
             exit_code: None,
-            cwd: root.get_root().unwrap(),
+            vmas,
+            cwd,
             cwd_path: "/".into(),
         };
 
@@ -87,8 +98,6 @@ pub struct ThreadControlBlock {
     pub eip: NonNull<u8>,
     // Like above, but the stack pointer.
     pub esp: NonNull<u8>,
-    // The kernel virtual address of the user stack, so it can be freed later.
-    pub user_stack: NonNull<u8>,
 
     pub tid: Tid,
     // The PID of the parent PCB.
@@ -253,12 +262,12 @@ impl ThreadControlBlock {
         entry_instruction: NonNull<u8>,
         is_kernel: bool,
         pid: Pid,
-        mut page_manager: PageManager,
+        page_manager: PageManager,
         state: &ProcessState,
     ) -> Self {
         let tid: Tid = state.allocate_tid();
 
-        let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
+        let (kernel_stack, kernel_stack_pointer) = Self::map_stacks();
 
         // Create our new TCB.
         Self {
@@ -267,7 +276,6 @@ impl ThreadControlBlock {
             eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
-            user_stack,
             tid,
             pid, // Potentially could be swapped to directly copy the pid of the running thread
             is_kernel,
@@ -277,7 +285,7 @@ impl ThreadControlBlock {
         }
     }
 
-    fn map_stacks(page_manager: &mut PageManager) -> (NonNull<u8>, NonNull<u8>, NonNull<u8>) {
+    fn map_stacks() -> (NonNull<u8>, NonNull<u8>) {
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
         // so we must pass in the top of this memory to the thread.
         let (kernel_stack, kernel_stack_pointer_top);
@@ -289,7 +297,7 @@ impl ThreadControlBlock {
             kernel_stack_pointer_top = kernel_stack.add(KERNEL_THREAD_STACK_SIZE);
             write_bytes(kernel_stack.as_ptr(), 0, KERNEL_THREAD_STACK_SIZE);
         }
-
+/*
         // TODO: We should only do this if there wasn't already a stack section
         // defined in the ELF file.
         let user_stack;
@@ -309,8 +317,8 @@ impl ThreadControlBlock {
                 true,
                 true,
             );
-        }
-        (kernel_stack, kernel_stack_pointer_top, user_stack)
+        }*/
+        (kernel_stack, kernel_stack_pointer_top)
     }
 
     /// Creates the 'kernel thread'.
@@ -323,7 +331,6 @@ impl ThreadControlBlock {
             kernel_stack: NonNull::dangling(),
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
-            user_stack: NonNull::dangling(),
             tid: state.allocate_tid(),
             pid: state.allocate_pid(),
             is_kernel: true,
