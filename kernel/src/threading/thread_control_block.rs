@@ -4,7 +4,7 @@ use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     fs::fs_manager::FileSystemID,
-    mem::vma::{VMA, VMAList, VMAInfo},
+    mem::vma::{VMAInfo, VMAList, VMA},
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
@@ -64,9 +64,12 @@ impl ProcessControlBlock {
         drop(root);
         let mut vmas = VMAList::new();
         // set up stack
-        let stack_avail = vmas.add_vma(VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true), USER_STACK_BOTTOM_VIRT);
+        let stack_avail = vmas.add_vma(
+            VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true),
+            USER_STACK_BOTTOM_VIRT,
+        );
         assert!(stack_avail, "stack virtual address range not available");
-        
+
         let pcb = Self {
             pid,
             ppid: parent_pid,
@@ -297,7 +300,7 @@ impl ThreadControlBlock {
             kernel_stack_pointer_top = kernel_stack.add(KERNEL_THREAD_STACK_SIZE);
             write_bytes(kernel_stack.as_ptr(), 0, KERNEL_THREAD_STACK_SIZE);
         }
-/*
+        /*
         // TODO: We should only do this if there wasn't already a stack section
         // defined in the ELF file.
         let user_stack;

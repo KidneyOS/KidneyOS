@@ -7,8 +7,9 @@ use kidneyos_shared::{bit_array::BitArray, bitfield};
 use paste::paste;
 
 use crate::interrupts::intr_handler::{
-    ide_prim_interrupt_handler, ide_secd_interrupt_handler, keyboard_handler, page_fault_handler,
-    syscall_handler, timer_interrupt_handler, unhandled_handler,
+    general_protection_fault_handler, ide_prim_interrupt_handler, ide_secd_interrupt_handler,
+    keyboard_handler, page_fault_handler, syscall_handler, timer_interrupt_handler,
+    unhandled_handler,
 };
 
 bitfield!(
@@ -71,6 +72,7 @@ pub unsafe fn load() {
             .with_descriptor_privilege_level(3u8)
             .with_present(true);
     }
+    IDT[0xd] = IDT[0xd].with_offset(general_protection_fault_handler as usize as u32);
     IDT[0xe] = IDT[0xe].with_offset(page_fault_handler as usize as u32);
     IDT[0x20] = IDT[0x20].with_offset(timer_interrupt_handler as usize as u32); // PIC1_OFFSET (IRQ0)
     IDT[0x21] = IDT[0x21].with_offset(keyboard_handler as usize as u32); // Keyboard (IRQ1)

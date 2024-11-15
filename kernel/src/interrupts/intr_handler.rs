@@ -1,9 +1,9 @@
 use core::arch::asm;
 
-use crate::system::running_process;
 use crate::drivers::ata::ata_interrupt;
 use crate::drivers::input::keyboard;
 use crate::interrupts::{pic, timer};
+use crate::system::running_process;
 use crate::threading::scheduling;
 use crate::user_program::syscall;
 
@@ -39,9 +39,31 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
     asm!(
         "
         pusha
+        # pusha pushes 8 registers, so to get past them we need to add 8 * 4 = 32 bytes to the stack pointer
+        push [esp+36]
+        push [esp+32]
         call {}
+        # pop arguments
+        add esp, 8
         popa
+        # pop error code argument
+        add esp, 4
         iretd
+        ",
+        sym inner,
+        options(noreturn),
+    )
+}
+
+#[naked]
+pub unsafe extern "C" fn general_protection_fault_handler() -> ! {
+    unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
+        panic!("general protection fault with error code {error_code:#b} occurred from instruction at {return_eip:#X}");
+    }
+
+    asm!(
+        "
+        call {}
         ",
         sym inner,
         options(noreturn),

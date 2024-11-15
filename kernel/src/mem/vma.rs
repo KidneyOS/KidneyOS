@@ -1,8 +1,8 @@
 use crate::fs::FileDescriptor;
-use crate::KERNEL_ALLOCATOR;
 use crate::system::unwrap_system;
-use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use crate::KERNEL_ALLOCATOR;
 use alloc::collections::BTreeMap;
+use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 
 #[derive(Debug, Default, Clone)]
 pub struct VMAList(BTreeMap<usize, VMA>);
@@ -59,7 +59,8 @@ impl VMA {
         let phys_addr = frame_ptr.as_ptr() as *const u8 as usize - OFFSET;
         let mut tcb_guard = unwrap_system().threads.running_thread.lock();
         let tcb = tcb_guard.as_mut().expect("no running thread");
-        tcb.page_manager.map(phys_addr, virt_addr, self.writeable(), true);
+        tcb.page_manager
+            .map(phys_addr, virt_addr, self.writeable(), true);
         drop(tcb_guard);
         match self.info {
             VMAInfo::Stack | VMAInfo::Data => {
@@ -67,7 +68,7 @@ impl VMA {
                 (virt_addr as *mut u8).write_bytes(0, PAGE_FRAME_SIZE);
                 true
             }
-            VMAInfo::MMap { .. } => todo!()
+            VMAInfo::MMap { .. } => todo!(),
         }
     }
 }
