@@ -1,6 +1,7 @@
 pub mod idt;
 pub mod mutex_irq;
 pub mod pic;
+pub mod unhandled_handlers;
 
 mod intr_handler;
 pub mod timer;

@@ -8,8 +8,9 @@ use paste::paste;
 
 use crate::interrupts::intr_handler::{
     ide_prim_interrupt_handler, ide_secd_interrupt_handler, keyboard_handler, page_fault_handler,
-    syscall_handler, timer_interrupt_handler, unhandled_handler,
+    syscall_handler, timer_interrupt_handler,
 };
+use crate::interrupts::unhandled_handlers::get_unhandled_handler;
 
 bitfield!(
     GateDescriptor, u64
@@ -63,9 +64,9 @@ static mut IDT_DESCRIPTOR: IDTDescriptor = IDTDescriptor {
 pub unsafe fn load() {
     IDT_DESCRIPTOR.offset = IDT.as_ptr() as u32;
 
-    for gate_descriptor in &mut IDT {
+    for (i, gate_descriptor) in IDT.iter_mut().enumerate() {
         *gate_descriptor = GateDescriptor::default()
-            .with_offset(unhandled_handler as usize as u32)
+            .with_offset(get_unhandled_handler(i as u8) as u32)
             .with_segment_selector(0x8)
             .with_gate_type(0xEu8)
             .with_descriptor_privilege_level(3u8)

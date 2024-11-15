@@ -11,19 +11,6 @@ use crate::user_program::syscall;
  */
 
 #[naked]
-pub unsafe extern "C" fn unhandled_handler() -> ! {
-    fn inner() -> ! {
-        panic!("unhandled interrupt");
-    }
-
-    asm!(
-        "call {}",
-        sym inner,
-        options(noreturn),
-    )
-}
-
-#[naked]
 pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
         let vaddr: usize;
