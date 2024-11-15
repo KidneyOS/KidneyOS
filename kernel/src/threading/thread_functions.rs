@@ -36,12 +36,28 @@ pub fn exit_thread(exit_code: i32) -> ! {
     scheduler_yield_and_die();
 }
 
+pub unsafe fn clean_up_thread(mut dying_thread: Box<ThreadControlBlock>) {
+    let threads = &unwrap_system().threads;
+
+    dying_thread.reap();
+
+    // Page manager must be loaded to be dropped.
+    dying_thread.page_manager.load();
+    drop(dying_thread);
+    threads
+        .running_thread
+        .lock()
+        .as_ref()
+        .unwrap()
+        .page_manager
+        .load();
+}
+
 // Focibly stops the thread specified by Tid
 pub fn stop_thread(tid: Tid) {
     let mut scheduler = unwrap_system().threads.scheduler.lock();
-    let tcb = scheduler.get_mut(tid).expect("Why is nothing running !?");
-    tcb.status = ThreadStatus::Dying;
-    tcb.set_exit_code(-1);
+    let tcb = scheduler.remove(tid).expect("Why is nothing running !?");
+    unsafe { clean_up_thread(tcb) };
 }
 
 /// A wrapper function to execute a thread's true function.
@@ -68,21 +84,10 @@ unsafe extern "C" fn run_thread(
     // Reschedule our threads.
     *threads.running_thread.lock() = Some(switched_to);
 
-    let mut switched_from = Box::from_raw(switched_from);
+    let switched_from = Box::from_raw(switched_from);
 
     if switched_from.status == ThreadStatus::Dying {
-        switched_from.reap();
-
-        // Page manager must be loaded to be dropped.
-        switched_from.page_manager.load();
-        drop(switched_from);
-        threads
-            .running_thread
-            .lock()
-            .as_ref()
-            .unwrap()
-            .page_manager
-            .load();
+        clean_up_thread(switched_from);
     } else {
         threads.scheduler.lock().push(switched_from);
     }
