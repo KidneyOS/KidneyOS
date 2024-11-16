@@ -1,4 +1,4 @@
-use super::{FrameAllocator, FrameAllocatorSolution};
+use super::FrameAllocator;
 use core::ptr::NonNull;
 use core::{
     alloc::{AllocError, Layout},
@@ -31,13 +31,13 @@ struct ListNode {
     next: Option<&'static mut ListNode>,
 }
 
-pub struct SubblockAllocatorSolution {
+pub struct SubblockAllocatorSolution<F: FrameAllocator> {
     list_heads: [Option<&'static mut ListNode>; SUBBLOCK_TYPE_COUNT],
-    frame_allocator: FrameAllocatorSolution,
+    frame_allocator: F,
 }
 
-impl SubblockAllocatorSolution {
-    pub fn new(frame_allocator: FrameAllocatorSolution) -> SubblockAllocatorSolution {
+impl<F: FrameAllocator> SubblockAllocatorSolution<F> {
+    pub fn new(frame_allocator: F) -> Self {
         const EMPTY: Option<&'static mut ListNode> = None;
 
         SubblockAllocatorSolution {
@@ -145,7 +145,7 @@ impl SubblockAllocatorSolution {
     ///
     /// This function should be used for memory allocations that do not go through the kernel
     /// allocator and instead requests directly from the frame allocator
-    pub fn get_frame_allocator(&mut self) -> &mut FrameAllocatorSolution {
+    pub fn get_frame_allocator(&mut self) -> &mut F {
         &mut self.frame_allocator
     }
 

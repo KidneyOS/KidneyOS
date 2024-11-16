@@ -11,13 +11,12 @@ use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
     cell::UnsafeCell,
     mem::size_of,
-    ops::Range,
     ptr,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use dummy_allocator::DummyAllocatorSolution;
-use frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
+use frame_allocator::{placement_algorithms::NextFit, CoreMapEntry, FrameAllocatorSolution};
 use kidneyos_shared::{
     mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     sizes::{KB, MB},
@@ -31,13 +30,6 @@ static TOTAL_NUM_DEALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 /// "Upper memory" (as opposed to "lower memory") starts at 1MB.
 const UPPER_MEMORY_START: usize = MB + OFFSET;
-
-/// Function signature that all PlacementPolicies must follow
-type PlacementPolicy = fn(
-    core_map: &[CoreMapEntry],
-    frames_requested: usize,
-    _position: usize,
-) -> Result<Range<usize>, AllocError>;
 
 trait FrameAllocator {
     /// Allocates "frames_requested" number of contiguous frames
@@ -75,7 +67,7 @@ enum KernelAllocatorState {
         dummy_allocator: DummyAllocatorSolution,
     },
     Initialized {
-        subblock_allocator: SubblockAllocatorSolution,
+        subblock_allocator: SubblockAllocatorSolution<FrameAllocatorSolution<NextFit>>,
     },
 }
 
@@ -135,7 +127,7 @@ impl KernelAllocator {
         // The Coremap should take up 128 frames
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
 
-        let frame_allocator = FrameAllocatorSolution::new(
+        let frame_allocator = FrameAllocatorSolution::<NextFit>::new(
             NonNull::new(dummy_allocator.get_start_address() as *mut u8)
                 .expect("frames_base can't be null"),
             core_map,
