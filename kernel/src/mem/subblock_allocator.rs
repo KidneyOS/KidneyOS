@@ -65,10 +65,6 @@ impl SubblockAllocatorSolution {
                 .max(layout.align())
                 .next_multiple_of(PAGE_FRAME_SIZE);
 
-            if !self.frame_allocator.has_room(num_frames) {
-                return Err(AllocError);
-            }
-
             let new_frame = self.frame_allocator.alloc(num_frames)?;
 
             return Ok(new_frame.as_ptr() as *mut u8);
@@ -88,10 +84,6 @@ impl SubblockAllocatorSolution {
                 // We first have to make sure the subblock size has enough room to hold a ListNode
                 // This should always be the case, but we check regardless
                 assert!(size_of::<ListNode>() <= SUBBLOCK_SIZES[subblock_size_index]);
-
-                if !self.frame_allocator.has_room(1) {
-                    return Err(AllocError);
-                }
 
                 let new_frame = self.frame_allocator.alloc(1)?;
 

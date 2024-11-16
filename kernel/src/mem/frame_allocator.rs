@@ -94,10 +94,6 @@ impl FrameAllocatorSolution {
         }
     }
 
-    pub fn has_room(&self, frames_requested: usize) -> bool {
-        (self.placement_algorithm)(&self.core_map, frames_requested, self.position).is_ok()
-    }
-
     #[allow(clippy::type_complexity)]
     #[allow(unused)]
     pub fn set_placement_algorithm(&mut self, new_algorithm: PlacementPolicy) {
@@ -133,10 +129,6 @@ mod tests {
         let mut frame_allocator =
             FrameAllocatorSolution::new(region.cast::<u8>(), Box::new(core_map));
 
-        // Check that the frame allocator reports to have room for exactly 16 frames
-        assert!(frame_allocator.has_room(16));
-        assert!(!frame_allocator.has_room(17));
-
         let allocation_1 = frame_allocator.alloc(1)?;
 
         // Check that the first allocation returns the first frame
@@ -153,8 +145,6 @@ mod tests {
         // In total, we have allocated the 6 frames at the start of region
         check_frames_allocated_position(&mut frame_allocator, 6, 6);
         // Check that core map was also correctly updated
-        assert!(frame_allocator.has_room(10));
-        assert!(!frame_allocator.has_room(11));
 
         let allocation_3 = frame_allocator.alloc(3)?;
 
