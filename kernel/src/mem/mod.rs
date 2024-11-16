@@ -11,6 +11,7 @@ use core::{
     alloc::{AllocError, GlobalAlloc, Layout},
     cell::UnsafeCell,
     mem::size_of,
+    ops::Range,
     ptr,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
@@ -18,8 +19,7 @@ use core::{
 use dummy_allocator::DummyAllocatorSolution;
 use frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
 use kidneyos_shared::{
-    mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE}
-    ,
+    mem::{virt::trampoline_heap_top, BOOTSTRAP_ALLOCATOR_SIZE, OFFSET, PAGE_FRAME_SIZE},
     sizes::{KB, MB},
 };
 use subblock_allocator::SubblockAllocatorSolution;
@@ -31,6 +31,13 @@ static TOTAL_NUM_DEALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 const MAX_SUPPORTED_ALIGN: usize = 4096;
 /// "Upper memory" (as opposed to "lower memory") starts at 1MB.
 const UPPER_MEMORY_START: usize = MB + OFFSET;
+
+/// Function signature that all PlacementPolicies must follow
+type PlacementPolicy = fn(
+    core_map: &[CoreMapEntry],
+    frames_requested: usize,
+    _position: usize,
+) -> Result<Range<usize>, AllocError>;
 
 trait FrameAllocator {
     /// Allocates "frames_requested" number of contiguous frames

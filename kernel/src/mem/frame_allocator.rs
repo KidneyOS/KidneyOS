@@ -1,11 +1,11 @@
 mod placement_algorithms;
 
-use super::FrameAllocator;
+use super::{FrameAllocator, PlacementPolicy};
 use crate::mem::frame_allocator::placement_algorithms::next_fit;
 use alloc::boxed::Box;
 use bitbybit::bitfield;
 use core::alloc::AllocError;
-use core::{ops::Range, ptr::NonNull};
+use core::ptr::NonNull;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 #[bitfield(u8, default = 0)]
@@ -26,11 +26,7 @@ pub struct CoreMapEntry {
 pub struct FrameAllocatorSolution {
     start: NonNull<u8>,
     core_map: Box<[CoreMapEntry]>,
-    placement_algorithm: fn(
-        core_map: &[CoreMapEntry],
-        frames_requested: usize,
-        _position: usize,
-    ) -> Result<Range<usize>, AllocError>,
+    placement_algorithm: PlacementPolicy,
     frames_allocated: usize,
     position: usize,
 }
@@ -104,14 +100,7 @@ impl FrameAllocatorSolution {
 
     #[allow(clippy::type_complexity)]
     #[allow(unused)]
-    pub fn set_placement_algorithm(
-        &mut self,
-        new_algorithm: fn(
-            core_map: &[CoreMapEntry],
-            frames_requested: usize,
-            _position: usize,
-        ) -> Result<Range<usize>, AllocError>,
-    ) {
+    pub fn set_placement_algorithm(&mut self, new_algorithm: PlacementPolicy) {
         self.placement_algorithm = new_algorithm;
     }
 }
