@@ -19,8 +19,6 @@ pub struct CoreMapEntry {
     is_kernel: bool,
     #[bit(3, rw)]
     next: bool,
-    #[bit(4, rw)]
-    end: bool,
 }
 
 #[allow(clippy::type_complexity)]
@@ -31,7 +29,10 @@ pub struct FrameAllocatorSolution<A: PlacementAlgorithm> {
     placement_algorithm: A,
 }
 
-impl<A: PlacementAlgorithm> FrameAllocator for FrameAllocatorSolution<A> {
+impl<A> FrameAllocator for FrameAllocatorSolution<A>
+where
+    A: PlacementAlgorithm,
+{
     fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
         if self.frames_allocated + frames_requested > self.core_map.len() {
             return Err(AllocError);
@@ -43,10 +44,10 @@ impl<A: PlacementAlgorithm> FrameAllocator for FrameAllocatorSolution<A> {
 
         for i in range.clone() {
             assert!(!self.core_map[i].allocated());
-            self.core_map[i] = self.core_map[i].with_next(true).with_allocated(true);
+            self.core_map[i] = self.core_map[i].with_allocated(true);
 
-            if i == range.end - 1 {
-                self.core_map[i] = self.core_map[i].with_end(true);
+            if i != range.end - 1 {
+                self.core_map[i] = self.core_map[i].with_next(true);
             }
         }
 
@@ -62,24 +63,19 @@ impl<A: PlacementAlgorithm> FrameAllocator for FrameAllocatorSolution<A> {
     unsafe fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize {
         let mut start =
             (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
-        let mut frames_freed = 0;
+        let mut frames_freed = 1;
 
-        while start < self.core_map.len() {
-            assert!(self.core_map[start].next());
+        while self.core_map[start].next() {
             assert!(self.core_map[start].allocated());
-
             self.core_map[start] = self.core_map[start].with_next(false).with_allocated(false);
 
-            self.frames_allocated -= 1;
             frames_freed += 1;
-
-            if self.core_map[start].end() {
-                self.core_map[start].with_end(false);
-                break;
-            }
             start += 1;
         }
 
+        self.core_map[start] = self.core_map[start].with_allocated(false);
+
+        self.frames_allocated -= frames_freed;
         frames_freed
     }
 }
@@ -95,99 +91,144 @@ impl<A: PlacementAlgorithm> FrameAllocatorSolution<A> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     use std::{
-//         alloc::{Allocator, Global, Layout},
-//         error::Error,
-//     };
-//
-//     fn check_frames_allocated_position(
-//         frame_allocator: &mut FrameAllocatorSolution,
-//         expected_frames_allocated: usize,
-//         expected_position: usize,
-//     ) {
-//         assert_eq!(frame_allocator.frames_allocated, expected_frames_allocated);
-//         assert_eq!(frame_allocator.position, expected_position);
-//     }
-//     #[test]
-//     fn test_alloc() -> Result<(), Box<dyn Error>> {
-//         const NUM_FRAMES: usize = 16;
-//
-//         let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
-//         let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
-//         let region = Global.allocate(layout)?;
-//
-//         let mut frame_allocator =
-//             FrameAllocatorSolution::new(region.cast::<u8>(), Box::new(core_map));
-//
-//         // Check that the frame allocator reports to have room for exactly 16 frames
-//         assert!(frame_allocator.has_room(16));
-//         assert!(!frame_allocator.has_room(17));
-//
-//         let allocation_1 = frame_allocator.alloc(1)?;
-//
-//         // Check that the first allocation returns the first frame
-//         assert!(region.cast::<u8>() == allocation_1.cast::<u8>());
-//         assert!(frame_allocator.core_map[0].allocated());
-//         check_frames_allocated_position(&mut frame_allocator, 1, 1);
-//
-//         let allocation_2 = frame_allocator.alloc(5)?;
-//
-//         assert_eq!(allocation_2.cast::<u8>(), unsafe {
-//             region.cast::<u8>().byte_add(PAGE_FRAME_SIZE)
-//         });
-//
-//         // In total, we have allocated the 6 frames at the start of region
-//         check_frames_allocated_position(&mut frame_allocator, 6, 6);
-//         // Check that core map was also correctly updated
-//         assert!(frame_allocator.has_room(10));
-//         assert!(!frame_allocator.has_room(11));
-//
-//         let allocation_3 = frame_allocator.alloc(3)?;
-//
-//         assert_eq!(allocation_3.cast::<u8>(), unsafe {
-//             region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 6)
-//         });
-//         // In total, we have allocated the 9 frames at the start of region
-//         check_frames_allocated_position(&mut frame_allocator, 9, 9);
-//
-//         unsafe {
-//             let deallocation_2 = frame_allocator.dealloc(allocation_2.cast::<u8>());
-//             assert_eq!(deallocation_2, 5);
-//         }
-//         check_frames_allocated_position(&mut frame_allocator, 4, 9);
-//
-//         frame_allocator.set_placement_algorithm(placement_algorithms::best_fit);
-//         let allocation_4 = frame_allocator.alloc(4)?;
-//
-//         assert_eq!(allocation_4.cast::<u8>(), unsafe {
-//             region.cast::<u8>().byte_add(PAGE_FRAME_SIZE)
-//         });
-//         check_frames_allocated_position(&mut frame_allocator, 8, 5);
-//
-//         let allocation_5 = frame_allocator.alloc(1)?;
-//
-//         assert_eq!(allocation_5.cast::<u8>(), unsafe {
-//             region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 5)
-//         });
-//         check_frames_allocated_position(&mut frame_allocator, 9, 6);
-//
-//         unsafe {
-//             let deallocation_4 = frame_allocator.dealloc(allocation_4.cast::<u8>());
-//             assert_eq!(deallocation_4, 4);
-//         }
-//         check_frames_allocated_position(&mut frame_allocator, 5, 6);
-//
-//         frame_allocator.set_placement_algorithm(placement_algorithms::first_fit);
-//         let allocation_6 = frame_allocator.alloc(2)?;
-//         assert_eq!(allocation_6.cast::<u8>(), unsafe {
-//             region.cast::<u8>().byte_add(PAGE_FRAME_SIZE)
-//         });
-//         check_frames_allocated_position(&mut frame_allocator, 7, 3);
-//
-//         Ok(())
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::mem::frame_allocator::placement_algorithms::{BestFit, FirstFit, NextFit};
+    use core::ops::Range;
+    use std::{
+        alloc::{Allocator, Global, Layout},
+        error::Error,
+    };
+
+    fn check_coremap(core_map: &[CoreMapEntry], indices: Range<usize>, check: bool) {
+        for i in indices {
+            assert_eq!(core_map[i].allocated(), check);
+        }
+    }
+
+    // All placement policies should allocate the same frames for the below allocations
+    fn setup<A>(frame_allocator: &mut FrameAllocatorSolution<A>, region: &NonNull<[u8]>)
+    where
+        A: PlacementAlgorithm,
+    {
+        let allocation_1 = frame_allocator.alloc(3).unwrap();
+        assert_eq!(allocation_1.cast::<u8>(), region.cast::<u8>());
+        assert_eq!(frame_allocator.frames_allocated, 3);
+        check_coremap(&frame_allocator.core_map, 0..3, true);
+
+        let allocation_2 = frame_allocator.alloc(4).unwrap();
+        assert_eq!(allocation_2.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 3)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 7);
+        check_coremap(&frame_allocator.core_map, 3..7, true);
+
+        let allocation_3 = frame_allocator.alloc(5).unwrap();
+        assert_eq!(allocation_3.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 7)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 12);
+        check_coremap(&frame_allocator.core_map, 7..12, true);
+
+        let allocation_4 = frame_allocator.alloc(1).unwrap();
+        assert_eq!(allocation_4.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 12)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 13);
+        check_coremap(&frame_allocator.core_map, 12..13, true);
+
+        let allocation_5 = frame_allocator.alloc(2).unwrap();
+        assert_eq!(allocation_5.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 13)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 15);
+        check_coremap(&frame_allocator.core_map, 13..15, true);
+
+        unsafe {
+            let deallocation_2 = frame_allocator.dealloc(allocation_2.cast::<u8>());
+            assert_eq!(deallocation_2, 4);
+        };
+
+        assert_eq!(frame_allocator.frames_allocated, 11);
+        check_coremap(&frame_allocator.core_map, 3..7, false);
+
+        unsafe {
+            let deallocation_4 = frame_allocator.dealloc(allocation_4.cast::<u8>());
+            assert_eq!(deallocation_4, 1);
+        };
+
+        assert_eq!(frame_allocator.frames_allocated, 10);
+        check_coremap(&frame_allocator.core_map, 12..13, false);
+    }
+
+    #[test]
+    fn test_alloc_next_fit() -> Result<(), Box<dyn Error>> {
+        const NUM_FRAMES: usize = 18;
+
+        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
+        let region = Global.allocate(layout)?;
+
+        let mut frame_allocator =
+            FrameAllocatorSolution::<NextFit>::new(region.cast::<u8>(), Box::new(core_map));
+
+        setup(&mut frame_allocator, &region);
+
+        let diff_alloc = frame_allocator.alloc(1)?;
+        assert_eq!(diff_alloc.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 15)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 11);
+        check_coremap(&frame_allocator.core_map, 15..16, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_alloc_first_fit() -> Result<(), Box<dyn Error>> {
+        const NUM_FRAMES: usize = 18;
+
+        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
+        let region = Global.allocate(layout)?;
+
+        let mut frame_allocator =
+            FrameAllocatorSolution::<FirstFit>::new(region.cast::<u8>(), Box::new(core_map));
+
+        setup(&mut frame_allocator, &region);
+
+        let diff_alloc = frame_allocator.alloc(1)?;
+        assert_eq!(diff_alloc.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 3)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 11);
+        check_coremap(&frame_allocator.core_map, 3..4, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_alloc_best_fit() -> Result<(), Box<dyn Error>> {
+        const NUM_FRAMES: usize = 18;
+
+        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
+        let region = Global.allocate(layout)?;
+
+        let mut frame_allocator =
+            FrameAllocatorSolution::<BestFit>::new(region.cast::<u8>(), Box::new(core_map));
+
+        setup(&mut frame_allocator, &region);
+
+        let diff_alloc = frame_allocator.alloc(1)?;
+        assert_eq!(diff_alloc.cast::<u8>(), unsafe {
+            region.cast::<u8>().byte_add(PAGE_FRAME_SIZE * 12)
+        });
+        assert_eq!(frame_allocator.frames_allocated, 11);
+        check_coremap(&frame_allocator.core_map, 12..13, true);
+
+        Ok(())
+    }
+}
