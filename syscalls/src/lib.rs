@@ -1,14 +1,6 @@
 #![no_std]
 
-use core::arch::asm;
-
-pub type Pid = u16;
-
-#[repr(C)]
-pub struct Timespec {
-    pub tv_sec: i64,
-    pub tv_nsec: i64,
-}
+use core::{arch::asm, ffi::c_void};
 
 pub mod defs;
 pub use defs::*;
@@ -395,7 +387,7 @@ pub extern "C" fn clock_gettime(clock_id: i32, timespec: *mut Timespec) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn getrandom(buf: *mut i8, size: usize, flags: usize) -> i32 {
+pub extern "C" fn getrandom(buf: *mut c_void, size: usize, flags: usize) -> i32 {
     let result: i32;
     unsafe {
         asm!(

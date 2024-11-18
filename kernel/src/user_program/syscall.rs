@@ -5,7 +5,9 @@ use crate::fs::syscalls::{
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::mem::user::check_and_copy_user_memory;
-use crate::mem::util::get_mut_from_user_space;
+use crate::mem::util::{
+    get_mut_from_user_space, get_mut_slice_from_user_space, get_ref_from_user_space,
+};
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -78,7 +80,27 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         SYS_GETPID => running_thread_pid() as isize,
         SYS_NANOSLEEP => {
-            todo!("nanosleep syscall")
+            let Some(input_timespec) = (unsafe { get_ref_from_user_space(arg0 as *mut Timespec) })
+            else {
+                return -1;
+            };
+
+            let start_time = get_tsc();
+            loop {
+                let current_time = get_tsc();
+                let sec_diff = current_time.tv_sec - start_time.tv_sec;
+                let nsec_diff = current_time.tv_nsec - start_time.tv_nsec;
+
+                if sec_diff > input_timespec.tv_sec
+                    || (sec_diff == input_timespec.tv_sec && nsec_diff > input_timespec.tv_nsec)
+                {
+                    break;
+                }
+
+                scheduler_yield_and_continue();
+            }
+
+            0
         }
         SYS_GETPPID => running_thread_ppid() as isize,
         SYS_SCHED_YIELD => {
@@ -101,12 +123,12 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             0
         }
         SYS_GETRANDOM => {
-            let Some(buffer_ptr) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
+            let Some(buffer) = (unsafe { get_mut_slice_from_user_space(arg0 as *mut u8, arg1) })
+            else {
                 return -1;
             };
 
-            let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
-            getrandom(buffer, arg1, arg2)
+            getrandom(buffer, arg2)
         }
         _ => -ENOSYS,
     }
