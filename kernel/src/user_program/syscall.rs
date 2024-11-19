@@ -1,5 +1,7 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use core::time::Duration;
+
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
@@ -84,21 +86,32 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 return -1;
             };
 
-            let start_time = get_tsc();
-            loop {
-                let current_time = get_tsc();
-                let sec_diff = current_time.tv_sec - start_time.tv_sec;
-                let nsec_diff = current_time.tv_nsec - start_time.tv_nsec;
+            if input_timespec.tv_sec < 0
+                || input_timespec.tv_nsec < 0
+                || input_timespec.tv_nsec >= 1_000_000_000
+            {
+                return -1;
+            }
 
-                if sec_diff > input_timespec.tv_sec
-                    || (sec_diff == input_timespec.tv_sec && nsec_diff > input_timespec.tv_nsec)
-                {
+            let target_duration =
+                Duration::new(input_timespec.tv_sec as u64, input_timespec.tv_nsec as u32);
+
+            let start_timespec = get_tsc();
+            let start_time =
+                Duration::new(start_timespec.tv_sec as u64, start_timespec.tv_nsec as u32);
+            loop {
+                let elapsed_timespec = get_tsc();
+                let elapsed_time = Duration::new(
+                    elapsed_timespec.tv_sec as u64,
+                    elapsed_timespec.tv_nsec as u32,
+                ) - start_time;
+
+                if elapsed_time >= target_duration {
                     break;
                 }
 
                 scheduler_yield_and_continue();
             }
-
             0
         }
         SYS_GETPPID => running_thread_ppid() as isize,
