@@ -31,6 +31,7 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
         asm!("mov {}, cr2", out(reg) vaddr);
         let pcb = running_process();
         let pcb = pcb.lock();
+        // try checking for a VMA matching this address
         if !pcb.vmas.install_pte(vaddr) {
             panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");
         }
@@ -40,8 +41,10 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
         "
         pusha
         # pusha pushes 8 registers, so to get past them we need to add 8 * 4 = 32 bytes to the stack pointer
+        # first push return_eip, which is above error_code on the stack, so need to add 4 extra bytes
         push [esp+36]
-        push [esp+32]
+        # now push error_code; due to previous push we need to add 4 extra bytes here as well
+        push [esp+36]
         call {}
         # pop arguments
         add esp, 8
