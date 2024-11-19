@@ -64,6 +64,7 @@ impl ProcessControlBlock {
         drop(root);
         let mut vmas = VMAList::new();
         // set up stack
+        // TODO: Handle stack section defined in the ELF file?
         let stack_avail = vmas.add_vma(
             VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true),
             USER_STACK_BOTTOM_VIRT,
@@ -300,27 +301,6 @@ impl ThreadControlBlock {
             kernel_stack_pointer_top = kernel_stack.add(KERNEL_THREAD_STACK_SIZE);
             write_bytes(kernel_stack.as_ptr(), 0, KERNEL_THREAD_STACK_SIZE);
         }
-        /*
-        // TODO: We should only do this if there wasn't already a stack section
-        // defined in the ELF file.
-        let user_stack;
-        unsafe {
-            user_stack = KERNEL_ALLOCATOR
-                .frame_alloc(USER_THREAD_STACK_FRAMES)
-                .expect("could not allocate user stack")
-                .cast::<u8>();
-            page_manager.map_range(
-                user_stack.as_ptr() as usize - OFFSET,
-                // TODO: This shouldn't be hardcoded, we need to ensure the ELF
-                // didn't already declare a stack section (we should be using
-                // that if it did), and that this doesn't overlap with any
-                // existing regions.
-                USER_STACK_BOTTOM_VIRT,
-                USER_THREAD_STACK_SIZE,
-                true,
-                true,
-            );
-        }*/
         (kernel_stack, kernel_stack_pointer_top)
     }
 
