@@ -1207,6 +1207,7 @@ mod test {
             child_tids: vec![],
             waiting_thread: None,
             exit_code: None,
+            vmas: Default::default(),
             cwd: root.get_root().unwrap(),
             cwd_path: "/".into(),
         }
