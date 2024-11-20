@@ -27,7 +27,7 @@ pub enum VMAInfo {
     Heap,
     /// This VMA contains a memory-mapped file
     ///
-    /// `offset` is in units of page frames.
+    /// `offset` is in units of pages
     MMap {
         fs: FileSystemID,
         inode: INodeNum,
