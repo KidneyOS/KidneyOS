@@ -1,5 +1,6 @@
-use crate::fs::FileDescriptor;
+use crate::fs::fs_manager::FileSystemID;
 use crate::system::unwrap_system;
+use crate::vfs::INodeNum;
 use crate::KERNEL_ALLOCATOR;
 use alloc::collections::BTreeMap;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
@@ -25,7 +26,13 @@ pub enum VMAInfo {
     /// This VMA contains the heap
     Heap,
     /// This VMA contains a memory-mapped file
-    MMap { fd: FileDescriptor, offset: u64 },
+    ///
+    /// `offset` is in units of pages
+    MMap {
+        fs: FileSystemID,
+        inode: INodeNum,
+        offset: u32,
+    },
 }
 
 impl Clone for VMAInfo {

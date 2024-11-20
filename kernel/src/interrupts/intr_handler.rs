@@ -2,7 +2,7 @@ use core::arch::asm;
 
 use crate::drivers::ata::ata_interrupt;
 use crate::drivers::input::keyboard;
-use crate::interrupts::{pic, timer};
+use crate::interrupts::{intr_enable, pic, timer};
 use crate::system::running_process;
 use crate::threading::scheduling;
 use crate::user_program::syscall;
@@ -29,6 +29,8 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) {
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
+        // important: re-enable interrupts before acquiring lock to prevent deadlock
+        intr_enable();
         let pcb = running_process();
         let pcb = pcb.lock();
         // try checking for a VMA matching this address
