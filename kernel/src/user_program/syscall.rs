@@ -1,11 +1,11 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::fs::syscalls::{
-    chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
-    rename, rmdir, symlink, sync, unlink, unmount, write,
+    chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mmap, mount, open,
+    read, rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::mem::user::check_and_copy_user_memory;
-use crate::mem::util::get_mut_from_user_space;
+use crate::mem::util::{get_mut_from_user_space, get_ref_from_user_space};
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -107,6 +107,20 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
             getrandom(buffer, arg1, arg2)
+        }
+        SYS_MMAP => {
+            let Some(options) = (unsafe { get_ref_from_user_space(arg0 as *const MMapOptions) })
+            else {
+                return -EFAULT;
+            };
+            mmap(
+                options.addr,
+                options.length,
+                options.prot,
+                options.flags,
+                options.fd,
+                options.offset,
+            )
         }
         _ => -ENOSYS,
     }

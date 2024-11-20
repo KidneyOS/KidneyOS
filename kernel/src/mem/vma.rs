@@ -1,5 +1,6 @@
-use crate::fs::FileDescriptor;
+use crate::fs::fs_manager::FileSystemID;
 use crate::system::unwrap_system;
+use crate::vfs::INodeNum;
 use crate::KERNEL_ALLOCATOR;
 use alloc::collections::BTreeMap;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
@@ -25,7 +26,13 @@ pub enum VMAInfo {
     /// This VMA contains the heap
     Heap,
     /// This VMA contains a memory-mapped file
-    MMap { fd: FileDescriptor, offset: u64 },
+    ///
+    /// `offset` is in units of page frames.
+    MMap {
+        fs: FileSystemID,
+        inode: INodeNum,
+        offset: u32,
+    },
 }
 
 impl Clone for VMAInfo {
@@ -34,7 +41,15 @@ impl Clone for VMAInfo {
         match self {
             Self::Stack => Self::Stack,
             Self::Heap => Self::Heap,
-            Self::MMap { .. } => todo!("increment ref count to mmapped file"),
+            Self::MMap { fs, inode, offset } => {
+                let fs = *fs;
+                let inode = *inode;
+                let offset = *offset;
+                // increment reference count to inode to allow mmapped closed file to still be read.
+                let mut root = unwrap_system().root_filesystem.lock();
+                root.increment_inode_ref_count(fs, inode);
+                Self::MMap { fs, inode, offset }
+            }
         }
     }
 }
@@ -69,13 +84,42 @@ impl VMA {
         tcb.page_manager
             .map(phys_addr, virt_addr, self.writeable(), true);
         drop(tcb_guard);
-        match self.info {
+        let data = core::slice::from_raw_parts_mut(virt_addr as *mut u8, PAGE_FRAME_SIZE);
+        match &self.info {
             VMAInfo::Stack | VMAInfo::Heap => {
                 // zero memory, to prevent data from being leaked between processes.
-                (virt_addr as *mut u8).write_bytes(0, PAGE_FRAME_SIZE);
+                data.fill(0);
                 true
             }
-            VMAInfo::MMap { .. } => todo!(),
+            VMAInfo::MMap { fs, inode, offset } => {
+                let fs = *fs;
+                let inode = *inode;
+                let offset = u64::from(*offset) * PAGE_FRAME_SIZE as u64;
+                let mut root = unwrap_system().root_filesystem.lock();
+                let mut bytes_read = 0;
+                while bytes_read < PAGE_FRAME_SIZE {
+                    let n = match root.read_direct(
+                        fs,
+                        inode,
+                        offset + bytes_read as u64,
+                        &mut data[bytes_read..],
+                    ) {
+                        Ok(0) => {
+                            break;
+                        }
+                        Ok(n) => n,
+                        // Generate page fault if reading data from mmapped file fails.
+                        // This seems to be consistent with other OSes (some do a bus error instead)
+                        Err(_) => {
+                            return false;
+                        }
+                    };
+                    bytes_read += n;
+                }
+                // if we reached the end of the file, fill the rest of the page with zeros.
+                data[bytes_read..].fill(0);
+                true
+            }
         }
     }
 }
@@ -132,6 +176,9 @@ impl VMAList {
         }
         self.0.insert(addr, vma);
         true
+    }
+    pub fn iter(&self) -> impl '_ + Iterator<Item = (usize, &VMA)> {
+        self.0.iter().map(|(&k, v)| (k, v))
     }
     // TODO: free physical memory allocated by VMAs on process exit
 }

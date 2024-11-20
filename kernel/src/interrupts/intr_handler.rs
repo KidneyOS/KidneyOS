@@ -29,6 +29,7 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) {
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
+        crate::println!("page fault at address {vaddr:#x}");
         let pcb = running_process();
         let pcb = pcb.lock();
         // try checking for a VMA matching this address
