@@ -215,6 +215,6 @@ int32_t scheduler_yield(void);
 
 int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
 
-int32_t getrandom(int8_t *buf, uintptr_t size, uintptr_t flags);
+int32_t getrandom(void *buf, uintptr_t size, uintptr_t flags);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

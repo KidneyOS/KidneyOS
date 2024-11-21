@@ -1,11 +1,14 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use core::time::Duration;
+
 use crate::fs::read_file;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::mem::util::{get_cstr_from_user_space, get_mut_from_user_space, CStrError};
+use crate::mem::util::{get_mut_slice_from_user_space, get_ref_from_user_space};
 use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -14,7 +17,6 @@ use crate::user_program::elf::Elf;
 use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
-use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
 
@@ -83,7 +85,38 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         }
         SYS_GETPID => running_thread_pid() as isize,
         SYS_NANOSLEEP => {
-            todo!("nanosleep syscall")
+            let Some(input_timespec) = (unsafe { get_ref_from_user_space(arg0 as *mut Timespec) })
+            else {
+                return -1;
+            };
+
+            if input_timespec.tv_sec < 0
+                || input_timespec.tv_nsec < 0
+                || input_timespec.tv_nsec >= 1_000_000_000
+            {
+                return -1;
+            }
+
+            let target_duration =
+                Duration::new(input_timespec.tv_sec as u64, input_timespec.tv_nsec as u32);
+
+            let start_timespec = get_tsc();
+            let start_time =
+                Duration::new(start_timespec.tv_sec as u64, start_timespec.tv_nsec as u32);
+            loop {
+                let elapsed_timespec = get_tsc();
+                let elapsed_time = Duration::new(
+                    elapsed_timespec.tv_sec as u64,
+                    elapsed_timespec.tv_nsec as u32,
+                ) - start_time;
+
+                if elapsed_time >= target_duration {
+                    break;
+                }
+
+                scheduler_yield_and_continue();
+            }
+            0
         }
         SYS_GETPPID => running_thread_ppid() as isize,
         SYS_SCHED_YIELD => {
@@ -106,12 +139,12 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             0
         }
         SYS_GETRANDOM => {
-            let Some(buffer_ptr) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
+            let Some(buffer) = (unsafe { get_mut_slice_from_user_space(arg0 as *mut u8, arg1) })
+            else {
                 return -1;
             };
 
-            let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
-            getrandom(buffer, arg1, arg2)
+            getrandom(buffer, arg2)
         }
         _ => -ENOSYS,
     }

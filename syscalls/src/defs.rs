@@ -1,5 +1,6 @@
 // syscall constants and types
 // These are in a separate file so that both the kernel code and userspace libc can include/use them.
+pub type Pid = u16;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -21,6 +22,12 @@ pub struct Dirent {
     pub r#type: u8,
     /// Null-terminated file name
     pub name: [u8; 0],
+}
+
+#[repr(C)]
+pub struct Timespec {
+    pub tv_sec: i64,
+    pub tv_nsec: i64,
 }
 
 pub const O_CREATE: usize = 0x40;
