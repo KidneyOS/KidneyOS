@@ -6,10 +6,8 @@ use alloc::boxed::Box;
 use core::ptr::copy_nonoverlapping;
 use kidneyos_shared::bitfield;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
+use kidneyos_shared::sizes::{SECTOR_SIZE, SWAP_SECTORS, SWAP_SIZE};
 
-const SECTOR_SIZE: u32 = 512;
-const SWAP_SECTORS: u32 = 8192;
-const SWAP_SIZE: BlockSector = SECTOR_SIZE * SWAP_SECTORS;
 const FRAMES: usize = SWAP_SIZE as usize / PAGE_FRAME_SIZE;
 const SWAP_INDEX: usize = 3;
 const SECTORS_IN_PAGE: u32 = PAGE_FRAME_SIZE as u32 / SECTOR_SIZE;
