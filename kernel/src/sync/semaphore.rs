@@ -80,6 +80,7 @@ impl Semaphore {
                     unwrap_system()
                         .threads
                         .running_thread
+                        .lock()
                         .as_ref()
                         .expect("why is nothing running?")
                         .tid
