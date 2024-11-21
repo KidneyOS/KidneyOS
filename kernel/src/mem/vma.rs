@@ -140,5 +140,8 @@ impl VMAList {
         self.0.insert(addr, vma);
         true
     }
+    pub fn iter(&self) -> impl '_ + Iterator<Item = (usize, &VMA)> {
+        self.0.iter().map(|(&k, v)| (k, v))
+    }
     // TODO: free physical memory allocated by VMAs on process exit
 }
