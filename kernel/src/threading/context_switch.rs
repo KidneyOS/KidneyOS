@@ -1,4 +1,7 @@
-use crate::interrupts::{intr_get_level, IntrLevel};
+use crate::{
+    interrupts::{intr_get_level, IntrLevel},
+    threading::thread_functions::clean_up_thread,
+};
 use core::mem::offset_of;
 
 use super::thread_control_block::{ThreadControlBlock, ThreadStatus};
@@ -45,7 +48,7 @@ pub unsafe fn switch_threads(
     let page_manager = &(*switch_to).page_manager;
     page_manager.load();
 
-    let mut previous = Box::from_raw(context_switch(switch_from, switch_to));
+    let previous = Box::from_raw(context_switch(switch_from, switch_to));
 
     // We must mark this thread as running once again.
     (*switch_from).status = ThreadStatus::Running;
@@ -54,18 +57,7 @@ pub unsafe fn switch_threads(
     *threads.running_thread.lock() = Some(Box::from_raw(switch_from));
 
     if previous.status == ThreadStatus::Dying {
-        previous.reap();
-
-        // Page manager must be loaded when dropped.
-        previous.page_manager.load();
-        drop(previous);
-        threads
-            .running_thread
-            .lock()
-            .as_ref()
-            .unwrap()
-            .page_manager
-            .load();
+        clean_up_thread(previous);
     } else {
         threads.scheduler.lock().push(previous);
     }
