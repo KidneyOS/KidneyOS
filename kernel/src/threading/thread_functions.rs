@@ -17,7 +17,7 @@ use kidneyos_shared::{
 ///
 /// A function that may be used for thread creation.
 /// The return value will be the exit code of this thread.
-pub type ThreadFunction = unsafe extern "C" fn() -> i32;
+pub type ThreadFunction = unsafe extern "C" fn(argument: u32) -> i32;
 
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
@@ -78,8 +78,21 @@ unsafe extern "C" fn run_thread(
         eip,
         esp,
         is_kernel,
+        argument,
         ..
     } = *switched_to;
+
+    // Setting up return frame and arguments for this thread function.
+
+    // Allocate space for return frame and arguments.
+    let esp = esp.sub(3 * core::mem::size_of::<u32>());
+
+    // Return Address, we can't make our own function since we are still in user-mode on return.
+    *esp.add(0).cast::<u32>().as_ptr() = 0;
+    // Argument 0
+    *esp.add(4).cast::<u32>().as_ptr() = argument;
+    // Last EBP
+    *esp.add(8).cast::<u32>().as_ptr() = 0;
 
     // Reschedule our threads.
     *threads.running_thread.lock() = Some(switched_to);
@@ -99,7 +112,7 @@ unsafe extern "C" fn run_thread(
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if is_kernel {
         let entry_function: ThreadFunction = unsafe { core::mem::transmute(eip.as_ptr()) };
-        let exit_code = entry_function();
+        let exit_code = entry_function(argument);
 
         // Safely exit the thread.
         exit_thread(exit_code);
@@ -133,12 +146,13 @@ unsafe extern "C" fn run_thread(
 #[allow(unused)]
 #[repr(C, packed)]
 pub struct PrepareThreadContext {
-    entry_function: *const u8,
+    // test: *const u8,
+    // entry_function: *const u8,
 }
 
 impl PrepareThreadContext {
     pub fn new(entry_function: *const u8) -> Self {
-        Self { entry_function }
+        Self { } // entry_function, test: core::ptr::null() }
     }
 }
 
@@ -169,7 +183,7 @@ pub struct SwitchThreadsContext {
     esi: usize,          // Source index.
     ebx: usize,          // Base (for memory access).
     ebp: usize,          // Stack base pointer.
-    eip: ThreadFunction, // Instruction pointer (determines where to jump after the context switch).
+    eip: unsafe extern "C" fn () -> i32, // Instruction pointer (determines where to jump after the context switch).
 }
 
 impl SwitchThreadsContext {
