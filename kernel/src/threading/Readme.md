@@ -52,8 +52,6 @@ The [kernel thread](#the-kernel-thread) is an exception to this.
 
 A brand new thread has two different stack frames allocated in the following order (bottom of stack to top):
 
-* `PrepareThreadContext`.
-    This is a stack frame that performs some cleanup of arguments to facilitate the next stack frame.
 * `SwitchThreadsContext`.
     This used within the `context_switch` function to store this threads state.
     Upon creation, this will delegate the thread to run the next stack frame.
@@ -62,8 +60,6 @@ The full stack will look like:
 
 ```
 +-----------------------+ Bottom (High Address)
-| &run_thread           | PrepareThreadContext
-| --------------------- |
 | eip = &prepare_thread | SwitchThreadsContext
 | ebp = 0               |
 | ebx = 0               |

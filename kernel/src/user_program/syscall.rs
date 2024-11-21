@@ -73,7 +73,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             let Some(elf) = elf else { return -ENOEXEC };
 
-            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &system.process) else {
+            let Ok(control) = ThreadControlBlock::new_from_elf(elf, 0, &system.process) else {
                 return -ENOEXEC;
             };
 

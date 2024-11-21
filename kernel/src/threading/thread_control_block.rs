@@ -1,4 +1,4 @@
-use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use super::thread_functions::{SwitchThreadsContext, ThreadFunction};
 use crate::system::{root_filesystem, running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
@@ -96,6 +96,8 @@ pub struct ThreadControlBlock {
     // If true, we'll make an effort to run this thread in kernel mode.
     // Otherwise, we'll run this thread in user mode.
     pub is_kernel: bool,
+    // Argument that will be passed to the thread on startup (via stack).
+    pub argument: u32,
     pub status: ThreadStatus,
     pub exit_code: Option<i32>,
     pub page_manager: PageManager,
@@ -111,6 +113,7 @@ pub enum ThreadElfCreateError {
 impl ThreadControlBlock {
     pub fn new_from_elf(
         elf: Elf,
+        argument: u32,
         state: &ProcessState,
     ) -> Result<ThreadControlBlock, ThreadElfCreateError> {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
@@ -195,6 +198,7 @@ impl ThreadControlBlock {
         Ok(ThreadControlBlock::new_with_page_manager(
             NonNull::new(elf.header.program_entry as *mut u8)
                 .ok_or(ThreadElfCreateError::InvalidEntryPoint)?,
+            argument,
             pid,
             page_manager,
             state,
@@ -203,11 +207,12 @@ impl ThreadControlBlock {
 
     pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
+        argument: u32,
         pid: Pid,
         page_manager: PageManager,
         state: &ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, false, pid, page_manager, state);
+        let mut new_thread = Self::new(entry_instruction, false, argument, pid, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -227,10 +232,13 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &mut ProcessState) -> Self {
+    pub fn new_with_setup(eip: ThreadFunction, is_kernel: bool, argument: u32, state: &mut ProcessState) -> Self {
+        let entry = NonNull::new(eip as *mut u8).unwrap();
+
         let mut new_thread = Self::new(
-            eip,
+            entry,
             is_kernel,
+            argument,
             state.allocate_pid(),
             PageManager::default(),
             state,
@@ -238,26 +246,19 @@ impl ThreadControlBlock {
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
-        //  * prepare_thread frame
         //  * switch_threads
-        let prepare_thread_context = new_thread
-            .allocate_stack_space(size_of::<PrepareThreadContext>())
-            .expect("No Stack Space!");
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
             .expect("No Stack Space!");
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *prepare_thread_context
-                .as_ptr()
-                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(eip.as_ptr());
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
 
-        new_thread.eip = eip; // !!!
+        new_thread.eip = entry; // !!!
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
@@ -267,6 +268,7 @@ impl ThreadControlBlock {
     pub fn new(
         entry_instruction: NonNull<u8>,
         is_kernel: bool,
+        argument: u32,
         pid: Pid,
         mut page_manager: PageManager,
         state: &ProcessState,
@@ -286,6 +288,7 @@ impl ThreadControlBlock {
             tid,
             pid, // Potentially could be swapped to directly copy the pid of the running thread
             is_kernel,
+            argument,
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,
@@ -332,7 +335,7 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager, state: &ProcessState) -> Self {
+    pub fn new_kernel_thread(page_manager: PageManager, argument: u32, state: &ProcessState) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -342,6 +345,7 @@ impl ThreadControlBlock {
             tid: state.allocate_tid(),
             pid: state.allocate_pid(),
             is_kernel: true,
+            argument,
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,
