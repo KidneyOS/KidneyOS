@@ -1,3 +1,4 @@
+use crate::rush::env::{CURR_DIR, HOST_NAME};
 use crate::rush::parser::parse_input;
 use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
@@ -7,8 +8,6 @@ use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::SeqCst;
 use kidneyos_shared::print;
 use kidneyos_shared::video_memory::VIDEO_MEMORY_WRITER;
-
-pub static CURRENT_DIR: Mutex<&str> = Mutex::new("/");
 
 pub static IS_SYSTEM_FULLY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
@@ -64,8 +63,10 @@ pub extern "C" fn rush_loop() -> ! {
 }
 
 fn print_prompt(is_root: bool) {
-    let current_dir = CURRENT_DIR.lock();
-    print!("kidneyos:{}$ ", current_dir);
+    let curr_dir = CURR_DIR.read();
+    let host_name = HOST_NAME.read();
+
+    print!("{}:{}$ ", host_name.as_str(), curr_dir.as_str());
 
     if is_root {
         print!("# ");
