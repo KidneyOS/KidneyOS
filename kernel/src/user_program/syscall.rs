@@ -69,7 +69,10 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             };
 
             let system = unwrap_system();
-            let pcb_ref = system.process.table.get(wait_pid).unwrap();
+            let pcb_ref = match system.process.table.get(wait_pid) {
+                Some(pcb) => pcb,
+                None => return -1, // Process with wait_pid doesnt exist
+            };
             let mut parent_pcb = pcb_ref.lock();
 
             // Can't wait on a thread that alreay has a child waiting
@@ -78,15 +81,24 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             }
 
             parent_pcb.waiting_thread = Some(running_thread_tid());
+            drop(parent_pcb);
 
-            // Disable interrupts as this must be done atomically
-            intr_disable();
-            if parent_pcb.exit_code.is_none() {
+            loop {
+                intr_disable();
+                {
+                    let parent_pcb = pcb_ref.lock();
+                    if parent_pcb.exit_code.is_some() {
+                        intr_enable();
+                        break;
+                    }
+                }
+                intr_enable();
                 thread_sleep();
             }
-            intr_enable();
 
-            *status_ptr = (parent_pcb.exit_code.unwrap() & 0xff) << 8;
+            let parent_pcb = pcb_ref.lock();
+            let exit_code = parent_pcb.exit_code.unwrap();
+            *status_ptr = (exit_code & 0xff) << 8;
 
             let parent_pid = parent_pcb.pid;
             system.process.table.remove(parent_pid);
