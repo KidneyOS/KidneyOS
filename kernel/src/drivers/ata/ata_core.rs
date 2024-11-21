@@ -129,5 +129,6 @@ unsafe fn identify_ata_device(c: &SleepMutex<AtaChannel>, dev_no: u8, block: boo
         Box::new(AtaDevice(dev_no)),
     );
 
-    partition_scan(block_manager.read().by_id(idx).unwrap().as_ref());
+    let block = block_manager.read().by_id(idx).unwrap();
+    partition_scan(block.as_ref());
 }
