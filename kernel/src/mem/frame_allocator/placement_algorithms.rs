@@ -86,22 +86,24 @@ impl PlacementAlgorithm for FirstFit {
     ) -> Result<Range<usize>, AllocError> {
         let total_frames = core_map.len();
 
-        for i in 0..=total_frames - frames_requested {
-            let mut free_frames_found = 0;
+        let mut block_start_ind = 0;
 
-            if !core_map[i].allocated() {
-                free_frames_found += 1;
-
-                for j in 1..frames_requested {
-                    if !core_map[i + j].allocated() {
-                        free_frames_found += 1;
-                    }
-                }
+        while block_start_ind + frames_requested <= total_frames {
+            // Count the number of free blocks starting from block_start_ind, up to the number
+            // requested
+            let mut block_size = 0;
+            while block_size < frames_requested
+                && !core_map[block_start_ind + block_size].allocated()
+            {
+                block_size += 1;
             }
 
-            if free_frames_found == frames_requested {
-                return Ok(i..i + frames_requested);
+            // Have we found a block large enough?
+            if block_size == frames_requested {
+                return Ok(block_start_ind..(block_start_ind + block_size));
             }
+            // Previous block too small, keep searching starting from one past the allocated frame
+            block_start_ind += block_size + 1;
         }
 
         Err(AllocError)
