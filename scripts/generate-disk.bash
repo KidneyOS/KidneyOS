@@ -98,19 +98,19 @@ if [[ "$user" == "root" ]]; then
   exit 1
 fi
 
-if groups "$user" | grep -qE "\bsudo\b|\bwheel\b"; then
-  echo "Warning: This script requires elevated privileges (sudo) and performs disk manipulations."
-  echo "Please review the script carefully to avoid potential data loss or system damage."
-
-  read -r -p "Do you wish to proceed? [y/N]: " response
-  if [[ "$response" != "y" && "$response" != "Y" ]]; then
-    echo "Operation aborted by the user."
-    exit 1
-  fi
-else
-  echo "Error: You do not have the necessary sudo privileges. Please run the script as a user with sufficient permissions."
-  exit 1
-fi
+#if groups "$user" | grep -qE "\bsudo\b|\bwheel\b"; then
+#  echo "Warning: This script requires elevated privileges (sudo) and performs disk manipulations."
+#  echo "Please review the script carefully to avoid potential data loss or system damage."
+#
+#  read -r -p "Do you wish to proceed? [y/N]: " response
+#  if [[ "$response" != "y" && "$response" != "Y" ]]; then
+#    echo "Operation aborted by the user."
+#    exit 1
+#  fi
+#else
+#  echo "Error: You do not have the necessary sudo privileges. Please run the script as a user with sufficient permissions."
+#  exit 1
+#fi
 
 # Create disk image --------------------------------------------------------------------------------
 
