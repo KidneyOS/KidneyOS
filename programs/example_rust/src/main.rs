@@ -4,8 +4,6 @@
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     kidneyos_syscalls::exit(1);
-
-    loop {}
 }
 
 #[cfg(not(test))]
