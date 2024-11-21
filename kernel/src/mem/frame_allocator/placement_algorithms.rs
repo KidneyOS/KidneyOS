@@ -21,6 +21,7 @@ pub trait PlacementAlgorithm: Default {
 
 #[derive(Default)]
 pub struct NextFit {
+    /// The next frame number to start searching for free frames.
     position: usize,
 }
 
@@ -38,29 +39,39 @@ impl PlacementAlgorithm for NextFit {
     ) -> Result<Range<usize>, AllocError> {
         let total_frames = core_map.len();
 
-        for index in self.position..(self.position + total_frames) {
-            let i = index % total_frames;
+        let mut block_start_ind = self.position;
+        let mut wrapped_around = false;
 
-            if i + frames_requested > total_frames {
+        while !(wrapped_around && block_start_ind >= self.position) {
+            if block_start_ind + frames_requested > total_frames {
+                block_start_ind = 0;
+                // If we've already wrapped around once, don't do it again.
+                // Without this check, we will run into an infinite loop if we request a large
+                // number of frames, since `block_start_ind` may never be allowed to reach
+                // `self.position` again.
+                if wrapped_around {
+                    break;
+                }
+                wrapped_around = true;
                 continue;
             }
 
-            let mut free_frames_found = 0;
-
-            if !core_map[i].allocated() {
-                free_frames_found += 1;
-
-                for j in 1..frames_requested {
-                    if !core_map[i + j].allocated() {
-                        free_frames_found += 1;
-                    }
-                }
+            // Count the number of free blocks starting from block_start_ind, up to the number
+            // requested
+            let mut block_size = 0;
+            while block_size < frames_requested
+                && !core_map[block_start_ind + block_size].allocated()
+            {
+                block_size += 1;
             }
 
-            if free_frames_found == frames_requested {
-                self.position = i + frames_requested;
-                return Ok(i..self.position);
+            // Have we found a block large enough?
+            if block_size == frames_requested {
+                self.position = (block_start_ind + block_size) % total_frames;
+                return Ok(block_start_ind..(block_start_ind + block_size));
             }
+            // Previous block too small, keep searching starting from one past the allocated frame
+            block_start_ind += block_size + 1;
         }
 
         Err(AllocError)
@@ -170,6 +181,15 @@ mod tests {
         fill_coremap_range(&mut core_map, &(12..13));
 
         assert_eq!(algorithm.place(&core_map, 2), Err(AllocError));
+    }
+
+    #[test]
+    fn test_next_fit_wrap_around() {
+        let mut core_map = [CoreMapEntry::default(); 16];
+        let mut algorithm = NextFit { position: 8 };
+        fill_coremap_range(&mut core_map, &(0..1));
+        assert_eq!(algorithm.place(&core_map, 16), Err(AllocError));
+        assert_eq!(algorithm.place(&core_map, 15), Ok(1..16));
     }
 
     #[test]
