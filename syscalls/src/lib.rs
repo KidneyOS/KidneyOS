@@ -1,12 +1,15 @@
 #![no_std]
 
+use core::ffi::c_char;
 use core::{arch::asm, ffi::c_void};
+
+pub type Pid = u16;
 
 pub mod defs;
 pub use defs::*;
 
 #[no_mangle]
-pub extern "C" fn exit(code: usize) {
+pub extern "C" fn exit(code: i32) {
     unsafe {
         asm!(
             "
@@ -57,7 +60,7 @@ pub extern "C" fn write(fd: i32, buffer: *const u8, count: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn open(name: *const u8, flags: usize) -> i32 {
+pub extern "C" fn open(name: *const c_char, flags: usize) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -108,7 +111,7 @@ pub extern "C" fn getcwd(buf: *mut i8, size: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn chdir(path: *const i8) -> i32 {
+pub extern "C" fn chdir(path: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -119,7 +122,7 @@ pub extern "C" fn chdir(path: *const i8) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn mkdir(path: *const i8) -> i32 {
+pub extern "C" fn mkdir(path: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -141,7 +144,7 @@ pub extern "C" fn fstat(fd: i32, statbuf: *mut Stat) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn unlink(path: *const i8) -> i32 {
+pub extern "C" fn unlink(path: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -152,7 +155,7 @@ pub extern "C" fn unlink(path: *const i8) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn link(source: *const i8, dest: *const i8) -> i32 {
+pub extern "C" fn link(source: *const c_char, dest: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -163,7 +166,7 @@ pub extern "C" fn link(source: *const i8, dest: *const i8) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn symlink(source: *const i8, dest: *const i8) -> i32 {
+pub extern "C" fn symlink(source: *const c_char, dest: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -174,7 +177,7 @@ pub extern "C" fn symlink(source: *const i8, dest: *const i8) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn rename(source: *const i8, dest: *const i8) -> i32 {
+pub extern "C" fn rename(source: *const c_char, dest: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -185,7 +188,7 @@ pub extern "C" fn rename(source: *const i8, dest: *const i8) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn rmdir(path: *const i8) -> i32 {
+pub extern "C" fn rmdir(path: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -230,7 +233,7 @@ pub extern "C" fn sync() -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn unmount(path: *const i8) -> i32 {
+pub extern "C" fn unmount(path: *const c_char) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -241,7 +244,11 @@ pub extern "C" fn unmount(path: *const i8) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn mount(device: *const i8, target: *const i8, filesystem_type: *const i8) -> i32 {
+pub extern "C" fn mount(
+    device: *const c_char,
+    target: *const c_char,
+    filesystem_type: *const c_char,
+) -> i32 {
     let result;
     unsafe {
         asm!("
@@ -269,38 +276,28 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
     result as Pid
 }
 
-// Temporarily defining execve as (elf_bytes: *const u8, count: usize) while FS comes together.
-/*
 #[no_mangle]
 pub extern "C" fn execve(
-    filename: *const i8,
-    argv: *const *const i8,
-    envp: *const *const i8,
+    filename: *const c_char,
+    argv: *const *const c_char,
+    envp: *const *const c_char,
 ) -> i32 {
     let result: i32;
+
     unsafe {
-        asm!("
+        asm!(
+            "
             mov eax, 0x0b
             int 0x80
             ",
             in("ebx") filename,
             in("ecx") argv,
             in("edx") envp,
-            lateout("eax") result,
-        );
+            lateout("eax") result
+        )
     }
-    result
-}
-*/
 
-#[no_mangle]
-pub extern "C" fn execve(elf_bytes: *const u8, byte_count: usize) {
-    unsafe {
-        asm!("
-            mov eax, 0x0b
-            int 0x80
-        ", in("ebx") elf_bytes, in("ecx") byte_count)
-    }
+    result
 }
 
 // Seems to reference __kernel_timespec as the inputs for this syscall.

@@ -22,6 +22,8 @@
 
 #define EIO 5
 
+#define ENOEXEC 8
+
 #define EBADF 9
 
 #define EFAULT 14
@@ -157,7 +159,7 @@ typedef struct Timespec {
   int64_t tv_nsec;
 } Timespec;
 
-void exit(uintptr_t code);
+void exit(int32_t code);
 
 Pid fork(void);
 
@@ -165,7 +167,7 @@ int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 
 int32_t write(int32_t fd, const uint8_t *buffer, uintptr_t count);
 
-int32_t open(const uint8_t *name, uintptr_t flags);
+int32_t open(const char *name, uintptr_t flags);
 
 int32_t close(int32_t fd);
 
@@ -173,21 +175,21 @@ int64_t lseek64(int32_t fd, int64_t offset, int32_t whence);
 
 int32_t getcwd(int8_t *buf, uintptr_t size);
 
-int32_t chdir(const int8_t *path);
+int32_t chdir(const char *path);
 
-int32_t mkdir(const int8_t *path);
+int32_t mkdir(const char *path);
 
 int32_t fstat(int32_t fd, struct Stat *statbuf);
 
-int32_t unlink(const int8_t *path);
+int32_t unlink(const char *path);
 
-int32_t link(const int8_t *source, const int8_t *dest);
+int32_t link(const char *source, const char *dest);
 
-int32_t symlink(const int8_t *source, const int8_t *dest);
+int32_t symlink(const char *source, const char *dest);
 
-int32_t rename(const int8_t *source, const int8_t *dest);
+int32_t rename(const char *source, const char *dest);
 
-int32_t rmdir(const int8_t *path);
+int32_t rmdir(const char *path);
 
 int32_t getdents(int32_t fd, struct Dirent *output, uintptr_t size);
 
@@ -195,13 +197,13 @@ int32_t ftruncate(int32_t fd, uint64_t size);
 
 int32_t sync(void);
 
-int32_t unmount(const int8_t *path);
+int32_t unmount(const char *path);
 
-int32_t mount(const int8_t *device, const int8_t *target, const int8_t *filesystem_type);
+int32_t mount(const char *device, const char *target, const char *filesystem_type);
 
 Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
-void execve(const uint8_t *elf_bytes, uintptr_t byte_count);
+int32_t execve(const char *filename, const char *const *argv, const char *const *envp);
 
 int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
 
