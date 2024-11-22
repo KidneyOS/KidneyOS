@@ -58,10 +58,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_MOUNT => mount(arg0 as _, arg1 as _, arg2 as _),
         SYS_SYNC => sync(),
         SYS_WAITPID => {
-            let wait_pid = match arg0 {
-                0 => running_thread_ppid(),
-                _ => arg0 as Pid,
-            };
+            let wait_pid = arg0 as Pid;
 
             if wait_pid == running_thread_pid() {
                 return -1;
@@ -73,33 +70,40 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             };
 
             let system = unwrap_system();
-
-            let pcb_ref = system.process.table.get(wait_pid).unwrap();
+            let pcb_ref = match system.process.table.get(wait_pid) {
+                Some(pcb) => pcb,
+                None => return -1, // Process with wait_pid doesnt exist
+            };
             let mut parent_pcb = pcb_ref.lock();
 
+            // Can't wait on a thread that alreay has a child waiting
             if parent_pcb.waiting_thread.is_some() {
                 return -1;
             }
 
             parent_pcb.waiting_thread = Some(running_thread_tid());
+            drop(parent_pcb);
 
-            // Disable interrupts for atomic operations
-            intr_disable();
-            if parent_pcb.exit_code.is_none() {
+            loop {
+                intr_disable();
+                {
+                    let parent_pcb = pcb_ref.lock();
+                    if parent_pcb.exit_code.is_some() {
+                        intr_enable();
+                        break;
+                    }
+                }
+                intr_enable();
                 thread_sleep();
             }
-            intr_enable();
 
-            // Set the status pointer based on the exit code
-            *status_ptr = (parent_pcb.exit_code.unwrap() & 0xff) << 8;
+            let parent_pcb = pcb_ref.lock();
+            let exit_code = parent_pcb.exit_code.unwrap();
+            *status_ptr = (exit_code & 0xff) << 8;
 
-            // Retrieve the pid to be removed
             let parent_pid = parent_pcb.pid;
-
-            // Now we can remove the entry from the table
             system.process.table.remove(parent_pid);
 
-            println!("exiting wait syscall");
             parent_pid as isize
         }
         SYS_EXECVE => {
