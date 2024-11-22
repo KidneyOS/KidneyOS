@@ -78,13 +78,15 @@ impl VMA {
         let Ok(frame_ptr) = (unsafe { KERNEL_ALLOCATOR.frame_alloc(1) }) else {
             return false;
         };
-        let phys_addr = frame_ptr.as_ptr() as *const u8 as usize - OFFSET;
+        let frame_ptr = frame_ptr.as_ptr() as *mut u8;
+        let phys_addr = frame_ptr as usize - OFFSET;
         let mut tcb_guard = unwrap_system().threads.running_thread.lock();
         let tcb = tcb_guard.as_mut().expect("no running thread");
         tcb.page_manager
             .map(phys_addr, virt_addr, self.writeable(), true);
         drop(tcb_guard);
-        let data = core::slice::from_raw_parts_mut(virt_addr as *mut u8, PAGE_FRAME_SIZE);
+        // important we don't use the virtual address here since it may be read-only!
+        let data = core::slice::from_raw_parts_mut(frame_ptr, PAGE_FRAME_SIZE);
         match &self.info {
             VMAInfo::Stack | VMAInfo::Heap => {
                 // zero memory, to prevent data from being leaked between processes.

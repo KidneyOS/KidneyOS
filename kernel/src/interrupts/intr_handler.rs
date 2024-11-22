@@ -29,7 +29,6 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) {
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
-        crate::println!("page fault at address {vaddr:#x}");
         // important: re-enable interrupts before acquiring lock to prevent deadlock
         intr_enable();
         let pcb = running_process();
