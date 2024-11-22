@@ -56,7 +56,7 @@ impl PlacementAlgorithm for NextFit {
                 continue;
             }
 
-            // Count the number of free blocks starting from block_start_ind, up to the number
+            // Count the number of free frames starting from block_start_ind, up to the number
             // requested
             let mut block_size = 0;
             while block_size < frames_requested
@@ -89,7 +89,7 @@ impl PlacementAlgorithm for FirstFit {
         let mut block_start_ind = 0;
 
         while block_start_ind + frames_requested <= total_frames {
-            // Count the number of free blocks starting from block_start_ind, up to the number
+            // Count the number of free frames starting from block_start_ind, up to the number
             // requested
             let mut block_size = 0;
             while block_size < frames_requested
@@ -118,37 +118,40 @@ impl PlacementAlgorithm for BestFit {
     ) -> Result<Range<usize>, AllocError> {
         let total_frames = core_map.len();
 
-        let mut best_start_index_so_far = total_frames;
-        let mut best_chunk_size_so_far = total_frames + 1;
-        let mut i = 0;
+        let mut best_block_start_ind = total_frames;
+        let mut block_start_ind = 0;
 
-        while i < total_frames {
-            if !core_map[i].allocated() {
-                let start_index = i;
-                let mut chunk_size = 0;
+        let mut best_block_size = total_frames + 1;
 
-                while i < total_frames {
-                    if core_map[i].allocated() {
-                        break;
-                    }
-
-                    chunk_size += 1;
-                    i += 1;
-                }
-                if chunk_size >= frames_requested && chunk_size < best_chunk_size_so_far {
-                    best_chunk_size_so_far = chunk_size;
-                    best_start_index_so_far = start_index;
-                }
-            } else {
-                i += 1;
+        while block_start_ind + frames_requested <= total_frames {
+            let mut block_size = 0;
+            // Count the number of free frames starting from block_start_ind,
+            // making sure we're not going out of bounds bounds
+            while block_start_ind + block_size < total_frames
+                && !core_map[block_start_ind + block_size].allocated()
+            {
+                block_size += 1;
             }
+
+            // Have we already found the best fit?
+            if block_size == frames_requested {
+                return Ok(block_start_ind..(block_start_ind + block_size));
+            }
+            // Otherwise, have we found a better fit?
+            if block_size > frames_requested && block_size < best_block_size {
+                best_block_start_ind = block_start_ind;
+                best_block_size = block_size;
+            }
+            // Keep searching the next free block. We might have reached the end already, but the
+            // next while loop condition will catch it.
+            block_start_ind += block_size + 1;
         }
 
-        if best_start_index_so_far == total_frames {
-            return Err(AllocError);
+        if best_block_start_ind < total_frames {
+            return Ok(best_block_start_ind..best_block_start_ind + frames_requested);
         }
 
-        Ok(best_start_index_so_far..best_start_index_so_far + frames_requested)
+        Err(AllocError)
     }
 }
 
@@ -215,22 +218,35 @@ mod tests {
     }
 
     #[test]
-    fn test_best_fit() {
+    fn test_best_fit_first() {
         let mut core_map = [CoreMapEntry::default(); 16];
-        fill_coremap_range(&mut core_map, &(3..4));
+        fill_coremap_range(&mut core_map, &(2..4));
         fill_coremap_range(&mut core_map, &(8..13));
         fill_coremap_range(&mut core_map, &(15..16));
 
-        // Frames left are 0-2, 4-7, 13-14 (inclusive)
-
+        // Frames left are 0-1, 4-7, 12-14 (inclusive)
         let mut algorithm = BestFit;
         assert_eq!(algorithm.place(&core_map, 4), Ok(4..8));
         fill_coremap_range(&mut core_map, &(4..8));
 
+        // If we want 2 frames, the algo should pick 0-1
+        assert_eq!(algorithm.place(&core_map, 2), Ok(0..2));
+        fill_coremap_range(&mut core_map, &(0..2));
+
+        assert_eq!(algorithm.place(&core_map, 4), Err(AllocError));
+    }
+
+    #[test]
+    fn test_best_fit_second() {
+        let mut core_map = [CoreMapEntry::default(); 16];
+        fill_coremap_range(&mut core_map, &(3..13));
+        fill_coremap_range(&mut core_map, &(15..16));
+
+        // Frames left are 0-2, 13-14 (inclusive)
+        let mut algorithm = BestFit;
+
         // If we want 2 frames, the algo should pick 13-14
         assert_eq!(algorithm.place(&core_map, 2), Ok(13..15));
         fill_coremap_range(&mut core_map, &(13..15));
-
-        assert_eq!(algorithm.place(&core_map, 4), Err(AllocError));
     }
 }
