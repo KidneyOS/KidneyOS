@@ -42,6 +42,7 @@ pub const SEEK_END: i32 = 2;
 
 pub const ENOENT: isize = 2;
 pub const EIO: isize = 5;
+pub const ENOEXEC: isize = 8;
 pub const EBADF: isize = 9;
 pub const ENOMEM: isize = 12;
 pub const EFAULT: isize = 14;
