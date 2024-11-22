@@ -1,12 +1,13 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::fs::read_file;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::interrupts::{intr_disable, intr_enable};
-use crate::mem::user::check_and_copy_user_memory;
 use crate::mem::util::get_mut_from_user_space;
+use crate::mem::util::{get_cstr_from_user_space, CStrError};
 use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
@@ -102,20 +103,25 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
             parent_pid as isize
         }
         SYS_EXECVE => {
+            let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {
+                Ok(cstr) => cstr,
+                Err(CStrError::Fault) => return -EFAULT,
+                Err(CStrError::BadUtf8) => return -ENOENT, // ?
+            };
+
+            let Ok(data) = read_file(cstr) else {
+                return -EIO;
+            };
+
             let system = unwrap_system();
-            let guard = system.threads.running_thread.lock();
-            let thread = guard
-                .as_ref()
-                .expect("A syscall was called without a running thread.");
-            let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
-            drop(guard);
-            let elf = elf_bytes
-                .as_ref()
-                .and_then(|bytes| Elf::parse_bytes(bytes).ok());
 
-            let Some(elf) = elf else { return -1 };
+            let elf = Elf::parse_bytes(&data).ok();
 
-            let control = ThreadControlBlock::new_from_elf(elf, &system.process);
+            let Some(elf) = elf else { return -ENOEXEC };
+
+            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &system.process) else {
+                return -ENOEXEC;
+            };
 
             system.threads.scheduler.lock().push(Box::new(control));
 
