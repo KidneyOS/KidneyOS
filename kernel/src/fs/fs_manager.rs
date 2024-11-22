@@ -671,7 +671,7 @@ pub type FileSystemID = u16;
 
 /// Metadata for an open file
 #[derive(Debug)]
-pub(super) enum OpenFile {
+enum OpenFile {
     /// regular file/directory
     Regular {
         fs: FileSystemID,
@@ -1257,6 +1257,7 @@ impl RootFileSystem {
         self.file_systems.get_mut(fs_id).dec_ref(inode);
     }
 
+    /// Read bytes directly from a file using its filesystem ID and inode number.
     pub fn read_direct(
         &mut self,
         fs_id: FileSystemID,
