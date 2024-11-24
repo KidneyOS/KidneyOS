@@ -91,6 +91,16 @@ impl<A: PlacementAlgorithm> FrameAllocatorSolution<A> {
     }
 }
 
+impl<A> FrameAllocatorSolution<A>
+where
+    A: PlacementAlgorithm,
+{
+    #[allow(dead_code)]
+    pub fn num_allocated(&self) -> usize {
+        self.frames_allocated
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,9 +113,14 @@ mod tests {
     };
 
     fn check_coremap(core_map: &[CoreMapEntry], indices: Range<usize>, check: bool) {
-        for i in indices {
+        for i in indices.clone() {
             assert_eq!(core_map[i].allocated(), check);
+
+            if i != indices.end - 1 {
+                assert_eq!(core_map[i].next(), check);
+            }
         }
+        assert!(!core_map[indices.end - 1].next());
     }
 
     // All placement policies should allocate the same frames for the below allocations

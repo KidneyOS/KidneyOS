@@ -16,9 +16,6 @@ const SUBBLOCK_SIZES: [usize; SUBBLOCK_TYPE_COUNT] = [16, 32, 64, 128, 256, 512,
 fn get_best_subblock_size_idx(layout: Layout) -> usize {
     let num_bytes = layout.size().max(layout.align());
 
-    if num_bytes > PAGE_FRAME_SIZE {
-        panic!("Requested memory size larger than page frame size");
-    }
     for (index, size) in SUBBLOCK_SIZES.into_iter().enumerate() {
         if num_bytes <= size {
             return index;
@@ -60,10 +57,7 @@ impl<F: FrameAllocator> SubblockAllocatorSolution<F> {
         let subblock_size_index = get_best_subblock_size_idx(layout);
 
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
-            let num_frames = layout
-                .size()
-                .max(layout.align())
-                .next_multiple_of(PAGE_FRAME_SIZE);
+            let num_frames = layout.size().max(layout.align()).div_ceil(PAGE_FRAME_SIZE);
 
             let new_frame = self.frame_allocator.alloc(num_frames)?;
 
@@ -122,6 +116,9 @@ impl<F: FrameAllocator> SubblockAllocatorSolution<F> {
     ///
     /// This is very similar to linked_list.insert_head() operation
     ///
+    /// This function is unsafe because the caller must ensure the pointer belongs to the
+    /// allocator
+    ///
     /// TODO: Reclaim fully freed frames from free subblocks
     pub unsafe fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let subblock_size_index = get_best_subblock_size_idx(layout);
@@ -155,5 +152,110 @@ impl<F: FrameAllocator> SubblockAllocatorSolution<F> {
     /// TODO
     pub fn deinit(&mut self) -> bool {
         true
+    }
+
+    /// Check to see if the allocator is empty or not
+    ///
+    /// Returns true on empty, false if not
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        for i in 0..SUBBLOCK_TYPE_COUNT {
+            if self.list_heads[i].is_some() {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Returns the length of the linked list corresponding to "subblock_size"
+    ///
+    /// Precondition: "subblock_size" must be a valid size in SUBBLOCK_SIZES
+    ///
+    /// Returns the length of the linked list on success, -1 on failure
+    #[allow(dead_code)]
+    pub fn length_of_lst(&self, subblock_size: usize) -> i32 {
+        let mut index = SUBBLOCK_TYPE_COUNT;
+
+        for (i, size) in SUBBLOCK_SIZES.into_iter().enumerate() {
+            if subblock_size == size {
+                index = i;
+                break;
+            }
+        }
+
+        if index == SUBBLOCK_TYPE_COUNT {
+            return -1;
+        }
+
+        let mut length = 0;
+        let mut head = &self.list_heads[index];
+        while head.is_some() {
+            length += 1;
+            head = &head.as_ref().unwrap().next;
+        }
+
+        length
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::boxed::Box;
+
+    use crate::mem::frame_allocator::placement_algorithms::NextFit;
+    use crate::mem::frame_allocator::{CoreMapEntry, FrameAllocatorSolution};
+    use std::{
+        alloc::{Allocator, Global, Layout},
+        error::Error,
+    };
+
+    #[test]
+    fn test_subblock_allocator() -> Result<(), Box<dyn Error>> {
+        const NUM_FRAMES: usize = 25;
+
+        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
+        let region = Global.allocate(layout)?;
+
+        let frame_allocator =
+            FrameAllocatorSolution::<NextFit>::new(region.cast::<u8>(), Box::new(core_map));
+
+        let mut subblock_allocator = SubblockAllocatorSolution::new(frame_allocator);
+        assert!(subblock_allocator.is_empty());
+
+        // A request for 5 bytes should use a 16 byte subblock
+        let layout_5_bytes = Layout::from_size_align(5, 2)?;
+        let ptr_16_bytes = subblock_allocator.allocate(layout_5_bytes)?;
+
+        assert!(!subblock_allocator.is_empty());
+        assert_eq!(subblock_allocator.length_of_lst(16), 255);
+        assert_eq!(subblock_allocator.get_frame_allocator().num_allocated(), 1);
+
+        // A request for 97 bytes should use a 128 byte subblock
+        let layout_97_bytes = Layout::from_size_align(97, 2)?;
+        let ptr_128_bytes = subblock_allocator.allocate(layout_97_bytes)?;
+
+        assert_eq!(subblock_allocator.length_of_lst(128), 31);
+        assert_eq!(subblock_allocator.get_frame_allocator().num_allocated(), 2);
+
+        // A request for 5000 bytes should use 2 frames
+        let layout_5000_bytes = Layout::from_size_align(5000, 2)?;
+        let frame_ptr = subblock_allocator.allocate(layout_5000_bytes)?;
+        assert_eq!(subblock_allocator.get_frame_allocator().num_allocated(), 4);
+
+        unsafe {
+            subblock_allocator.deallocate(ptr_16_bytes, layout_5_bytes);
+            subblock_allocator.deallocate(ptr_128_bytes, layout_97_bytes);
+            subblock_allocator.deallocate(frame_ptr, layout_5000_bytes);
+        }
+
+        assert!(!subblock_allocator.is_empty());
+        assert_eq!(subblock_allocator.length_of_lst(16), 256);
+        assert_eq!(subblock_allocator.length_of_lst(128), 32);
+        assert_eq!(subblock_allocator.get_frame_allocator().num_allocated(), 2);
+
+        Ok(())
     }
 }
