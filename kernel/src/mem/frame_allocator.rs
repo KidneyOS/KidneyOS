@@ -23,7 +23,7 @@ pub struct CoreMapEntry {
 
 #[allow(clippy::type_complexity)]
 pub struct FrameAllocatorSolution<A: PlacementAlgorithm> {
-    start: NonNull<u8>,
+    start: NonNull<[u8]>,
     core_map: Box<[CoreMapEntry]>,
     frames_allocated: usize,
     placement_algorithm: A,
@@ -33,7 +33,7 @@ impl<A> FrameAllocator for FrameAllocatorSolution<A>
 where
     A: PlacementAlgorithm,
 {
-    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError> {
+    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<u8>, AllocError> {
         if self.frames_allocated + frames_requested > self.core_map.len() {
             return Err(AllocError);
         }
@@ -53,16 +53,13 @@ where
 
         self.frames_allocated += frames_requested;
 
-        Ok(NonNull::slice_from_raw_parts(
-            NonNull::new(unsafe { self.start.as_ptr().add(range.start * PAGE_FRAME_SIZE) })
-                .ok_or(AllocError)?,
-            range.len() * PAGE_FRAME_SIZE,
-        ))
+        Ok(unsafe { self.start.cast::<u8>().add(range.start * PAGE_FRAME_SIZE) })
     }
 
     unsafe fn dealloc(&mut self, ptr_to_dealloc: NonNull<u8>) -> usize {
-        let mut start =
-            (ptr_to_dealloc.as_ptr() as usize - self.start.as_ptr() as usize) / PAGE_FRAME_SIZE;
+        let mut start = (ptr_to_dealloc.as_ptr() as usize
+            - self.start.cast::<u8>().as_ptr() as usize)
+            / PAGE_FRAME_SIZE;
         let mut frames_freed = 1;
 
         while self.core_map[start].next() {
@@ -81,7 +78,7 @@ where
 }
 
 impl<A: PlacementAlgorithm> FrameAllocatorSolution<A> {
-    pub fn new(start: NonNull<u8>, core_map: Box<[CoreMapEntry]>) -> Self {
+    pub fn new(start: NonNull<[u8]>, core_map: Box<[CoreMapEntry]>) -> Self {
         FrameAllocatorSolution {
             start,
             core_map,
@@ -187,7 +184,12 @@ mod tests {
         let region = Global.allocate(layout)?;
 
         let mut frame_allocator =
-            FrameAllocatorSolution::<NextFit>::new(region.cast::<u8>(), Box::new(core_map));
+            FrameAllocatorSolution::<NextFit>::new(region, Box::new(core_map));
+
+        assert_eq!(
+            unsafe { frame_allocator.start.as_ref().len() },
+            PAGE_FRAME_SIZE * NUM_FRAMES
+        );
 
         setup(&mut frame_allocator, &region);
 
@@ -210,7 +212,12 @@ mod tests {
         let region = Global.allocate(layout)?;
 
         let mut frame_allocator =
-            FrameAllocatorSolution::<FirstFit>::new(region.cast::<u8>(), Box::new(core_map));
+            FrameAllocatorSolution::<FirstFit>::new(region, Box::new(core_map));
+
+        assert_eq!(
+            unsafe { frame_allocator.start.as_ref().len() },
+            PAGE_FRAME_SIZE * NUM_FRAMES
+        );
 
         setup(&mut frame_allocator, &region);
 
@@ -233,7 +240,12 @@ mod tests {
         let region = Global.allocate(layout)?;
 
         let mut frame_allocator =
-            FrameAllocatorSolution::<BestFit>::new(region.cast::<u8>(), Box::new(core_map));
+            FrameAllocatorSolution::<BestFit>::new(region, Box::new(core_map));
+
+        assert_eq!(
+            unsafe { frame_allocator.start.as_ref().len() },
+            PAGE_FRAME_SIZE * NUM_FRAMES
+        );
 
         setup(&mut frame_allocator, &region);
 

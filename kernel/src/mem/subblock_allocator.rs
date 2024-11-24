@@ -58,10 +58,9 @@ impl<F: FrameAllocator> SubblockAllocatorSolution<F> {
 
         if subblock_size_index == SUBBLOCK_TYPE_COUNT {
             let num_frames = layout.size().max(layout.align()).div_ceil(PAGE_FRAME_SIZE);
-
             let new_frame = self.frame_allocator.alloc(num_frames)?;
 
-            return Ok(new_frame.as_ptr() as *mut u8);
+            return Ok(new_frame.as_ptr());
         };
 
         match self.list_heads[subblock_size_index].take() {
@@ -219,8 +218,7 @@ mod tests {
         let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
         let region = Global.allocate(layout)?;
 
-        let frame_allocator =
-            FrameAllocatorSolution::<NextFit>::new(region.cast::<u8>(), Box::new(core_map));
+        let frame_allocator = FrameAllocatorSolution::<NextFit>::new(region, Box::new(core_map));
 
         let mut subblock_allocator = SubblockAllocatorSolution::new(frame_allocator);
         assert!(subblock_allocator.is_empty());

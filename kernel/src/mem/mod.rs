@@ -36,7 +36,7 @@ trait FrameAllocator {
     ///
     /// This function should return a pointer to the start of the memory region on success and
     /// AllocError on failure
-    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<[u8]>, AllocError>;
+    fn alloc(&mut self, frames_requested: usize) -> Result<NonNull<u8>, AllocError>;
 
     /// Deallocates the frame or frames pointed to by "ptr_to_dealloc" according to layout
     ///
@@ -128,8 +128,11 @@ impl KernelAllocator {
         assert_ne!(frames_base_address, dummy_allocator.get_start_address());
 
         let frame_allocator = FrameAllocatorSolution::<NextFit>::new(
-            NonNull::new(dummy_allocator.get_start_address() as *mut u8)
-                .expect("frames_base can't be null"),
+            NonNull::slice_from_raw_parts(
+                NonNull::new(dummy_allocator.get_start_address() as *mut u8)
+                    .expect("Could not create NonNull pointer"),
+                PAGE_FRAME_SIZE * num_frames_in_system,
+            ),
             core_map,
         );
 
@@ -138,7 +141,7 @@ impl KernelAllocator {
         };
     }
 
-    pub fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<[u8]>, AllocError> {
+    pub fn frame_alloc(&mut self, frames: usize) -> Result<NonNull<u8>, AllocError> {
         let KernelAllocatorState::Initialized { subblock_allocator } = self.state.get_mut() else {
             return Err(AllocError);
         };
@@ -249,49 +252,5 @@ unsafe impl GlobalAlloc for KernelAllocator {
         subblock_allocator.deallocate(ptr, layout);
 
         TOTAL_NUM_DEALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-// These tests do not use our global allocator
-// TODO: Find a way to test the subblock/global allocator
-#[cfg(test)]
-mod test {
-    use alloc::{boxed::Box, vec::Vec};
-
-    #[test]
-    fn test_box() {
-        let heap_val_1 = Box::new(10);
-        let heap_val_2 = Box::new(3.2);
-        assert_eq!(*heap_val_1, 10);
-        assert_eq!(*heap_val_2, 3.2);
-    }
-
-    #[test]
-    fn test_vec() {
-        let n = 20;
-        let mut test_vec = Vec::new();
-        for i in 1..=n {
-            test_vec.push(i)
-        }
-
-        assert_eq!(test_vec[0], 1);
-        assert_eq!(test_vec[10], 11);
-        assert_eq!(test_vec.iter().sum::<u64>(), (n + 1) * (n / 2));
-    }
-
-    #[test]
-    fn test_larger_vec() {
-        let large_n = 60;
-        let mut large_test_vec = Vec::new();
-        for i in 1..=large_n {
-            large_test_vec.push(i)
-        }
-
-        assert_eq!(large_test_vec[40], 41);
-        assert_eq!(large_test_vec[52], 53);
-        assert_eq!(
-            large_test_vec.iter().sum::<u64>(),
-            (large_n + 1) * (large_n / 2)
-        );
     }
 }
