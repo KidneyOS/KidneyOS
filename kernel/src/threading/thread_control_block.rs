@@ -353,7 +353,7 @@ impl ThreadControlBlock {
     }
 
     /// If possible without stack-smashing, moves the stack pointer down and returns the new value.
-    fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
+    pub fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
         if !self.has_stack_space(bytes) {
             return None;
         }
@@ -374,11 +374,35 @@ impl ThreadControlBlock {
     fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
         // SAFETY: `has_stack_space` must have returned true for this amount before calling.
         unsafe {
-            let raw_pointer = self.kernel_stack_pointer.as_ptr().cast::<u8>();
-            let new_pointer =
-                NonNull::new(raw_pointer.sub(amount)).expect("Error shifting stack pointer.");
-            self.kernel_stack_pointer = new_pointer;
+            self.kernel_stack_pointer = self.kernel_stack_pointer.sub(amount);
             self.kernel_stack_pointer
+        }
+    }
+
+
+    /// If possible without stack-smashing, moves the stack pointer down and returns the new value.
+    pub fn allocate_user_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
+        if !self.has_user_stack_space(bytes) {
+            return None;
+        }
+
+        Some(self.shift_user_stack_pointer_down(bytes))
+    }
+
+    /// Check if `bytes` bytes will fit on the kernel stack.
+    const fn has_user_stack_space(&self, bytes: usize) -> bool {
+        // SAFETY: Calculates the distance between the top and bottom of the kernel stack pointers.
+        let available_space = unsafe { self.esp.offset_from(self.user_stack) as usize };
+
+        available_space >= bytes
+    }
+
+    /// Moves the stack pointer down and returns the new position.
+    fn shift_user_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
+        // SAFETY: `has_user_stack_space` must have returned true for this amount before calling.
+        unsafe {
+            self.esp = self.esp.sub(amount);
+            self.esp
         }
     }
 

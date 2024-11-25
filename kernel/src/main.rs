@@ -52,7 +52,12 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-const INIT: &[u8] = include_bytes!("../../programs/exit/exit").as_slice();
+const INIT: &[u8] = include_bytes!("../../programs/execve/target/i686-unknown-linux-gnu/release/execve").as_slice();
+
+unsafe extern "C" fn thread_one(arg: u32) -> u32 {
+    loop { }
+    // kidneyos_syscalls::exit(arg as i32);
+}
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
@@ -86,7 +91,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let mut process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
 
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_init, true, 0, &mut process);
+        let ide_tcb = ThreadControlBlock::new_with_setup(thread_one, true, 40, &mut process);
 
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());

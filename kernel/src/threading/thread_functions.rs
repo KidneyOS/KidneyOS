@@ -7,10 +7,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use core::arch::asm;
-use kidneyos_shared::{
-    global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    task_state_segment::TASK_STATE_SEGMENT,
-};
+use kidneyos_shared::{global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR}, println, task_state_segment::TASK_STATE_SEGMENT};
 
 /// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 /// No arguments allowed for now.
@@ -60,6 +57,15 @@ pub fn stop_thread(tid: Tid) {
     unsafe { clean_up_thread(tcb) };
 }
 
+// Landing Pad
+// We set the RIP to this function, so when we return from user thread we can detect it!
+// We'll look out from page faults that try to execute the landing pad.
+// If we find it, we'll print a friendlier message to console.
+#[naked]
+pub unsafe extern "C" fn landing_pad() -> ! {
+    asm!("2: jmp 2b", options(noreturn))
+}
+
 /// A wrapper function to execute a thread's true function.
 unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
@@ -87,8 +93,10 @@ unsafe extern "C" fn run_thread(
     // Allocate space for return frame and arguments.
     let esp = esp.sub(3 * core::mem::size_of::<u32>());
 
+    println!("Running thread with argument {argument}");
+
     // Return Address, we can't make our own function since we are still in user-mode on return.
-    *esp.add(0).cast::<u32>().as_ptr() = 0;
+    *esp.add(0).cast::<u32>().as_ptr() = landing_pad as u32;
     // Argument 0
     *esp.add(4).cast::<u32>().as_ptr() = argument;
     // Last EBP

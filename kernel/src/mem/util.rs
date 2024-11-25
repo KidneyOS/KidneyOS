@@ -132,3 +132,32 @@ pub unsafe fn get_mut_from_user_space<T>(ptr: *mut T) -> Option<&'static mut T> 
 pub unsafe fn get_ref_from_user_space<T>(ptr: *const T) -> Option<&'static T> {
     Some(&get_slice_from_user_space(ptr, 1)?[0])
 }
+
+/// Construct slice from a null-terminate userspace pointer.
+/// The array pointed to by this pointer must end with a NULL.
+/// If we do not find NULL after max_length, None will be returned.
+///
+/// # Safety
+///
+/// See [`get_slice_from_user_space`], except the pointer must be null-terminated.
+/// No type-confusion constraints for safety, pointers must be checked again after being returned.
+pub unsafe fn get_slice_from_null_terminated_user_space<T>(
+    ptr: *const *const T, max_length: usize
+) -> Option<&'static [*const T]> {
+    if !ptr.is_aligned() {
+        return None;
+    }
+
+    let mut length = 0;
+
+    while length < max_length && is_range_readable(ptr.add(length), size_of::<T>()) {
+        if (*ptr.add(length)).is_null() {
+            return Some(core::slice::from_raw_parts(ptr, length))
+        }
+
+        length += 1;
+    }
+
+    None
+}
+

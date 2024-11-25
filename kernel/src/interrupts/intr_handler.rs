@@ -1,9 +1,11 @@
 use core::arch::asm;
-
+use kidneyos_shared::println;
 use crate::drivers::ata::ata_interrupt;
 use crate::drivers::input::keyboard;
 use crate::interrupts::{pic, timer};
 use crate::threading::scheduling;
+use crate::threading::scheduling::scheduler_yield_and_die;
+use crate::threading::thread_functions::landing_pad;
 use crate::user_program::syscall;
 
 /* This file contains all the interrupt handlers to be installed in the IDT when the kernel is initialized.
@@ -26,6 +28,13 @@ pub unsafe extern "C" fn unhandled_handler() -> ! {
 #[naked]
 pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
+        if return_eip == landing_pad as usize {
+            println!("Thread executed landing pad, this happens when \
+                a user thread returns without terminating (ex. does not call exit(...)).");
+
+            scheduler_yield_and_die()
+        }
+
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
         panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");

@@ -1,22 +1,19 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::fs::read_file;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
-use crate::mem::util::{get_cstr_from_user_space, get_mut_from_user_space, CStrError};
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
+use crate::mem::util::get_mut_from_user_space;
+use crate::system::{running_thread_pid, running_thread_ppid};
 use crate::threading::process_functions;
-use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
-use crate::threading::thread_control_block::ThreadControlBlock;
-use crate::user_program::elf::Elf;
+use crate::threading::scheduling::scheduler_yield_and_continue;
 use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
-use alloc::boxed::Box;
 use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
+use crate::user_program::process::execve;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -29,6 +26,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
         SYS_EXIT => {
+            println!("Exiting with code: {arg0}");
             process_functions::exit_process(arg0 as i32);
         }
         SYS_FORK => {
@@ -56,31 +54,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_WAITPID => {
             todo!("waitpid syscall")
         }
-        SYS_EXECVE => {
-            let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {
-                Ok(cstr) => cstr,
-                Err(CStrError::Fault) => return -EFAULT,
-                Err(CStrError::BadUtf8) => return -ENOENT, // ?
-            };
-
-            let Ok(data) = read_file(cstr) else {
-                return -EIO;
-            };
-
-            let system = unwrap_system();
-
-            let elf = Elf::parse_bytes(&data).ok();
-
-            let Some(elf) = elf else { return -ENOEXEC };
-
-            let Ok(control) = ThreadControlBlock::new_from_elf(elf, 0, &system.process) else {
-                return -ENOEXEC;
-            };
-
-            system.threads.scheduler.lock().push(Box::new(control));
-
-            scheduler_yield_and_die();
-        }
+        SYS_EXECVE => execve(arg0 as _, arg1 as _, arg2 as _),
         SYS_GETPID => running_thread_pid() as isize,
         SYS_NANOSLEEP => {
             todo!("nanosleep syscall")
