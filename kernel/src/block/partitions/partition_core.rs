@@ -3,7 +3,6 @@
 use crate::block::block_core::{Block, BlockOp, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::block::partitions::partition_utils::lba_to_chs;
-use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
 use crate::rush::rush_core::IS_SYSTEM_FULLY_INITIALIZED;
 use crate::system::unwrap_system;
 use alloc::boxed::Box;
@@ -11,6 +10,8 @@ use alloc::format;
 use core::fmt;
 use core::sync::atomic::Ordering::SeqCst;
 use kidneyos_shared::{eprintln, println};
+use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::interrupts::mutex_irq::hold_interrupts;
 
 /// A partition table entry in the MBR.
 ///

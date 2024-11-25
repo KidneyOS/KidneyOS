@@ -1,30 +1,42 @@
-use crate::interrupts::{intr_disable, intr_enable, intr_get_level, IntrLevel};
+use crate::interrupts::{intr_disable, intr_enable};
 use crate::sync::mutex::{Mutex, MutexGuard};
 use core::{
     fmt,
     ops::{Deref, DerefMut},
 };
+use core::sync::atomic::{AtomicU32, Ordering};
 
 /// A guard for withholding interrupts.
 #[derive(Default)]
-pub struct InterruptsGuard(bool);
+pub struct InterruptsGuard;
 
 impl !Send for InterruptsGuard {}
+
+static INTERRUPT_DISABLE_COUNT: AtomicU32 = AtomicU32::new(0);
+
+pub fn interrupt_increment() { // disable
+    INTERRUPT_DISABLE_COUNT.fetch_add(1, Ordering::SeqCst);
+
+    intr_disable();
+}
+
+pub fn interrupt_decrement() { // enable
+    INTERRUPT_DISABLE_COUNT.fetch_sub(1, Ordering::SeqCst);
+
+    intr_enable();
+}
 
 /// Prevents interrupts from occurring until the `InterruptsGuard` is dropped.
 /// After it is dropped, the interrupts are returned to the previous state.
 pub fn hold_interrupts() -> InterruptsGuard {
-    let enabled = intr_get_level() == IntrLevel::IntrOn;
-    let retval = InterruptsGuard(enabled);
-    intr_disable();
-    retval
+    interrupt_increment();
+
+    InterruptsGuard
 }
 
 impl Drop for InterruptsGuard {
     fn drop(&mut self) {
-        if self.0 {
-            intr_enable();
-        }
+        interrupt_decrement()
     }
 }
 
