@@ -151,7 +151,7 @@ impl KernelAllocator {
             subblock_allocators: Vec::new_in(bootstrap_allocator),
         };
 
-        (frames_base, frames_max)
+        (frames_base, max_frames)
     }
 
     /// # Safety
