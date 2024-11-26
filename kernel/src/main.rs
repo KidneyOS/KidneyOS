@@ -65,7 +65,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
     // SAFETY: Single core, interrupts disabled.
     unsafe {
-        let mem_base = KERNEL_ALLOCATOR.init(mem_upper);
+        let (mem_base, max_frames) = KERNEL_ALLOCATOR.init(mem_upper);
 
         println!("Setting up IDTR");
         idt::load();
@@ -96,7 +96,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let input_buffer = Mutex::new(InputBuffer::new());
 
         println!("Setting up swap space");
-        let swap_space = SwapSpace::new(mem_base);
+        let swap_space = SwapSpace::new(mem_base, max_frames);
         println!("Swap space initialized!");
 
         threads.scheduler.push(Box::new(ide_tcb));

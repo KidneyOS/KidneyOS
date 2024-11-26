@@ -121,7 +121,7 @@ impl KernelAllocator {
     /// # Safety
     ///
     /// This function can only be called when the allocator is uninitialized.
-    pub unsafe fn init(&mut self, mem_upper: usize) -> *mut u8 {
+    pub unsafe fn init(&mut self, mem_upper: usize) -> (*mut u8, usize) {
         let KernelAllocatorState::Uninitialized = self.state.get_mut() else {
             panic!("init called while kernel allocator was already initialized");
         };
@@ -151,7 +151,7 @@ impl KernelAllocator {
             subblock_allocators: Vec::new_in(bootstrap_allocator),
         };
 
-        frames_base
+        (frames_base, frames_max)
     }
 
     /// # Safety

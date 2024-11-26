@@ -26,9 +26,9 @@ pub struct SwapSpace {
 impl SwapSpace {
     /// # Safety
     ///
-    ///  mem_start + SWAP_SIZE is within bounds.
-    pub unsafe fn new(mem_start: *mut u8) -> Self {
-        let mem_limit = unsafe { mem_start.add(SWAP_SIZE as usize) };
+    ///  mem_start + max_frames * PAGE_FRAME_SIZE is within bounds.
+    pub unsafe fn new(mem_start: *mut u8, max_frames: usize) -> Self {
+        let mem_limit = unsafe { mem_start.add(max_frames * PAGE_FRAME_SIZE) };
 
         Self {
             bitmap: Box::new([0; FRAMES]),
