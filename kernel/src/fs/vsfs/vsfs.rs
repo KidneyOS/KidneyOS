@@ -1,3 +1,6 @@
+use alloc::vec::Vec;
+use alloc::vec;
+
 #[derive(Debug, Clone, Copy)]
 pub struct SuperBlock {
     pub magic_number: u64,  // Must match VSFS_MAGIC

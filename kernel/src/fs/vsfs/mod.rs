@@ -271,12 +271,12 @@ impl SimpleFileSystem for VSFS {
         let read_start_block: usize = (offset / VSFS_BLOCK_SIZE as u64) as usize;
         let read_start_offset = offset % VSFS_BLOCK_SIZE as u64;
         let read_start_sector = read_start_offset / BLOCK_SECTOR_SIZE as u64;
-        println!("Read start block: {}", read_start_block);
-        println!("Read start offset: {}", read_start_offset);
-        println!("Read start sector: {}", read_start_sector);
+        // println!("Read start block: {}", read_start_block);
+        // println!("Read start offset: {}", read_start_offset);
+        // println!("Read start sector: {}", read_start_sector);
 
-        println!("Read size: {}", read_size);
-        println!("File size: {}", file_size);
+        // println!("Read size: {}", read_size);
+        // println!("File size: {}", file_size);
 
         let mut bytes_read = 0;
 
