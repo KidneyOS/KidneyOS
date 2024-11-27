@@ -1,6 +1,7 @@
 use crate::drivers::ata::ata_interrupt;
 use crate::drivers::input::keyboard;
-use crate::interrupts::{pic, timer};
+use crate::interrupts::{intr_enable, pic, timer};
+use crate::system::running_process;
 use crate::threading::scheduling;
 use crate::threading::scheduling::scheduler_yield_and_die;
 use crate::threading::thread_functions::landing_pad;
@@ -27,7 +28,7 @@ pub unsafe extern "C" fn unhandled_handler() -> ! {
 
 #[naked]
 pub unsafe extern "C" fn page_fault_handler() -> ! {
-    unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
+    unsafe fn inner(error_code: u32, return_eip: usize) {
         if return_eip == landing_pad as usize {
             println!(
                 "Thread executed landing pad, this happens when \
@@ -39,11 +40,47 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
 
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
-        panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");
+        // important: re-enable interrupts before acquiring lock to prevent deadlock
+        intr_enable();
+        let pcb = running_process();
+        let pcb = pcb.lock();
+        // try checking for a VMA matching this address
+        if !pcb.vmas.install_pte(vaddr) {
+            panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");
+        }
     }
 
     asm!(
-        "call {}",
+        "
+        pusha
+        # pusha pushes 8 registers, so to get past them we need to add 8 * 4 = 32 bytes to the stack pointer
+        # first push return_eip, which is above error_code on the stack, so need to add 4 extra bytes
+        push [esp+36]
+        # now push error_code; due to previous push we need to add 4 extra bytes here as well
+        push [esp+36]
+        call {}
+        # pop arguments
+        add esp, 8
+        popa
+        # pop error code argument
+        add esp, 4
+        iretd
+        ",
+        sym inner,
+        options(noreturn),
+    )
+}
+
+#[naked]
+pub unsafe extern "C" fn general_protection_fault_handler() -> ! {
+    unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
+        panic!("general protection fault with error code {error_code:#b} occurred from instruction at {return_eip:#X}");
+    }
+
+    asm!(
+        "
+        call {}
+        ",
         sym inner,
         options(noreturn),
     )
