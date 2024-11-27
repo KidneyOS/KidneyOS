@@ -104,7 +104,7 @@ pub struct ThreadControlBlock {
     pub eip: NonNull<u8>,
     // Like above, but the stack pointer.
     pub esp: NonNull<u8>,
-    
+
     pub tid: Tid,
     // The PID of the parent PCB.
     pub pid: Pid,
@@ -397,7 +397,7 @@ impl ThreadControlBlock {
     /// Check if `bytes` bytes will fit on the kernel stack.
     const fn has_user_stack_space(&self, bytes: usize) -> bool {
         let user_bottom = USER_STACK_BOTTOM_VIRT as *const u8;
-        
+
         // SAFETY: Calculates the distance between the top and bottom of the kernel stack pointers.
         let available_space = unsafe { self.esp.as_ptr().offset_from(user_bottom) as usize };
 
