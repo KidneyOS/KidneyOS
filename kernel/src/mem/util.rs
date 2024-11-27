@@ -1,6 +1,7 @@
 use core::mem::size_of;
 use kidneyos_shared::mem::OFFSET as KMEM_OFFSET;
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
+use kidneyos_shared::println;
 
 pub enum CStrError {
     Fault,

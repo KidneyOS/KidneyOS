@@ -14,7 +14,9 @@ use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
+use core::cmp::max;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use kidneyos_shared::println;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -148,7 +150,8 @@ impl ThreadControlBlock {
                 program_header.virtual_address as usize / PAGE_FRAME_SIZE;
             let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
             let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
-            let segment_padded_size = segment_padding + program_header.data.len();
+            let segment_size = max(program_header.memory_size as usize, program_header.data.len());
+            let segment_padded_size = segment_padding + segment_size;
 
             let frames = segment_padded_size.div_ceil(PAGE_FRAME_SIZE);
 
@@ -168,6 +171,7 @@ impl ThreadControlBlock {
 
                 // Map the physical address obtained by the allocation above to the
                 // virtual address assigned by the ELF header.
+                println!("Mapping range from {segment_virtual_start:#X} to {:#X} (va: {:#X} - {:#X})", segment_virtual_start + frames * PAGE_FRAME_SIZE, program_header.virtual_address, program_header.virtual_address + program_header.memory_size);
                 page_manager.map_range(
                     phys_addr as usize,
                     segment_virtual_start,

@@ -6,7 +6,7 @@ use kidneyos_syscalls::O_CREATE;
 use kidneyos_syscalls::arguments::RawArguments;
 
 const TARGET_PROGRAM: &[u8] =
-    include_bytes!("../../example_rust/target/i686-unknown-linux-gnu/release/example_rust");
+    include_bytes!("../../list_arguments/target/i686-unknown-linux-gnu/release/list_arguments");
 
 const TARGET_PATH: *const c_char = c"/example_rust".as_ptr();
 

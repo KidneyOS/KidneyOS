@@ -89,7 +89,6 @@ unsafe extern "C" fn run_thread(
     } = *switched_to;
 
     // Setting up return frame and arguments for this thread function.
-
     // Allocate space for return frame and arguments.
     let esp = esp.sub(3 * core::mem::size_of::<u32>());
 
@@ -101,7 +100,7 @@ unsafe extern "C" fn run_thread(
     *esp.add(4).cast::<u32>().as_ptr() = argument;
     // Last EBP
     *esp.add(8).cast::<u32>().as_ptr() = 0;
-
+    
     // Reschedule our threads.
     *threads.running_thread.lock() = Some(switched_to);
 

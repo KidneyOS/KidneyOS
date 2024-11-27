@@ -1,4 +1,4 @@
-PROGRAMS := exit example_c example_rust fs execve list_arguments
+PROGRAMS := exit example_c example_rust fs list_arguments execve
 
 .PHONY: programs
 programs: $(PROGRAMS)
