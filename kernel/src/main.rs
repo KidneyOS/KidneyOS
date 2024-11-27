@@ -86,7 +86,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let mut process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
 
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_init, true, 40, &mut process);
+        let ide_tcb = ThreadControlBlock::new_with_setup(ide_init, true, 0, &mut process);
 
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());
