@@ -96,8 +96,6 @@ unsafe extern "C" fn run_thread(
     // Allocate space for return frame and arguments.
     let esp = esp.sub(3 * core::mem::size_of::<u32>());
 
-    println!("Running thread with argument {argument}");
-
     // Return Address, we can't make our own function since we are still in user-mode on return.
     *esp.add(0).cast::<u32>().as_ptr() = landing_pad as u32;
     // Argument 0
