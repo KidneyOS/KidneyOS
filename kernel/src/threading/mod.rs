@@ -50,15 +50,17 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
     let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager, &system.process);
 
+    // Create the initial user program thread.
     let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
 
     // Create the initial user program thread.
-    let user_tcb = ThreadControlBlock::new_from_elf(elf, &system.process);
+    let user_tcb = ThreadControlBlock::new_from_elf(elf, &system.process)
+        .expect("Failed to parse Elf for initial program.");
 
+    // SAFETY: Interrupts must be disabled.
     *system.threads.running_thread.lock() = Some(Box::new(kernel_tcb));
-    let tcb = Box::new(user_tcb);
     let mut scheduler = system.threads.scheduler.lock();
-    scheduler.push(tcb);
+    scheduler.push(Box::new(user_tcb));
     drop(scheduler);
 
     intr_enable();

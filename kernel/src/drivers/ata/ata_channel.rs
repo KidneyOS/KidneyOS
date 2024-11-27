@@ -470,7 +470,7 @@ impl AtaChannel {
 
 impl AtaChannel {
     /* ATA command block port addresses */
-    pub const fn new(channel_num: u8) -> AtaChannel {
+    pub fn new(channel_num: u8) -> AtaChannel {
         let name: [char; 8] = ['\0'; 8];
 
         // https://wiki.osdev.org/ATA_PIO_Mode#Primary.2FSecondary_Bus
@@ -573,14 +573,17 @@ impl AtaChannel {
     }
 
     pub fn sem_down(&self) {
-        self.completion_wait.down();
+        self.completion_wait.acquire().forget();
     }
 
     pub fn sem_up(&self) {
-        self.completion_wait.up();
+        self.completion_wait.post();
     }
 
     pub fn sem_try_down(&self) -> bool {
-        self.completion_wait.try_down()
+        self.completion_wait
+            .try_acquire()
+            .map(|x| x.forget())
+            .is_some()
     }
 }

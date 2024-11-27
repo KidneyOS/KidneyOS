@@ -1,15 +1,19 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::fs::read_file;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
-use crate::mem::user::check_and_copy_user_memory;
+use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system};
+use crate::mem::util::{get_cstr_from_user_space, CStrError};
+use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
+use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
+use crate::threading::thread_sleep::thread_sleep;
 use crate::user_program::elf::Elf;
 use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
@@ -54,23 +58,74 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
         SYS_MOUNT => mount(arg0 as _, arg1 as _, arg2 as _),
         SYS_SYNC => sync(),
         SYS_WAITPID => {
-            todo!("waitpid syscall")
+            let wait_pid = arg0 as Pid;
+
+            if wait_pid == running_thread_pid() {
+                return -1;
+            }
+
+            let status_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut i32) } {
+                Some(ptr) => ptr,
+                None => return -1,
+            };
+
+            let system = unwrap_system();
+            let pcb_ref = match system.process.table.get(wait_pid) {
+                Some(pcb) => pcb,
+                None => return -1, // Process with wait_pid doesnt exist
+            };
+            let mut parent_pcb = pcb_ref.lock();
+
+            // Can't wait on a thread that alreay has a child waiting
+            if parent_pcb.waiting_thread.is_some() {
+                return -1;
+            }
+
+            parent_pcb.waiting_thread = Some(running_thread_tid());
+            drop(parent_pcb);
+
+            loop {
+                intr_disable();
+                {
+                    let parent_pcb = pcb_ref.lock();
+                    if parent_pcb.exit_code.is_some() {
+                        intr_enable();
+                        break;
+                    }
+                }
+                intr_enable();
+                thread_sleep();
+            }
+
+            let parent_pcb = pcb_ref.lock();
+            let exit_code = parent_pcb.exit_code.unwrap();
+            *status_ptr = (exit_code & 0xff) << 8;
+
+            let parent_pid = parent_pcb.pid;
+            system.process.table.remove(parent_pid);
+
+            parent_pid as isize
         }
         SYS_EXECVE => {
+            let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {
+                Ok(cstr) => cstr,
+                Err(CStrError::Fault) => return -EFAULT,
+                Err(CStrError::BadUtf8) => return -ENOENT, // ?
+            };
+
+            let Ok(data) = read_file(cstr) else {
+                return -EIO;
+            };
+
             let system = unwrap_system();
-            let guard = system.threads.running_thread.lock();
-            let thread = guard
-                .as_ref()
-                .expect("A syscall was called without a running thread.");
-            let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
-            drop(guard);
-            let elf = elf_bytes
-                .as_ref()
-                .and_then(|bytes| Elf::parse_bytes(bytes).ok());
 
-            let Some(elf) = elf else { return -1 };
+            let elf = Elf::parse_bytes(&data).ok();
 
-            let control = ThreadControlBlock::new_from_elf(elf, &system.process);
+            let Some(elf) = elf else { return -ENOEXEC };
+
+            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &system.process) else {
+                return -ENOEXEC;
+            };
 
             system.threads.scheduler.lock().push(Box::new(control));
 
