@@ -4,7 +4,7 @@ use crate::vfs::{
     DirEntries, Error, FileInfo, INodeNum, INodeType, Path, RawDirEntry, Result, SimpleFileSystem,
 };
 use core::cmp::{min, max};
-
+#[allow(clippy::module_inception)]
 pub mod vsfs;
 use vsfs::{SuperBlock, Bitmap};
 
@@ -222,6 +222,7 @@ impl SimpleFileSystem for VSFS {
             let name_index = names.len();
 
             let mut file_name_str = String::new();
+            #[allow(clippy::needless_range_loop)]
             for i in 0..file_name.len() {
               if file_name[i] == 0x00 {
                 break;
@@ -252,7 +253,7 @@ impl SimpleFileSystem for VSFS {
         })
     }
 
-    fn release(&mut self, inode: INodeNum) {
+    fn release(&mut self, _inode: INodeNum) {
         todo!()
     }
 
@@ -312,6 +313,7 @@ impl SimpleFileSystem for VSFS {
 
           // Read the indirect data blocks
           let mut index = VSFS_DIRECT_BLOCKS;
+          #[allow(clippy::needless_range_loop)]
           for i in max(0, read_start_block as isize - VSFS_DIRECT_BLOCKS as isize) as usize..indirect_blocks.len() {
             let j_start = if index == read_start_block { read_start_sector as usize } else { 0 };
             for j in j_start..BLOCK_SIZE_RATIO {
@@ -341,43 +343,43 @@ impl SimpleFileSystem for VSFS {
         Ok(bytes_read)
     }
 
-    fn stat(&mut self, file: INodeNum) -> Result<FileInfo> {
+    fn stat(&mut self, _file: INodeNum) -> Result<FileInfo> {
         todo!()
     }
 
-    fn readlink(&mut self, link: INodeNum) -> Result<String> {
+    fn readlink(&mut self, _link: INodeNum) -> Result<String> {
         todo!()
     }
 
-    fn create(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum> {
+    fn create(&mut self, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn mkdir(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum> {
+    fn mkdir(&mut self, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn unlink(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+    fn unlink(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn rmdir(&mut self, parent: INodeNum, name: &Path) -> Result<()> {
+    fn rmdir(&mut self, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn write(&mut self, file: INodeNum, offset: u64, buf: &[u8]) -> Result<usize> {
+    fn write(&mut self, _file: INodeNum, _offset: u64, _buf: &[u8]) -> Result<usize> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn link(&mut self, source: INodeNum, parent: INodeNum, name: &Path) -> Result<()> {
+    fn link(&mut self, _source: INodeNum, _parent: INodeNum, _name: &Path) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn symlink(&mut self, link: &Path, parent: INodeNum, name: &Path) -> Result<INodeNum> {
+    fn symlink(&mut self, _link: &Path, _parent: INodeNum, _name: &Path) -> Result<INodeNum> {
         Err(Error::ReadOnlyFS)
     }
 
-    fn truncate(&mut self, file: INodeNum, size: u64) -> Result<()> {
+    fn truncate(&mut self, _file: INodeNum, _size: u64) -> Result<()> {
         Err(Error::ReadOnlyFS)
     }
 
