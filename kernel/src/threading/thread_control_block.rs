@@ -187,12 +187,6 @@ impl ThreadControlBlock {
 
                 // Map the physical address obtained by the allocation above to the
                 // virtual address assigned by the ELF header.
-                println!(
-                    "Mapping range from {segment_virtual_start:#X} to {:#X} (va: {:#X} - {:#X})",
-                    segment_virtual_start + frames * PAGE_FRAME_SIZE,
-                    program_header.virtual_address,
-                    program_header.virtual_address + program_header.memory_size
-                );
                 page_manager.map_range(
                     phys_addr as usize,
                     segment_virtual_start,
