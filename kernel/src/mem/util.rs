@@ -143,7 +143,8 @@ pub unsafe fn get_ref_from_user_space<T>(ptr: *const T) -> Option<&'static T> {
 /// See [`get_slice_from_user_space`], except the pointer must be null-terminated.
 /// No type-confusion constraints for safety, pointers must be checked again after being returned.
 pub unsafe fn get_slice_from_null_terminated_user_space<T>(
-    ptr: *const *const T, max_length: usize
+    ptr: *const *const T,
+    max_length: usize,
 ) -> Option<&'static [*const T]> {
     if !ptr.is_aligned() {
         return None;
@@ -153,7 +154,7 @@ pub unsafe fn get_slice_from_null_terminated_user_space<T>(
 
     while length < max_length && is_range_readable(ptr.add(length), size_of::<T>()) {
         if (*ptr.add(length)).is_null() {
-            return Some(core::slice::from_raw_parts(ptr, length))
+            return Some(core::slice::from_raw_parts(ptr, length));
         }
 
         length += 1;
@@ -161,4 +162,3 @@ pub unsafe fn get_slice_from_null_terminated_user_space<T>(
 
     None
 }
-

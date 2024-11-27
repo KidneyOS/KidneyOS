@@ -52,10 +52,11 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-const INIT: &[u8] = include_bytes!("../../programs/execve/target/i686-unknown-linux-gnu/release/execve").as_slice();
+const INIT: &[u8] =
+    include_bytes!("../../programs/execve/target/i686-unknown-linux-gnu/release/execve").as_slice();
 
 unsafe extern "C" fn thread_one(arg: u32) -> u32 {
-    loop { }
+    loop {}
     // kidneyos_syscalls::exit(arg as i32);
 }
 

@@ -1,5 +1,3 @@
-use core::arch::asm;
-use kidneyos_shared::println;
 use crate::drivers::ata::ata_interrupt;
 use crate::drivers::input::keyboard;
 use crate::interrupts::{pic, timer};
@@ -7,6 +5,8 @@ use crate::threading::scheduling;
 use crate::threading::scheduling::scheduler_yield_and_die;
 use crate::threading::thread_functions::landing_pad;
 use crate::user_program::syscall;
+use core::arch::asm;
+use kidneyos_shared::println;
 
 /* This file contains all the interrupt handlers to be installed in the IDT when the kernel is initialized.
  * Each must be naked function with C linkage and the type fn() -> !
@@ -29,8 +29,10 @@ pub unsafe extern "C" fn unhandled_handler() -> ! {
 pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
         if return_eip == landing_pad as usize {
-            println!("Thread executed landing pad, this happens when \
-                a user thread returns without terminating (ex. does not call exit(...)).");
+            println!(
+                "Thread executed landing pad, this happens when \
+                a user thread returns without terminating (ex. does not call exit(...))."
+            );
 
             scheduler_yield_and_die()
         }

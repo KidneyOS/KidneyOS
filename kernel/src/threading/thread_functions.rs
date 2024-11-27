@@ -7,7 +7,11 @@ use crate::{
 };
 use alloc::boxed::Box;
 use core::arch::asm;
-use kidneyos_shared::{global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR}, println, task_state_segment::TASK_STATE_SEGMENT};
+use kidneyos_shared::{
+    global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
+    println,
+    task_state_segment::TASK_STATE_SEGMENT,
+};
 
 /// TODO: Thread arguments: Usually a void ptr, but Rust won't like that...
 /// No arguments allowed for now.
@@ -100,7 +104,7 @@ unsafe extern "C" fn run_thread(
     *esp.add(4).cast::<u32>().as_ptr() = argument;
     // Last EBP
     *esp.add(8).cast::<u32>().as_ptr() = 0;
-    
+
     // Reschedule our threads.
     *threads.running_thread.lock() = Some(switched_to);
 
@@ -173,10 +177,10 @@ unsafe extern "C" fn prepare_thread() -> i32 {
 /// The context for a use within context_switch.
 #[repr(C, packed)]
 pub struct SwitchThreadsContext {
-    edi: usize,          // Destination index.
-    esi: usize,          // Source index.
-    ebx: usize,          // Base (for memory access).
-    ebp: usize,          // Stack base pointer.
+    edi: usize, // Destination index.
+    esi: usize, // Source index.
+    ebx: usize, // Base (for memory access).
+    ebp: usize, // Stack base pointer.
     eip: usize, // Instruction pointer (determines where to jump after the context switch).
 }
 

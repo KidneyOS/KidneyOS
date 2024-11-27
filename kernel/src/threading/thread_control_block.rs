@@ -10,11 +10,11 @@ use crate::{
     KERNEL_ALLOCATOR,
 };
 use alloc::vec::Vec;
+use core::cmp::max;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
-use core::cmp::max;
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
 use kidneyos_shared::println;
 
@@ -150,7 +150,10 @@ impl ThreadControlBlock {
                 program_header.virtual_address as usize / PAGE_FRAME_SIZE;
             let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
             let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
-            let segment_size = max(program_header.memory_size as usize, program_header.data.len());
+            let segment_size = max(
+                program_header.memory_size as usize,
+                program_header.data.len(),
+            );
             let segment_padded_size = segment_padding + segment_size;
 
             let frames = segment_padded_size.div_ceil(PAGE_FRAME_SIZE);
@@ -171,7 +174,12 @@ impl ThreadControlBlock {
 
                 // Map the physical address obtained by the allocation above to the
                 // virtual address assigned by the ELF header.
-                println!("Mapping range from {segment_virtual_start:#X} to {:#X} (va: {:#X} - {:#X})", segment_virtual_start + frames * PAGE_FRAME_SIZE, program_header.virtual_address, program_header.virtual_address + program_header.memory_size);
+                println!(
+                    "Mapping range from {segment_virtual_start:#X} to {:#X} (va: {:#X} - {:#X})",
+                    segment_virtual_start + frames * PAGE_FRAME_SIZE,
+                    program_header.virtual_address,
+                    program_header.virtual_address + program_header.memory_size
+                );
                 page_manager.map_range(
                     phys_addr as usize,
                     segment_virtual_start,
@@ -216,7 +224,8 @@ impl ThreadControlBlock {
         page_manager: PageManager,
         state: &ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, false, argument, pid, page_manager, state);
+        let mut new_thread =
+            Self::new(entry_instruction, false, argument, pid, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -236,7 +245,12 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: ThreadFunction, is_kernel: bool, argument: u32, state: &mut ProcessState) -> Self {
+    pub fn new_with_setup(
+        eip: ThreadFunction,
+        is_kernel: bool,
+        argument: u32,
+        state: &mut ProcessState,
+    ) -> Self {
         let entry = NonNull::new(eip as *mut u8).unwrap();
 
         let mut new_thread = Self::new(
@@ -339,7 +353,11 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager, argument: u32, state: &ProcessState) -> Self {
+    pub fn new_kernel_thread(
+        page_manager: PageManager,
+        argument: u32,
+        state: &ProcessState,
+    ) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -382,7 +400,6 @@ impl ThreadControlBlock {
             self.kernel_stack_pointer
         }
     }
-
 
     /// If possible without stack-smashing, moves the stack pointer down and returns the new value.
     pub fn allocate_user_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {

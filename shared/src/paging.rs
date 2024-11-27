@@ -1,10 +1,15 @@
 // https://wiki.osdev.org/Paging
 // https://wiki.osdev.org/Setting_Up_Paging
 
-use crate::{bit_array::BitArray, bitfield, mem::{
-    phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
-    virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
-}, video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE}};
+use crate::{
+    bit_array::BitArray,
+    bitfield,
+    mem::{
+        phys::{kernel_data_start, kernel_end, kernel_start, main_stack_top, trampoline_heap_top},
+        virt, HUGE_PAGE_SIZE, OFFSET, PAGE_FRAME_SIZE,
+    },
+    video_memory::{VIDEO_MEMORY_BASE, VIDEO_MEMORY_SIZE},
+};
 use core::{
     alloc::{Allocator, Layout},
     arch::asm,

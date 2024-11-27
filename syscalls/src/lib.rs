@@ -28,7 +28,7 @@ pub extern "C" fn exit(code: i32) -> ! {
         )
     }
 
-    loop { }
+    loop {}
 }
 
 #[allow(clippy::cast_possible_truncation)]
