@@ -66,7 +66,7 @@ fn print_prompt(is_root: bool) {
     let curr_dir = CURR_DIR.read();
     let host_name = HOST_NAME.read();
 
-    print!("{}:{}$ ", host_name.as_str(), curr_dir.as_str());
+    print!("{}:{}", host_name.as_str(), curr_dir.as_str());
 
     if is_root {
         print!("# ");
