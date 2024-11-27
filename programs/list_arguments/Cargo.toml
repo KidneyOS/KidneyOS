@@ -8,9 +8,6 @@ edition = "2021"
 [dependencies]
 kidneyos-syscalls = { path="../../syscalls" }
 
-numtoa = "0.2.4"
-alloca = "0.4.0"
-
 [workspace]
 
 # Avoid eh_personality issues with binaries in this workspace.
