@@ -236,10 +236,10 @@ impl<A: Allocator> PageManager<A> {
             let Ok(page_table_addr) = self.alloc.allocate(PAGE_TABLE_LAYOUT) else {
                 panic!("allocation failed");
             };
-
-            let page_table = page_table_addr.cast::<PageTable>().as_mut();
-            *page_table = PageTable::default();
-
+            let mut page_table_addr = page_table_addr.cast::<PageTable>();
+            // zero page table (uses less stack space than *page_table = PageTable::default() in debug build)
+            core::ptr::write_bytes(page_table_addr.as_ptr(), 0, 1);
+            let page_table = page_table_addr.as_mut();
             let page_table_phys_addr =
                 page_table_addr.cast::<u8>().as_ptr() as usize - self.phys_to_alloc_addr_offset;
             let page_table_frame = page_table_phys_addr / size_of::<PageTable>();

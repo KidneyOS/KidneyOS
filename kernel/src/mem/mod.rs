@@ -2,6 +2,7 @@ mod buddy_allocator;
 mod frame_allocator;
 pub mod user;
 pub mod util;
+pub mod vma;
 
 use alloc::vec::Vec;
 use buddy_allocator::BuddyAllocator;
