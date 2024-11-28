@@ -8,8 +8,9 @@ use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
-    KERNEL_ALLOCATOR,
+    Mutex, KERNEL_ALLOCATOR,
 };
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
@@ -54,7 +55,7 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &ProcessState, parent_pid: Pid) -> Pid {
+    pub fn create(state: &ProcessState, parent_pid: Pid) -> Arc<Mutex<ProcessControlBlock>> {
         let pid = state.allocate_pid();
         let mut root = root_filesystem().lock();
         // open stdin, stdout, stderr
@@ -82,9 +83,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        state.table.add(pcb);
-
-        pid
+        state.table.add(pcb)
     }
 }
 
@@ -143,8 +142,9 @@ impl ThreadControlBlock {
         } else {
             running_thread_ppid()
         };
-        let pid: Pid = ProcessControlBlock::create(state, ppid);
-
+        let pcb = ProcessControlBlock::create(state, ppid);
+        let pcb = pcb.lock();
+        let pid = pcb.pid;
         let mut page_manager = PageManager::default();
 
         for program_header in elf.program_headers {
