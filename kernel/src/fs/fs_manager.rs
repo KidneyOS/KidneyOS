@@ -641,6 +641,7 @@ enum OpenFile {
     /// regular file/directory
     Regular {
         fs: FileSystemID,
+        inode: INodeNum,
         offset: u64,
         is_dir: bool,
     },
@@ -861,6 +862,11 @@ impl RootFileSystem {
 
         Ok((read_end.fd, write_end.fd))
     }
+    fn dup_inc_ref(&mut self, open_file: &OpenFile) {
+        if let OpenFile::Regular { fs, inode, ..  } = open_file {
+            self.file_systems.get_mut(*fs).inc_ref(*inode);
+        }
+    }
     pub fn dup(&mut self, pid: Pid, fd: ProcessFileDescriptor) -> Result<FileDescriptor> {
         let open_file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
 
@@ -870,7 +876,8 @@ impl RootFileSystem {
         // Currently, though, this doesn't look to be any less dangerous than opening a file twice.
         // The fs doesn't keep a reference count, so someone in the future might need to tinker.
         let new_file = open_file.clone();
-
+        self.dup_inc_ref(&new_file);
+        
         Ok(self.new_fd(pid, new_file)?.fd)
     }
     pub fn dup2(&mut self, fd: ProcessFileDescriptor, into: ProcessFileDescriptor) -> Result<()> {
@@ -882,6 +889,7 @@ impl RootFileSystem {
 
         // Note on cloning in self.dup() function.
         let new_file = open_file.clone();
+        self.dup_inc_ref(&new_file);
 
         self.open_files.insert(into, new_file);
 
@@ -901,6 +909,7 @@ impl RootFileSystem {
             process.pid,
             OpenFile::Regular {
                 fs,
+                inode,
                 offset: 0,
                 is_dir: false,
             },
@@ -969,7 +978,7 @@ impl RootFileSystem {
 
         let file_info = file_system.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir } => {
+            OpenFile::Regular { fs, offset, is_dir, .. } => {
                 let fs = *fs;
 
                 if *is_dir {
@@ -1004,7 +1013,7 @@ impl RootFileSystem {
                                 buf[i] = byte
                             }
 
-                            if bytes_read < contents.len() {
+                            if !contents.is_empty() {
                                 // let another process know that the pipe is not empty
                                 inner.semaphore.post();
                             }
@@ -1034,7 +1043,7 @@ impl RootFileSystem {
 
         let file_info = file_system.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir } => {
+            OpenFile::Regular { fs, offset, is_dir, .. } => {
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
@@ -1093,6 +1102,7 @@ impl RootFileSystem {
             fs,
             offset: file_offset,
             is_dir,
+            ..
         } = file_info
         {
             let new_offset = offset
@@ -1274,6 +1284,7 @@ impl RootFileSystem {
                 fs,
                 offset,
                 is_dir: true,
+                ..
             } => {
                 let fs = self.file_systems.get_mut(*fs);
                 let read_count = fs.getdents(fd, offset, output, size)?;
@@ -1286,7 +1297,7 @@ impl RootFileSystem {
     pub fn ftruncate(&mut self, fd: ProcessFileDescriptor, size: u64) -> Result<()> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir } => {
+            OpenFile::Regular { fs, offset, is_dir, .. } => {
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
