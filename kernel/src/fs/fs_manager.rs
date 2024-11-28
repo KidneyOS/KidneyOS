@@ -943,8 +943,13 @@ impl RootFileSystem {
                 let string = String::from_utf8_lossy(buf);
                 // SAFETY: no other mut references to VIDEO_MEMORY_WRITER here
                 let result = unsafe {
-                    kidneyos_shared::video_memory::VIDEO_MEMORY_WRITER.write_str(&string)
+                    write!(
+                        kidneyos_shared::video_memory::VIDEO_MEMORY_WRITER,
+                        "{string}"
+                    )
+                    .and_then(|_| write!(kidneyos_shared::serial::SERIAL_WRITER, "{string}"))
                 };
+
                 if let Err(e) = result {
                     Err(Error::IO(format!("{e}")))
                 } else {

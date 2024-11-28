@@ -12,7 +12,7 @@ int check(int status) {
     return status;
 }
 
-void _start() {
+void _start(const char **arguments) {
     const char *test_data = "test data";
     char buf[10] = {0};
     int status;

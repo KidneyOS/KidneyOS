@@ -17,7 +17,7 @@ use kidneyos_shared::{
 ///
 /// A function that may be used for thread creation.
 /// The return value will be the exit code of this thread.
-pub type ThreadFunction = unsafe extern "C" fn() -> i32;
+pub type ThreadFunction = unsafe extern "C" fn(argument: u32) -> u32;
 
 /// A function to safely close the current thread.
 /// This is safe to call at any point in a threads runtime.
@@ -60,6 +60,15 @@ pub fn stop_thread(tid: Tid) {
     unsafe { clean_up_thread(tcb) };
 }
 
+// Landing Pad
+// We set the RIP to this function, so when we return from user thread we can detect it!
+// We'll look out from page faults that try to execute the landing pad.
+// If we find it, we'll print a friendlier message to console.
+#[naked]
+pub unsafe extern "C" fn landing_pad() -> ! {
+    asm!("2: jmp 2b", options(noreturn))
+}
+
 /// A wrapper function to execute a thread's true function.
 unsafe extern "C" fn run_thread(
     switched_from: *mut ThreadControlBlock,
@@ -78,11 +87,23 @@ unsafe extern "C" fn run_thread(
         eip,
         esp,
         is_kernel,
+        argument,
         ..
     } = *switched_to;
 
     // Reschedule our threads.
     *threads.running_thread.lock() = Some(switched_to);
+
+    // Setting up return frame and arguments for this thread function.
+    // Allocate space for return frame and arguments.
+    let esp = esp.sub(3 * core::mem::size_of::<u32>());
+
+    // Return Address, we can't make our own function since we are still in user-mode on return.
+    *esp.add(0).cast::<u32>().as_ptr() = landing_pad as usize as u32;
+    // Argument 0
+    *esp.add(4).cast::<u32>().as_ptr() = argument;
+    // Last EBP
+    *esp.add(8).cast::<u32>().as_ptr() = 0;
 
     let switched_from = Box::from_raw(switched_from);
 
@@ -99,10 +120,10 @@ unsafe extern "C" fn run_thread(
     // Kernel threads have no associated PCB, denoted by its PID being 0
     if is_kernel {
         let entry_function: ThreadFunction = unsafe { core::mem::transmute(eip.as_ptr()) };
-        let exit_code = entry_function();
+        let exit_code = entry_function(argument);
 
         // Safely exit the thread.
-        exit_thread(exit_code);
+        exit_thread(exit_code as i32);
     } else {
         // https://wiki.osdev.org/Getting_to_Ring_3#iret_method
         // https://web.archive.org/web/20160326062442/http://jamesmolloy.co.uk/tutorial_html/10.-User%20Mode.html
@@ -130,18 +151,6 @@ unsafe extern "C" fn run_thread(
     }
 }
 
-#[allow(unused)]
-#[repr(C, packed)]
-pub struct PrepareThreadContext {
-    entry_function: *const u8,
-}
-
-impl PrepareThreadContext {
-    pub fn new(entry_function: *const u8) -> Self {
-        Self { entry_function }
-    }
-}
-
 /// This function is used to clean up a thread's arguments and call into `run_thread`.
 #[naked]
 unsafe extern "C" fn prepare_thread() -> i32 {
@@ -165,11 +174,11 @@ unsafe extern "C" fn prepare_thread() -> i32 {
 /// The context for a use within context_switch.
 #[repr(C, packed)]
 pub struct SwitchThreadsContext {
-    edi: usize,          // Destination index.
-    esi: usize,          // Source index.
-    ebx: usize,          // Base (for memory access).
-    ebp: usize,          // Stack base pointer.
-    eip: ThreadFunction, // Instruction pointer (determines where to jump after the context switch).
+    edi: usize, // Destination index.
+    esi: usize, // Source index.
+    ebx: usize, // Base (for memory access).
+    ebp: usize, // Stack base pointer.
+    eip: usize, // Instruction pointer (determines where to jump after the context switch).
 }
 
 impl SwitchThreadsContext {
@@ -179,7 +188,7 @@ impl SwitchThreadsContext {
             esi: 0,
             ebx: 0,
             ebp: 0,
-            eip: prepare_thread,
+            eip: prepare_thread as usize,
         }
     }
 }

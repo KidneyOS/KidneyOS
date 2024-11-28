@@ -11,11 +11,13 @@ pub struct Timespec {
     pub tv_nsec: i64,
 }
 
+pub mod arguments;
+
 pub mod defs;
 pub use defs::*;
 
 #[no_mangle]
-pub extern "C" fn exit(code: i32) {
+pub extern "C" fn exit(code: i32) -> ! {
     unsafe {
         asm!(
             "
@@ -23,8 +25,11 @@ pub extern "C" fn exit(code: i32) {
             int 0x80
             ",
             in("ebx") code,
-        );
+        )
     }
+
+    #[allow(clippy::empty_loop)]
+    loop {}
 }
 
 #[allow(clippy::cast_possible_truncation)]

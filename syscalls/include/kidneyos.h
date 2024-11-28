@@ -18,9 +18,17 @@
 
 #define SEEK_END 2
 
+#define STDIN_FILENO 0
+
+#define STDOUT_FILENO 1
+
+#define STDERR_FILENO 2
+
 #define ENOENT 2
 
 #define EIO 5
+
+#define E2BIG 7
 
 #define ENOEXEC 8
 

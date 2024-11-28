@@ -29,8 +29,13 @@ pub const SEEK_SET: i32 = 0;
 pub const SEEK_CUR: i32 = 1;
 pub const SEEK_END: i32 = 2;
 
+pub const STDIN_FILENO: i32 = 0;
+pub const STDOUT_FILENO: i32 = 1;
+pub const STDERR_FILENO: i32 = 2;
+
 pub const ENOENT: isize = 2;
 pub const EIO: isize = 5;
+pub const E2BIG: isize = 7;
 pub const ENOEXEC: isize = 8;
 pub const EBADF: isize = 9;
 pub const EFAULT: isize = 14;

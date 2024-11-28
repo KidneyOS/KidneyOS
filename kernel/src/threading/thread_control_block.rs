@@ -1,4 +1,4 @@
-use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
+use super::thread_functions::{SwitchThreadsContext, ThreadFunction};
 use crate::system::{root_filesystem, running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
@@ -11,6 +11,7 @@ use crate::{
     KERNEL_ALLOCATOR,
 };
 use alloc::vec::Vec;
+use core::cmp::max;
 use core::{
     mem::size_of,
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
@@ -109,6 +110,8 @@ pub struct ThreadControlBlock {
     // If true, we'll make an effort to run this thread in kernel mode.
     // Otherwise, we'll run this thread in user mode.
     pub is_kernel: bool,
+    // Argument that will be passed to the thread on startup (via stack).
+    pub argument: u32,
     pub status: ThreadStatus,
     pub exit_code: Option<i32>,
     pub page_manager: PageManager,
@@ -124,6 +127,7 @@ pub enum ThreadElfCreateError {
 impl ThreadControlBlock {
     pub fn new_from_elf(
         elf: Elf,
+        argument: u32,
         state: &ProcessState,
     ) -> Result<ThreadControlBlock, ThreadElfCreateError> {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
@@ -158,7 +162,11 @@ impl ThreadControlBlock {
                 program_header.virtual_address as usize / PAGE_FRAME_SIZE;
             let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
             let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
-            let segment_padded_size = segment_padding + program_header.data.len();
+            let segment_size = max(
+                program_header.memory_size as usize,
+                program_header.data.len(),
+            );
+            let segment_padded_size = segment_padding + segment_size;
 
             let frames = segment_padded_size.div_ceil(PAGE_FRAME_SIZE);
 
@@ -208,6 +216,7 @@ impl ThreadControlBlock {
         Ok(ThreadControlBlock::new_with_page_manager(
             NonNull::new(elf.header.program_entry as *mut u8)
                 .ok_or(ThreadElfCreateError::InvalidEntryPoint)?,
+            argument,
             pid,
             page_manager,
             state,
@@ -216,11 +225,13 @@ impl ThreadControlBlock {
 
     pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
+        argument: u32,
         pid: Pid,
         page_manager: PageManager,
         state: &ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, false, pid, page_manager, state);
+        let mut new_thread =
+            Self::new(entry_instruction, false, argument, pid, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -240,10 +251,18 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &mut ProcessState) -> Self {
+    pub fn new_with_setup(
+        eip: ThreadFunction,
+        is_kernel: bool,
+        argument: u32,
+        state: &mut ProcessState,
+    ) -> Self {
+        let entry = NonNull::new(eip as *mut u8).unwrap();
+
         let mut new_thread = Self::new(
-            eip,
+            entry,
             is_kernel,
+            argument,
             state.allocate_pid(),
             PageManager::default(),
             state,
@@ -251,26 +270,19 @@ impl ThreadControlBlock {
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
-        //  * prepare_thread frame
         //  * switch_threads
-        let prepare_thread_context = new_thread
-            .allocate_stack_space(size_of::<PrepareThreadContext>())
-            .expect("No Stack Space!");
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
             .expect("No Stack Space!");
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *prepare_thread_context
-                .as_ptr()
-                .cast::<PrepareThreadContext>() = PrepareThreadContext::new(eip.as_ptr());
             *switch_threads_context
                 .as_ptr()
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
 
-        new_thread.eip = eip; // !!!
+        new_thread.eip = entry; // !!!
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
@@ -280,6 +292,7 @@ impl ThreadControlBlock {
     pub fn new(
         entry_instruction: NonNull<u8>,
         is_kernel: bool,
+        argument: u32,
         pid: Pid,
         page_manager: PageManager,
         state: &ProcessState,
@@ -298,6 +311,7 @@ impl ThreadControlBlock {
             tid,
             pid, // Potentially could be swapped to directly copy the pid of the running thread
             is_kernel,
+            argument,
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,
@@ -323,7 +337,11 @@ impl ThreadControlBlock {
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager, state: &ProcessState) -> Self {
+    pub fn new_kernel_thread(
+        page_manager: PageManager,
+        argument: u32,
+        state: &ProcessState,
+    ) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
@@ -332,6 +350,7 @@ impl ThreadControlBlock {
             tid: state.allocate_tid(),
             pid: state.allocate_pid(),
             is_kernel: true,
+            argument,
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,
@@ -339,7 +358,7 @@ impl ThreadControlBlock {
     }
 
     /// If possible without stack-smashing, moves the stack pointer down and returns the new value.
-    fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
+    pub fn allocate_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
         if !self.has_stack_space(bytes) {
             return None;
         }
@@ -360,11 +379,36 @@ impl ThreadControlBlock {
     fn shift_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
         // SAFETY: `has_stack_space` must have returned true for this amount before calling.
         unsafe {
-            let raw_pointer = self.kernel_stack_pointer.as_ptr().cast::<u8>();
-            let new_pointer =
-                NonNull::new(raw_pointer.sub(amount)).expect("Error shifting stack pointer.");
-            self.kernel_stack_pointer = new_pointer;
+            self.kernel_stack_pointer = self.kernel_stack_pointer.sub(amount);
             self.kernel_stack_pointer
+        }
+    }
+
+    /// If possible without stack-smashing, moves the stack pointer down and returns the new value.
+    pub fn allocate_user_stack_space(&mut self, bytes: usize) -> Option<NonNull<u8>> {
+        if !self.has_user_stack_space(bytes) {
+            return None;
+        }
+
+        Some(self.shift_user_stack_pointer_down(bytes))
+    }
+
+    /// Check if `bytes` bytes will fit on the kernel stack.
+    const fn has_user_stack_space(&self, bytes: usize) -> bool {
+        let user_bottom = USER_STACK_BOTTOM_VIRT as *const u8;
+
+        // SAFETY: Calculates the distance between the top and bottom of the kernel stack pointers.
+        let available_space = unsafe { self.esp.as_ptr().offset_from(user_bottom) as usize };
+
+        available_space >= bytes
+    }
+
+    /// Moves the stack pointer down and returns the new position.
+    fn shift_user_stack_pointer_down(&mut self, amount: usize) -> NonNull<u8> {
+        // SAFETY: `has_user_stack_space` must have returned true for this amount before calling.
+        unsafe {
+            self.esp = self.esp.sub(amount);
+            self.esp
         }
     }
 
