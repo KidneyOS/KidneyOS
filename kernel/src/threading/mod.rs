@@ -50,7 +50,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
     let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager, &system.process);
 
-    // Create the initial user program thread.
+    // Parse inital user program elf file.
     let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
 
     // Create the initial user program thread.
@@ -72,6 +72,30 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     rush_loop();
 
     // This function never returns.
+}
+
+pub extern "C" fn idle_cleanup() {
+    let system = unwrap_system();
+    let mut orphaned_processes = system.process.orhpans.write();
+
+    orphaned_processes.retain(|orphan| {
+        let should_retain = {
+            let pcb_ref = system
+                .process
+                .table
+                .get(*orphan)
+                .expect("Orphaned PID does not exist in the table");
+
+            let pcb = pcb_ref.lock();
+            pcb.exit_code.is_none()
+        };
+
+        if !should_retain {
+            system.process.table.remove(*orphan);
+        }
+
+        should_retain
+    });
 }
 
 // /// The function run by the idle thread.

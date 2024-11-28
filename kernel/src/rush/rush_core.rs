@@ -2,6 +2,7 @@ use crate::rush::env::{CURR_DIR, HOST_NAME};
 use crate::rush::parser::parse_input;
 use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
+use crate::threading::idle_cleanup;
 use crate::threading::scheduling::scheduler_yield_and_continue;
 use alloc::string::String;
 use core::sync::atomic::AtomicBool;
@@ -58,6 +59,7 @@ pub extern "C" fn rush_loop() -> ! {
             print_prompt(false);
         }
 
+        idle_cleanup();
         scheduler_yield_and_continue(); // Until we can read input
     }
 }

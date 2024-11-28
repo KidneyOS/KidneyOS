@@ -8,7 +8,9 @@ use crate::fs::syscalls::{
 use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::get_mut_from_user_space;
 use crate::mem::util::{get_cstr_from_user_space, CStrError};
-use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
+use crate::system::{
+    running_process, running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system,
+};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
@@ -74,15 +76,15 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 Some(pcb) => pcb,
                 None => return -1, // Process with wait_pid doesnt exist
             };
-            let mut parent_pcb = pcb_ref.lock();
+            let mut wait_pcb = pcb_ref.lock();
 
             // Can't wait on a thread that alreay has a child waiting
-            if parent_pcb.waiting_thread.is_some() {
+            if wait_pcb.waiting_thread.is_some() {
                 return -1;
             }
 
-            parent_pcb.waiting_thread = Some(running_thread_tid());
-            drop(parent_pcb);
+            wait_pcb.waiting_thread = Some(running_thread_tid());
+            drop(wait_pcb);
 
             loop {
                 intr_disable();
@@ -97,14 +99,29 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 thread_sleep();
             }
 
-            let parent_pcb = pcb_ref.lock();
-            let exit_code = parent_pcb.exit_code.unwrap();
+            // Aquire exit code, and rmeove the process from the parent's child threads
+            let exit_code = {
+                let wait_pcb = pcb_ref.lock();
+
+                let running_process_ref = running_process();
+                let mut parent_pcb = running_process_ref.lock();
+
+                if let Some(pos) = parent_pcb
+                    .child_pids
+                    .iter()
+                    .position(|&pid| pid == wait_pcb.pid)
+                {
+                    parent_pcb.child_pids.remove(pos);
+                }
+
+                wait_pcb.exit_code.unwrap()
+            };
+
             *status_ptr = (exit_code & 0xff) << 8;
 
-            let parent_pid = parent_pcb.pid;
-            system.process.table.remove(parent_pid);
+            system.process.table.remove(wait_pid);
 
-            parent_pid as isize
+            wait_pid as isize
         }
         SYS_EXECVE => {
             let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {

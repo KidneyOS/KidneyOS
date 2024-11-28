@@ -42,6 +42,8 @@ pub struct ProcessControlBlock {
     pub ppid: Pid,
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
+    // The TIDs of processes spawned by this process
+    pub child_pids: Vec<Pid>,
     // The TIDs of the threads waiting on this process to end
     pub waiting_thread: Option<Tid>,
 
@@ -75,6 +77,7 @@ impl ProcessControlBlock {
             pid,
             ppid: parent_pid,
             child_tids: Vec::new(),
+            child_pids: Vec::new(),
             waiting_thread: None,
             exit_code: None,
             vmas,
