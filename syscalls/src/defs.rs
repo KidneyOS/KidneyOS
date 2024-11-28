@@ -31,6 +31,7 @@ pub const SEEK_END: i32 = 2;
 
 pub const ENOENT: isize = 2;
 pub const EIO: isize = 5;
+pub const ENOEXEC: isize = 8;
 pub const EBADF: isize = 9;
 pub const EFAULT: isize = 14;
 pub const EBUSY: isize = 16;
@@ -78,6 +79,7 @@ pub const SYS_NANOSLEEP: usize = 0xa2;
 pub const SYS_SCHED_YIELD: usize = 0x9e;
 pub const SYS_GETCWD: usize = 0xb7;
 pub const SYS_CLOCK_GETTIME: usize = 0x109;
+pub const SYS_GETRANDOM: usize = 0x163;
 
 pub const S_REGULAR_FILE: u8 = 1;
 pub const S_SYMLINK: u8 = 2;

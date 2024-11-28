@@ -1,18 +1,24 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
+use crate::fs::read_file;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
     rename, rmdir, symlink, sync, unlink, unmount, write,
 };
-use crate::mem::user::check_and_copy_user_memory;
+use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_thread_pid, running_thread_ppid, unwrap_system_mut};
+use crate::mem::util::{get_cstr_from_user_space, CStrError};
+use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
+use crate::threading::process::Pid;
+use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
-use crate::threading::thread_functions;
+use crate::threading::thread_sleep::thread_sleep;
 use crate::user_program::elf::Elf;
+use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
+use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
 
@@ -27,58 +33,101 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
     // Translate between syscall names and numbers: https://x86.syscall.sh/
     match syscall_number {
         SYS_EXIT => {
-            thread_functions::exit_thread(arg0 as i32);
+            process_functions::exit_process(arg0 as i32);
         }
         SYS_FORK => {
             todo!("fork syscall")
         }
-        SYS_OPEN => unsafe { open(arg0 as _, arg1) },
-        SYS_READ => unsafe { read(arg0, arg1 as _, arg2 as _) },
-        SYS_WRITE => unsafe { write(arg0, arg1 as _, arg2 as _) },
-        SYS_LSEEK64 => unsafe { lseek64(arg0, arg1 as _, arg2 as _) },
-        SYS_CLOSE => unsafe { close(arg0) },
-        SYS_CHDIR => unsafe { chdir(arg0 as _) },
-        SYS_GETCWD => unsafe { getcwd(arg0 as _, arg1 as _) },
-        SYS_MKDIR => unsafe { mkdir(arg0 as _) },
-        SYS_RMDIR => unsafe { rmdir(arg0 as _) },
-        SYS_FSTAT => unsafe { fstat(arg0 as _, arg1 as _) },
-        SYS_UNLINK => unsafe { unlink(arg0 as _) },
-        SYS_GETDENTS => unsafe { getdents(arg0, arg1 as _, arg2 as _) },
-        SYS_LINK => unsafe { link(arg0 as _, arg1 as _) },
-        SYS_SYMLINK => unsafe { symlink(arg0 as _, arg1 as _) },
-        SYS_RENAME => unsafe { rename(arg0 as _, arg1 as _) },
-        SYS_FTRUNCATE => unsafe { ftruncate(arg0 as _, arg1 as _, arg2 as _) },
-        SYS_UNMOUNT => unsafe { unmount(arg0 as _) },
-        SYS_MOUNT => unsafe { mount(arg0 as _, arg1 as _, arg2 as _) },
+        SYS_OPEN => open(arg0 as _, arg1),
+        SYS_READ => read(arg0, arg1 as _, arg2 as _),
+        SYS_WRITE => write(arg0, arg1 as _, arg2 as _),
+        SYS_LSEEK64 => lseek64(arg0, arg1 as _, arg2 as _),
+        SYS_CLOSE => close(arg0),
+        SYS_CHDIR => chdir(arg0 as _),
+        SYS_GETCWD => getcwd(arg0 as _, arg1 as _),
+        SYS_MKDIR => mkdir(arg0 as _),
+        SYS_RMDIR => rmdir(arg0 as _),
+        SYS_FSTAT => fstat(arg0 as _, arg1 as _),
+        SYS_UNLINK => unlink(arg0 as _),
+        SYS_GETDENTS => getdents(arg0, arg1 as _, arg2 as _),
+        SYS_LINK => link(arg0 as _, arg1 as _),
+        SYS_SYMLINK => symlink(arg0 as _, arg1 as _),
+        SYS_RENAME => rename(arg0 as _, arg1 as _),
+        SYS_FTRUNCATE => ftruncate(arg0 as _, arg1 as _, arg2 as _),
+        SYS_UNMOUNT => unmount(arg0 as _),
+        SYS_MOUNT => mount(arg0 as _, arg1 as _, arg2 as _),
         SYS_SYNC => sync(),
         SYS_WAITPID => {
-            todo!("waitpid syscall")
-        }
-        SYS_EXECVE => {
-            let thread = unsafe {
-                unwrap_system_mut()
-                    .threads
-                    .running_thread
-                    .as_ref()
-                    .expect("A syscall was called without a running thread.")
+            let wait_pid = arg0 as Pid;
+
+            if wait_pid == running_thread_pid() {
+                return -1;
+            }
+
+            let status_ptr = match unsafe { get_mut_from_user_space(arg1 as *mut i32) } {
+                Some(ptr) => ptr,
+                None => return -1,
             };
 
-            let elf_bytes = check_and_copy_user_memory(arg0, arg1, &thread.page_manager);
-            let elf = elf_bytes
-                .as_ref()
-                .and_then(|bytes| Elf::parse_bytes(bytes).ok());
+            let system = unwrap_system();
+            let pcb_ref = match system.process.table.get(wait_pid) {
+                Some(pcb) => pcb,
+                None => return -1, // Process with wait_pid doesnt exist
+            };
+            let mut parent_pcb = pcb_ref.lock();
 
-            let Some(elf) = elf else { return -1 };
-
-            let system = unsafe { unwrap_system_mut() };
-            let control = ThreadControlBlock::new_from_elf(elf, &mut system.process);
-
-            unsafe {
-                unwrap_system_mut()
-                    .threads
-                    .scheduler
-                    .push(Box::new(control));
+            // Can't wait on a thread that alreay has a child waiting
+            if parent_pcb.waiting_thread.is_some() {
+                return -1;
             }
+
+            parent_pcb.waiting_thread = Some(running_thread_tid());
+            drop(parent_pcb);
+
+            loop {
+                intr_disable();
+                {
+                    let parent_pcb = pcb_ref.lock();
+                    if parent_pcb.exit_code.is_some() {
+                        intr_enable();
+                        break;
+                    }
+                }
+                intr_enable();
+                thread_sleep();
+            }
+
+            let parent_pcb = pcb_ref.lock();
+            let exit_code = parent_pcb.exit_code.unwrap();
+            *status_ptr = (exit_code & 0xff) << 8;
+
+            let parent_pid = parent_pcb.pid;
+            system.process.table.remove(parent_pid);
+
+            parent_pid as isize
+        }
+        SYS_EXECVE => {
+            let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {
+                Ok(cstr) => cstr,
+                Err(CStrError::Fault) => return -EFAULT,
+                Err(CStrError::BadUtf8) => return -ENOENT, // ?
+            };
+
+            let Ok(data) = read_file(cstr) else {
+                return -EIO;
+            };
+
+            let system = unwrap_system();
+
+            let elf = Elf::parse_bytes(&data).ok();
+
+            let Some(elf) = elf else { return -ENOEXEC };
+
+            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &system.process) else {
+                return -ENOEXEC;
+            };
+
+            system.threads.scheduler.lock().push(Box::new(control));
 
             scheduler_yield_and_die();
         }
@@ -103,9 +152,16 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 return -1;
             };
 
-            println!("{:?}", timespec);
             *timespec_ptr = timespec;
             0
+        }
+        SYS_GETRANDOM => {
+            let Some(buffer_ptr) = (unsafe { get_mut_from_user_space(arg0 as *mut u8) }) else {
+                return -1;
+            };
+
+            let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
+            getrandom(buffer, arg1, arg2)
         }
         _ => -ENOSYS,
     }

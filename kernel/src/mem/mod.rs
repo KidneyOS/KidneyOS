@@ -4,6 +4,7 @@ mod frame_allocator;
 mod subblock_allocator;
 pub mod user;
 pub mod util;
+pub mod vma;
 
 use alloc::{boxed::Box, vec};
 use core::sync::atomic::AtomicBool;

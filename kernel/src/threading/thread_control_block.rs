@@ -1,15 +1,15 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext};
-use crate::system::{running_thread_ppid, unwrap_system};
+use crate::system::{root_filesystem, running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
     fs::fs_manager::FileSystemID,
+    mem::vma::{VMAInfo, VMAList, VMA},
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
     KERNEL_ALLOCATOR,
 };
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
@@ -43,32 +43,46 @@ pub struct ProcessControlBlock {
     // The TIDs of this process' children threads
     pub child_tids: Vec<Tid>,
     // The TIDs of the threads waiting on this process to end
-    pub wait_list: Vec<Tid>,
+    pub waiting_thread: Option<Tid>,
 
     pub exit_code: Option<i32>,
     /// filesystem and inode of current working directory
     pub cwd: (FileSystemID, INodeNum),
     /// path to cwd (needed for getcwd syscall)
     pub cwd_path: OwnedPath,
+    pub vmas: VMAList,
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &mut ProcessState, parent_pid: Pid) -> Pid {
+    pub fn create(state: &ProcessState, parent_pid: Pid) -> Pid {
         let pid = state.allocate_pid();
-        let mut root = crate::fs::fs_manager::ROOT.lock();
+        let mut root = root_filesystem().lock();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
+        // TODO: inherit cwd from parent
+        let cwd = root.get_root().unwrap();
+        drop(root);
+        let mut vmas = VMAList::new();
+        // set up stack
+        // TODO: Handle stack section defined in the ELF file?
+        let stack_avail = vmas.add_vma(
+            VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true),
+            USER_STACK_BOTTOM_VIRT,
+        );
+        assert!(stack_avail, "stack virtual address range not available");
+
         let pcb = Self {
             pid,
             ppid: parent_pid,
             child_tids: Vec::new(),
-            wait_list: Vec::new(),
+            waiting_thread: None,
             exit_code: None,
-            cwd: root.get_root().unwrap(),
+            vmas,
+            cwd,
             cwd_path: "/".into(),
         };
 
-        state.table.add(Box::new(pcb));
+        state.table.add(pcb);
 
         pid
     }
@@ -77,6 +91,7 @@ impl ProcessControlBlock {
 // TODO: Use enums so that we never have garbage data (i.e. stacks that don't
 // need be freed for the kernel thread, information that doesn't make sense when
 // the thread is in certain states, etc.)
+#[derive(Debug)]
 pub struct ThreadControlBlock {
     pub kernel_stack_pointer: NonNull<u8>,
     // Kept so we can free the kernel stack later.
@@ -87,34 +102,47 @@ pub struct ThreadControlBlock {
     pub eip: NonNull<u8>,
     // Like above, but the stack pointer.
     pub esp: NonNull<u8>,
-    // The kernel virtual address of the user stack, so it can be freed later.
-    pub user_stack: NonNull<u8>,
 
     pub tid: Tid,
     // The PID of the parent PCB.
     pub pid: Pid,
+    // If true, we'll make an effort to run this thread in kernel mode.
+    // Otherwise, we'll run this thread in user mode.
+    pub is_kernel: bool,
     pub status: ThreadStatus,
     pub exit_code: Option<i32>,
     pub page_manager: PageManager,
 }
 
+#[derive(Debug)]
+pub enum ThreadElfCreateError {
+    UnsupportedArchitecture,
+    NotExecutable,
+    InvalidEntryPoint,
+}
+
 impl ThreadControlBlock {
-    pub fn new_from_elf(elf: Elf, state: &mut ProcessState) -> ThreadControlBlock {
+    pub fn new_from_elf(
+        elf: Elf,
+        state: &ProcessState,
+    ) -> Result<ThreadControlBlock, ThreadElfCreateError> {
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
-        if elf.header.architecture != ElfArchitecture::X86 && executable {
-            panic!("ELF was valid, but it was not an executable or it did not target the host platform (x86)");
+        if !executable {
+            return Err(ThreadElfCreateError::NotExecutable);
         }
 
-        let ppid = unsafe {
-            unwrap_system()
-                .threads
-                .running_thread
-                .as_ref()
-                .map_or(0, |_| running_thread_ppid())
-        };
+        if elf.header.architecture != ElfArchitecture::X86 {
+            return Err(ThreadElfCreateError::UnsupportedArchitecture);
+        }
 
+        let any_running_thread = unwrap_system().threads.running_thread.lock().is_some();
+        let ppid = if !any_running_thread {
+            0
+        } else {
+            running_thread_ppid()
+        };
         let pid: Pid = ProcessControlBlock::create(state, ppid);
 
         let mut page_manager = PageManager::default();
@@ -177,22 +205,22 @@ impl ThreadControlBlock {
             }
         }
 
-        ThreadControlBlock::new_with_page_manager(
+        Ok(ThreadControlBlock::new_with_page_manager(
             NonNull::new(elf.header.program_entry as *mut u8)
-                .expect("fail to create PCB entry point"),
+                .ok_or(ThreadElfCreateError::InvalidEntryPoint)?,
             pid,
             page_manager,
             state,
-        )
+        ))
     }
 
     pub fn new_with_page_manager(
         entry_instruction: NonNull<u8>,
         pid: Pid,
         page_manager: PageManager,
-        state: &mut ProcessState,
+        state: &ProcessState,
     ) -> Self {
-        let mut new_thread = Self::new(entry_instruction, pid, page_manager, state);
+        let mut new_thread = Self::new(entry_instruction, false, pid, page_manager, state);
 
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
@@ -212,8 +240,14 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, pid: Pid, state: &mut ProcessState) -> Self {
-        let mut new_thread = Self::new(eip, pid, PageManager::default(), state);
+    pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &mut ProcessState) -> Self {
+        let mut new_thread = Self::new(
+            eip,
+            is_kernel,
+            state.allocate_pid(),
+            PageManager::default(),
+            state,
+        );
 
         // Now, we must build the stack frames for our new thread.
         // In order (of creation), we have:
@@ -236,7 +270,7 @@ impl ThreadControlBlock {
                 .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
         }
 
-        new_thread.eip = prepare_thread_context;
+        new_thread.eip = eip; // !!!
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
@@ -245,13 +279,14 @@ impl ThreadControlBlock {
 
     pub fn new(
         entry_instruction: NonNull<u8>,
+        is_kernel: bool,
         pid: Pid,
-        mut page_manager: PageManager,
-        state: &mut ProcessState,
+        page_manager: PageManager,
+        state: &ProcessState,
     ) -> Self {
         let tid: Tid = state.allocate_tid();
 
-        let (kernel_stack, kernel_stack_pointer, user_stack) = Self::map_stacks(&mut page_manager);
+        let (kernel_stack, kernel_stack_pointer) = Self::map_stacks();
 
         // Create our new TCB.
         Self {
@@ -260,16 +295,16 @@ impl ThreadControlBlock {
             eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
-            user_stack,
             tid,
             pid, // Potentially could be swapped to directly copy the pid of the running thread
+            is_kernel,
             status: ThreadStatus::Invalid,
             exit_code: None,
             page_manager,
         }
     }
 
-    fn map_stacks(page_manager: &mut PageManager) -> (NonNull<u8>, NonNull<u8>, NonNull<u8>) {
+    fn map_stacks() -> (NonNull<u8>, NonNull<u8>) {
         // Allocate a kernel stack for this thread. In x86 stacks grow downward,
         // so we must pass in the top of this memory to the thread.
         let (kernel_stack, kernel_stack_pointer_top);
@@ -281,43 +316,22 @@ impl ThreadControlBlock {
             kernel_stack_pointer_top = kernel_stack.add(KERNEL_THREAD_STACK_SIZE);
             write_bytes(kernel_stack.as_ptr(), 0, KERNEL_THREAD_STACK_SIZE);
         }
-
-        // TODO: We should only do this if there wasn't already a stack section
-        // defined in the ELF file.
-        let user_stack;
-        unsafe {
-            user_stack = KERNEL_ALLOCATOR
-                .frame_alloc(USER_THREAD_STACK_FRAMES)
-                .expect("could not allocate user stack")
-                .cast::<u8>();
-            page_manager.map_range(
-                user_stack.as_ptr() as usize - OFFSET,
-                // TODO: This shouldn't be hardcoded, we need to ensure the ELF
-                // didn't already declare a stack section (we should be using
-                // that if it did), and that this doesn't overlap with any
-                // existing regions.
-                USER_STACK_BOTTOM_VIRT,
-                USER_THREAD_STACK_SIZE,
-                true,
-                true,
-            );
-        }
-        (kernel_stack, kernel_stack_pointer_top, user_stack)
+        (kernel_stack, kernel_stack_pointer_top)
     }
 
     /// Creates the 'kernel thread'.
     ///
     /// # Safety
     /// Should only be used once while starting the threading system.
-    pub fn new_kernel_thread(page_manager: PageManager, state: &mut ProcessState) -> Self {
+    pub fn new_kernel_thread(page_manager: PageManager, state: &ProcessState) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
-            user_stack: NonNull::dangling(),
             tid: state.allocate_tid(),
             pid: state.allocate_pid(),
+            is_kernel: true,
             status: ThreadStatus::Running,
             exit_code: None,
             page_manager,
@@ -380,3 +394,5 @@ impl ThreadControlBlock {
         self.status = ThreadStatus::Invalid;
     }
 }
+
+unsafe impl Send for ThreadControlBlock {}
