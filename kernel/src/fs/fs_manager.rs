@@ -636,7 +636,7 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
 pub type FileSystemID = u16;
 
 /// Metadata for an open file
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum OpenFile {
     /// regular file/directory
     Regular {
@@ -848,21 +848,47 @@ impl RootFileSystem {
         self.root_mount = Some(new_fs);
         Ok(())
     }
-    pub fn pipe(&mut self, process: &ProcessControlBlock) -> Result<(FileDescriptor, FileDescriptor)> {
+    pub fn pipe(&mut self, pid: Pid) -> Result<(FileDescriptor, FileDescriptor)> {
         let pipe_inner = Arc::new(PipeInner::new());
         
         // Ignoring the case where read_end succeeds but write_end fails for elegance.
         let read_end = self.new_fd(
-            process.pid,
+            pid,
             OpenFile::PipeRead(PipeInner::read_end(pipe_inner.clone()))
         )?;
         
         let write_end = self.new_fd(
-            process.pid,
+            pid,
             OpenFile::PipeWrite(PipeInner::write_end(pipe_inner))
         )?;
         
         Ok((read_end.fd, write_end.fd))
+    }
+    pub fn dup(&mut self, pid: Pid, fd: ProcessFileDescriptor) -> Result<FileDescriptor> {
+        let open_file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+        
+        // Taking a look at the OpenFile type.
+        // Specifically, we have to be careful about Regular file types...
+        // The fs might need to know when to keep track of an inode.
+        // Currently, though, this doesn't look to be any less dangerous than opening a file twice.
+        // The fs doesn't keep a reference count, so someone in the future might need to tinker.
+        let new_file = open_file.clone();
+
+        Ok(self.new_fd(pid, new_file)?.fd)
+    }
+    pub fn dup2(&mut self, fd: ProcessFileDescriptor, into: ProcessFileDescriptor) -> Result<()> {
+        if self.open_files.contains_key(&into) {
+            self.close(fd).ok(); // errors are discarded
+        }
+
+        let open_file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+
+        // Note on cloning in self.dup() function.
+        let new_file = open_file.clone();
+        
+        self.open_files.insert(into, new_file);
+        
+        Ok(())
     }
     pub fn open(
         &mut self,

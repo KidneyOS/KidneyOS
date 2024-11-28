@@ -42,6 +42,22 @@ impl PipeInner {
     }
 }
 
+impl Clone for PipeReadEnd {
+    fn clone(&self) -> Self {
+        self.0.read_ends.fetch_add(1, Ordering::SeqCst);
+        
+        Self(self.0.clone())
+    }
+}
+
+impl Clone for PipeWriteEnd {
+    fn clone(&self) -> Self {
+        self.0.write_ends.fetch_add(1, Ordering::SeqCst);
+        
+        Self(self.0.clone())
+    }
+}
+
 impl Drop for PipeReadEnd {
     fn drop(&mut self) {
         self.0.read_ends.fetch_sub(1, Ordering::SeqCst);

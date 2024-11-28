@@ -211,6 +211,12 @@ int32_t mount(const char *device, const char *target, const char *filesystem_typ
 
 Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
+int32_t dup(int32_t fd);
+
+int32_t dup2(int32_t old_fd, int32_t new_fd);
+
+int32_t pipe(int32_t *fds);
+
 int32_t execve(const char *filename, const char *const *argv, const char *const *envp);
 
 int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);

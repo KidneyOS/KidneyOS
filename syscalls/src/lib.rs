@@ -95,7 +95,7 @@ pub extern "C" fn lseek64(fd: i32, offset: i64, whence: i32) -> i64 {
         asm!("
             int 0x80
         ", in("eax") SYS_LSEEK64,
-            in("ebx") fd, in("ecx") (core::ptr::addr_of_mut!(offset)),
+            in("ebx") fd, in("ecx") core::ptr::addr_of_mut!(offset),
             in("edx") whence, lateout("eax") result);
     }
     if result < 0 {
@@ -283,6 +283,54 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
 }
 
 #[no_mangle]
+pub extern "C" fn dup(fd: i32) -> i32 {
+    let result: i32;
+
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("eax") SYS_DUP,
+            in("ebx") fd,
+            lateout("eax") result,
+        );
+    }
+
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn dup2(old_fd: i32, new_fd: i32) -> i32 {
+    let result: i32;
+
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("eax") SYS_DUP2,
+            in("ebx") old_fd,
+            in("ecx") new_fd,
+            lateout("eax") result,
+        );
+    }
+
+    result
+}
+#[no_mangle]
+pub extern "C" fn pipe(fds: *mut i32) -> i32 {
+    let result: i32;
+    
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("eax") SYS_PIPE,
+            in("ebx") fds,
+            lateout("eax") result,
+        );
+    }
+    
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn execve(
     filename: *const c_char,
     argv: *const *const c_char,
@@ -292,10 +340,8 @@ pub extern "C" fn execve(
 
     unsafe {
         asm!(
-            "
-            mov eax, 0x0b
-            int 0x80
-            ",
+            "int 0x80",
+            in("eax") SYS_EXECVE,
             in("ebx") filename,
             in("ecx") argv,
             in("edx") envp,
