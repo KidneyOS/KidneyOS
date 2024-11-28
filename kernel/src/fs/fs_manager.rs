@@ -870,11 +870,6 @@ impl RootFileSystem {
     pub fn dup(&mut self, pid: Pid, fd: ProcessFileDescriptor) -> Result<FileDescriptor> {
         let open_file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
 
-        // Taking a look at the OpenFile type.
-        // Specifically, we have to be careful about Regular file types...
-        // The fs might need to know when to keep track of an inode.
-        // Currently, though, this doesn't look to be any less dangerous than opening a file twice.
-        // The fs doesn't keep a reference count, so someone in the future might need to tinker.
         let new_file = open_file.clone();
         self.dup_inc_ref(&new_file);
         
