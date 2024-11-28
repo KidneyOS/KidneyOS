@@ -28,8 +28,8 @@ pub unsafe extern "C" fn page_fault_handler() -> ! {
     unsafe fn inner(error_code: u32, return_eip: usize) -> ! {
         let vaddr: usize;
         asm!("mov {}, cr2", out(reg) vaddr);
-        // Add a check if it is in the swap space. 
-        // Swap page in and return 
+        // Add a check if it is in the swap space.
+        // Swap page in and return
         // Check PageManager through running thread in global system struct.
 
         panic!("page fault with error code {error_code:#b} occurred when trying to access {vaddr:#X} from instruction at {return_eip:#X}");
