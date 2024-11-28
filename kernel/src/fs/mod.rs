@@ -35,3 +35,12 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>> {
     }
     Ok(data)
 }
+
+/// Write a file to an absolute path. This does not need to access the PCB, but that means it can't handle relative paths.
+pub fn write_file_absolute_path(path: &Path, data: &[u8]) -> Result<()> {
+    let mut root = root_filesystem().lock();
+    let (fs, inode) = root.open_raw_file(None, path, Mode::CreateReadWrite)?;
+    root.write_raw(fs, inode, 0, data)?;
+    root.decrement_inode_ref_count(fs, inode);
+    Ok(())
+}

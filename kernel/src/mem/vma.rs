@@ -100,7 +100,7 @@ impl VMA {
                 let mut root = unwrap_system().root_filesystem.lock();
                 let mut bytes_read = 0;
                 while bytes_read < PAGE_FRAME_SIZE {
-                    let n = match root.read_direct(
+                    let n = match root.read_raw(
                         fs,
                         inode,
                         offset + bytes_read as u64,

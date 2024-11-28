@@ -263,6 +263,21 @@ impl<F: FileSystem + 'static> FileSystemManager<F> {
         debug_assert!(_prev.is_none(), "duplicate fd");
         Ok(())
     }
+    fn create_handle(&mut self, parent: INodeNum, name: &Path) -> Result<F::FileHandle> {
+        if name.is_empty() || name == "." || name == ".." {
+            // e.g. create("foo/"), create("foo/."), create("foo/..")
+            return Err(Error::IsDirectory);
+        }
+        let mut dir = self.temp_open(parent)?;
+        let file = self.fs.create(&mut dir.handle, name);
+        self.temp_close(dir);
+        let file = file?;
+        // add file to directory entry cache
+        if let Some(dir) = self.directories.get_mut(&parent) {
+            dir.add(file.inode(), INodeType::File, name);
+        }
+        Ok(file)
+    }
 }
 
 /// Unfortunately `FileSystemManager<dyn FileSystem>` doesn't work (we'd have to specify the
@@ -278,6 +293,7 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
     fn lookup(&mut self, dir: INodeNum, entry: &Path) -> Result<INodeNum>;
     fn open(&mut self, inode: INodeNum, fd: ProcessFileDescriptor) -> Result<()>;
     fn create(&mut self, parent: INodeNum, name: &Path, fd: ProcessFileDescriptor) -> Result<()>;
+    fn create_raw(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum>;
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()>;
     fn read(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &mut [u8]) -> Result<usize>;
     fn write(&mut self, fd: ProcessFileDescriptor, offset: u64, buf: &[u8]) -> Result<usize>;
@@ -322,7 +338,9 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
     /// decrease reference count of inode (pretend there is one fewer open file to it)
     fn dec_ref(&mut self, inode: INodeNum);
     /// Read bytes directly from a file
-    fn read_direct(&mut self, inode: INodeNum, offset: u64, buf: &mut [u8]) -> Result<usize>;
+    fn read_raw(&mut self, inode: INodeNum, offset: u64, buf: &mut [u8]) -> Result<usize>;
+    /// Write bytes directly to a file
+    fn write_raw(&mut self, inode: INodeNum, offset: u64, buf: &[u8]) -> Result<()>;
 }
 
 /// get parent directory and name of absolute path
@@ -362,19 +380,13 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
         let handle = self.fs.open(inode)?;
         self.open_file_handle(fd, handle)
     }
+    fn create_raw(&mut self, parent: INodeNum, name: &Path) -> Result<INodeNum> {
+        let file = self.create_handle(parent, name)?;
+        self.inc_ref(file.inode());
+        Ok(file.inode())
+    }
     fn create(&mut self, parent: INodeNum, name: &Path, fd: ProcessFileDescriptor) -> Result<()> {
-        if name.is_empty() || name == "." || name == ".." {
-            // e.g. create("foo/"), create("foo/."), create("foo/..")
-            return Err(Error::IsDirectory);
-        }
-        let mut dir = self.temp_open(parent)?;
-        let file = self.fs.create(&mut dir.handle, name);
-        self.temp_close(dir);
-        let file = file?;
-        // add file to directory entry cache
-        if let Some(dir) = self.directories.get_mut(&parent) {
-            dir.add(file.inode(), INodeType::File, name);
-        }
+        let file = self.create_handle(parent, name)?;
         self.open_file_handle(fd, file)
     }
     fn close(&mut self, fd: ProcessFileDescriptor) -> Result<()> {
@@ -634,25 +646,13 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
             }
         }
     }
-    fn read_direct(
-        &mut self,
-        inode: INodeNum,
-        mut offset: u64,
-        mut buf: &mut [u8],
-    ) -> Result<usize> {
+    fn read_raw(&mut self, inode: INodeNum, mut offset: u64, mut buf: &mut [u8]) -> Result<usize> {
         let mut handle = self.temp_open(inode)?;
         let mut bytes_read = 0;
-        loop {
-            let n = if buf.is_empty() {
-                Ok(0)
-            } else {
-                self.fs.read(&mut handle.handle, offset, buf)
-            };
+        while !buf.is_empty() {
+            let n = self.fs.read(&mut handle.handle, offset, buf);
             match n {
-                Ok(0) => {
-                    self.temp_close(handle);
-                    return Ok(bytes_read);
-                }
+                Ok(0) => break,
                 Ok(n) => {
                     bytes_read += n;
                     offset += n as u64;
@@ -664,6 +664,27 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
                 }
             }
         }
+        self.temp_close(handle);
+        Ok(bytes_read)
+    }
+    fn write_raw(&mut self, inode: INodeNum, mut offset: u64, mut buf: &[u8]) -> Result<()> {
+        let mut handle = self.temp_open(inode)?;
+        while !buf.is_empty() {
+            let n = self.fs.write(&mut handle.handle, offset, buf);
+            match n {
+                Ok(n) => {
+                    assert!(n > 0, "zero-sized write probably shouldn't happen");
+                    offset += n as u64;
+                    buf = &buf[n..];
+                }
+                Err(e) => {
+                    self.temp_close(handle);
+                    return Err(e);
+                }
+            }
+        }
+        self.temp_close(handle);
+        Ok(())
     }
 }
 
@@ -917,6 +938,33 @@ impl RootFileSystem {
             return Err(e);
         }
         Ok(fd.fd)
+    }
+    /// Increments reference count to inode and returns the filesystem ID and inode number.
+    pub fn open_raw_file(
+        &mut self,
+        cwd: Option<(FileSystemID, INodeNum)>,
+        path: &Path,
+        mode: Mode,
+    ) -> Result<(FileSystemID, INodeNum)> {
+        let cwd = cwd.unwrap_or(self.get_root()?);
+        match mode {
+            Mode::ReadWrite => {
+                let (fs_id, inode) = self.resolve_path_relative_to(cwd, path, 0)?;
+                let fs = self.file_systems.get_mut(fs_id);
+                fs.inc_ref(inode);
+                if fs.inode_type(inode)? == INodeType::Directory {
+                    return Err(Error::IsDirectory);
+                }
+                Ok((fs_id, inode))
+            }
+            Mode::CreateReadWrite => {
+                let (fs_id, parent_inode) =
+                    self.resolve_path_relative_to(cwd, dirname_of(path), 0)?;
+                let fs = self.file_systems.get_mut(fs_id);
+                let inode = fs.create_raw(parent_inode, filename_of(path))?;
+                Ok((fs_id, inode))
+            }
+        }
     }
     pub fn open_stdout(&mut self, pid: Pid) -> Result<FileDescriptor> {
         let fd = self.new_fd(pid, OpenFile::StdOut)?;
@@ -1258,7 +1306,7 @@ impl RootFileSystem {
     }
 
     /// Read bytes directly from a file using its filesystem ID and inode number.
-    pub fn read_direct(
+    pub fn read_raw(
         &mut self,
         fs_id: FileSystemID,
         inode: INodeNum,
@@ -1267,9 +1315,20 @@ impl RootFileSystem {
     ) -> Result<usize> {
         self.file_systems
             .get_mut(fs_id)
-            .read_direct(inode, offset, buffer)
+            .read_raw(inode, offset, buffer)
     }
-
+    /// Write bytes directly to a file using its filesystem ID and inode number.
+    pub fn write_raw(
+        &mut self,
+        fs_id: FileSystemID,
+        inode: INodeNum,
+        offset: u64,
+        buffer: &[u8],
+    ) -> Result<()> {
+        self.file_systems
+            .get_mut(fs_id)
+            .write_raw(inode, offset, buffer)
+    }
     /// Map file by inode into memory
     ///
     /// Returns `Ok(false)` if there is already something mapped in `addr..addr + length`

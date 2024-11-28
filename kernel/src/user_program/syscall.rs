@@ -1,6 +1,6 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
-use crate::fs::read_file;
+use crate::fs::fs_manager::Mode;
 use crate::fs::syscalls::{
     chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mmap, mount, open,
     read, rename, rmdir, symlink, sync, unlink, unmount, write,
@@ -9,13 +9,14 @@ use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_ref_from_user_space, CStrError,
 };
-use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
+use crate::system::{
+    running_process, running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system,
+};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::{scheduler_yield_and_continue, scheduler_yield_and_die};
 use crate::threading::thread_control_block::ThreadControlBlock;
 use crate::threading::thread_sleep::thread_sleep;
-use crate::user_program::elf::Elf;
 use crate::user_program::random::getrandom;
 use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLOCK_REALTIME};
 use alloc::boxed::Box;
@@ -113,21 +114,27 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 Err(CStrError::Fault) => return -EFAULT,
                 Err(CStrError::BadUtf8) => return -ENOENT, // ?
             };
-
-            let Ok(data) = read_file(cstr) else {
-                return -EIO;
-            };
-
+            let cwd = running_process().lock().cwd;
             let system = unwrap_system();
+            let (fs, inode) =
+                match system
+                    .root_filesystem
+                    .lock()
+                    .open_raw_file(Some(cwd), cstr, Mode::ReadWrite)
+                {
+                    Ok(x) => x,
+                    Err(e) => return -e.to_isize(),
+                };
 
-            let elf = Elf::parse_bytes(&data).ok();
-
-            let Some(elf) = elf else { return -ENOEXEC };
-
-            let Ok(control) = ThreadControlBlock::new_from_elf(elf, &system.process) else {
+            let result = ThreadControlBlock::new_from_elf_file((fs, inode), &system.process);
+            // decrement reference count to match open_raw above.
+            system
+                .root_filesystem
+                .lock()
+                .decrement_inode_ref_count(fs, inode);
+            let Ok(control) = result else {
                 return -ENOEXEC;
             };
-
             system.threads.scheduler.lock().push(Box::new(control));
 
             scheduler_yield_and_die();

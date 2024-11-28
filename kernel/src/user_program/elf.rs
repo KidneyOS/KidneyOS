@@ -1,3 +1,4 @@
+use crate::threading::thread_control_block::ThreadElfCreateError;
 use nom::bytes::complete::{tag, take};
 use nom::combinator::{map_opt, verify};
 use nom::error::Error;
@@ -5,7 +6,7 @@ use nom::number::complete::{u16, u32, u8};
 use nom::number::Endianness;
 use nom::IResult;
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 // Endianness of the fields within the Elf file.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -170,7 +171,7 @@ pub enum ElfProgramType {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct ElfProgramHeader<'a> {
+pub struct ElfProgramHeader {
     pub program_type: ElfProgramType,
 
     // Offset of the program data within the file.
@@ -183,8 +184,8 @@ pub struct ElfProgramHeader<'a> {
     // I find this is typically equal to the virtual_address field.
     pub physical_address: u32,
 
-    // Content of the program section.
-    pub data: &'a [u8], // avoid copying large sections of the ELF
+    /// Length of the section's data within the file.
+    pub file_size: u32,
 
     // Size that needs to be allocated, should be strictly greater than data.
     pub memory_size: u32,
@@ -197,16 +198,12 @@ pub struct ElfProgramHeader<'a> {
     pub alignment: u32,
 }
 
-impl<'a> ElfProgramHeader<'a> {
+impl ElfProgramHeader {
     // Parses a Program Header for a segment.
     //  `bytes` is a slice pointing to the start of the ProgramHeader.
     //  `endian` refers to the Endianness of the fields within the header (from the elf header).
     //  `full_file` is a slice that contains the whole file. Used to grab a slice to segment data.
-    pub fn parse(
-        bytes: &'a [u8],
-        endian: Endianness,
-        full_file: &'a [u8],
-    ) -> IResult<&'a [u8], Self> {
+    pub fn parse(bytes: &[u8], endian: Endianness) -> IResult<&[u8], Self> {
         let (bytes, program_type) = map_opt(u32(endian), |value| match value {
             0 => Some(ElfProgramType::Ignore),
             1 => Some(ElfProgramType::Load),
@@ -231,9 +228,6 @@ impl<'a> ElfProgramHeader<'a> {
         let writable = flags & 2 != 0;
         let readable = flags & 4 != 0;
 
-        let (data_start, _) = take(file_offset)(full_file)?;
-        let (_, data) = take(file_size)(data_start)?;
-
         Ok((
             bytes,
             ElfProgramHeader {
@@ -241,7 +235,7 @@ impl<'a> ElfProgramHeader<'a> {
                 file_offset,
                 virtual_address,
                 physical_address,
-                data,
+                file_size,
                 memory_size,
                 executable,
                 writable,
@@ -253,29 +247,51 @@ impl<'a> ElfProgramHeader<'a> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Elf<'a> {
+pub struct Elf {
     // Contains elf metadata.
     pub header: ElfHeader,
 
     // And program segments.
-    pub program_headers: Vec<ElfProgramHeader<'a>>,
+    pub program_headers: Vec<ElfProgramHeader>,
     // Sections (used for linking) are ignored in this parse method.
 }
 
-impl<'a> Elf<'a> {
-    pub fn parse(full_bytes: &'a [u8]) -> IResult<&'a [u8], Elf<'a>> {
-        let (bytes, header) = ElfHeader::parse(full_bytes)?;
+impl From<nom::Err<Error<&[u8]>>> for ThreadElfCreateError {
+    fn from(_: nom::Err<Error<&[u8]>>) -> Self {
+        ThreadElfCreateError::NotExecutable
+    }
+}
 
-        let (mut program_header_bytes, _) = take(header.program_headers_offset)(full_bytes)?;
+impl Elf {
+    pub fn parse<F>(mut read_file: F) -> Result<Elf, ThreadElfCreateError>
+    where
+        F: FnMut(u64, &mut [u8]) -> bool,
+    {
+        let mut read_file = |offset: u64, slice: &mut [u8]| -> Result<(), ThreadElfCreateError> {
+            if read_file(offset, slice) {
+                Ok(())
+            } else {
+                Err(ThreadElfCreateError::IO)
+            }
+        };
+        let elf_header_size = 0x34;
+        let mut header = vec![0; elf_header_size];
+        read_file(0, &mut header)?;
+        let (_, header) = ElfHeader::parse(&header)?;
+
+        let program_header_size = 0x20;
+        let mut program_header_bytes =
+            vec![0; program_header_size * header.program_header_count as usize];
+        read_file(
+            header.program_headers_offset.into(),
+            &mut program_header_bytes,
+        )?;
 
         let mut program_headers = Vec::with_capacity(header.program_header_count as usize);
-
+        let mut program_header_bytes = &program_header_bytes[..];
         for _ in 0..header.program_header_count {
-            let (_, program_header) = ElfProgramHeader::parse(
-                program_header_bytes,
-                header.endianness.to_nom(),
-                full_bytes,
-            )?;
+            let (_, program_header) =
+                ElfProgramHeader::parse(program_header_bytes, header.endianness.to_nom())?;
 
             program_headers.push(program_header);
 
@@ -284,16 +300,9 @@ impl<'a> Elf<'a> {
             program_header_bytes = next;
         }
 
-        Ok((
-            bytes,
-            Elf {
-                header,
-                program_headers,
-            },
-        ))
-    }
-
-    pub fn parse_bytes(bytes: &'a [u8]) -> Result<Elf<'a>, nom::Err<Error<&'a [u8]>>> {
-        Ok(Self::parse(bytes)?.1)
+        Ok(Elf {
+            header,
+            program_headers,
+        })
     }
 }

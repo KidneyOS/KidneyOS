@@ -14,9 +14,9 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
-    ptr::{copy_nonoverlapping, write_bytes, NonNull},
+    ptr::{write_bytes, NonNull},
 };
-use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
+use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -118,13 +118,22 @@ pub enum ThreadElfCreateError {
     UnsupportedArchitecture,
     NotExecutable,
     InvalidEntryPoint,
+    IO,
 }
 
 impl ThreadControlBlock {
-    pub fn new_from_elf(
-        elf: Elf,
+    pub fn new_from_elf_file(
+        file: (FileSystemID, INodeNum),
         state: &ProcessState,
     ) -> Result<ThreadControlBlock, ThreadElfCreateError> {
+        let (fs, inode) = file;
+        let elf = Elf::parse(|offset, buf| {
+            unwrap_system()
+                .root_filesystem
+                .lock()
+                .read_raw(fs, inode, offset, buf)
+                .is_ok()
+        })?;
         // Shared ELFs can count as a "Relocatable Executable" if the entry point is set.
         let executable = matches!(elf.header.usage, ElfUsage::Executable | ElfUsage::Shared);
 
@@ -143,9 +152,9 @@ impl ThreadControlBlock {
             running_thread_ppid()
         };
         let pcb = ProcessControlBlock::create(state, ppid);
-        let pcb = pcb.lock();
+        let mut pcb = pcb.lock();
         let pid = pcb.pid;
-        let mut page_manager = PageManager::default();
+        let page_manager = PageManager::default();
 
         for program_header in elf.program_headers {
             if program_header.program_type != ElfProgramType::Load {
@@ -158,50 +167,29 @@ impl ThreadControlBlock {
                 program_header.virtual_address as usize / PAGE_FRAME_SIZE;
             let segment_virtual_start = segment_virtual_frame_start * PAGE_FRAME_SIZE;
             let segment_padding = program_header.virtual_address as usize % PAGE_FRAME_SIZE;
-            let segment_padded_size = segment_padding + program_header.data.len();
+            let segment_padded_size = segment_padding + program_header.file_size as usize;
 
             let frames = segment_padded_size.div_ceil(PAGE_FRAME_SIZE);
-
-            unsafe {
-                // TODO: Save this physical address somewhere so we can deallocate
-                // it when dropping the thread.
-                let kernel_virt_addr = KERNEL_ALLOCATOR
-                    .frame_alloc(frames)
-                    .expect("no more frames...")
-                    .cast::<u8>()
-                    .as_ptr();
-                let phys_addr = kernel_virt_addr.sub(OFFSET);
-
-                // TODO: Throw an error if this range overlaps any previously mapped
-                // ranges, since `map_range` requires that the input range has not
-                // already been mapped.
-
-                // Map the physical address obtained by the allocation above to the
-                // virtual address assigned by the ELF header.
-                page_manager.map_range(
-                    phys_addr as usize,
-                    segment_virtual_start,
+            let offset_frames = program_header.file_offset as usize / PAGE_FRAME_SIZE;
+            // increment reference count once per mapping (just like if we were using mmap)
+            unwrap_system()
+                .root_filesystem
+                .lock()
+                .increment_inode_ref_count(fs, inode);
+            if !pcb.vmas.add_vma(
+                VMA::new(
+                    VMAInfo::MMap {
+                        fs,
+                        inode,
+                        offset: offset_frames as u32,
+                    },
                     frames * PAGE_FRAME_SIZE,
                     program_header.writable,
-                    true,
-                );
-
-                write_bytes(kernel_virt_addr, 0, segment_padded_size);
-
-                // Load so we can write to the virtual addresses mapped above.
-                copy_nonoverlapping(
-                    program_header.data.as_ptr(),
-                    kernel_virt_addr.add(segment_padding),
-                    program_header.data.len(),
-                );
-
-                // Zero the sliver of addresses between the end of the region, and
-                // the end of the region we had to map due to page
-                write_bytes(
-                    kernel_virt_addr.add(segment_padded_size),
-                    0,
-                    frames * PAGE_FRAME_SIZE - segment_padded_size,
-                );
+                ),
+                segment_virtual_start,
+            ) {
+                // overlapping sections in ELF file
+                return Err(ThreadElfCreateError::NotExecutable);
             }
         }
 

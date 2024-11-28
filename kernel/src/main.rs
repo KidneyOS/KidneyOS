@@ -29,10 +29,10 @@ extern crate alloc;
 use crate::block::block_core::BlockManager;
 use crate::drivers::ata::ata_core::ide_init;
 use crate::drivers::input::input_core::InputBuffer;
-use crate::fs::fs_manager::RootFileSystem;
+use crate::fs::fs_manager::{Mode, RootFileSystem};
 use crate::sync::mutex::Mutex;
 use crate::sync::rwlock::sleep::RwLock;
-use crate::system::SystemState;
+use crate::system::{unwrap_system, SystemState};
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
@@ -100,7 +100,6 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         // for now, we just use TempFS for the root filesystem
         root.mount_root(TempFS::new())
             .expect("Couldn't mount root FS");
-
         crate::system::init_system(SystemState {
             threads,
             process,
@@ -110,6 +109,14 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         });
         println!("initialized system");
 
-        thread_system_start(page_manager, INIT);
+        // TODO: read this from the host FS instead (once host FS mounting is set up)
+        crate::fs::write_file_absolute_path("/init", INIT).expect("couldn't write init executable");
+        let init = unwrap_system()
+            .root_filesystem
+            .lock()
+            .open_raw_file(None, "/init", Mode::ReadWrite)
+            .expect("couldn't open init executable");
+        println!("Starting init process...");
+        thread_system_start(page_manager, init);
     }
 }
