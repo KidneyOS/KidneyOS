@@ -32,9 +32,7 @@ where
     fn alloc(&mut self, frames: usize) -> Option<Range<usize>> {
         if self.first_unused_frame + frames >= self.max_frames {
             // Evict a page and return
-            let evicted_frame = RandomEviction::evict_page(self.max_frames);
-            
-            
+            let _evicted_frame = RandomEviction::evict_page(self.max_frames);
         }
 
         let res = self.first_unused_frame..self.first_unused_frame + frames;

@@ -1,5 +1,4 @@
 use core::usize;
-use kidneyos_shared::println;
 
 use crate::user_program::time::get_tsc;
 
@@ -14,6 +13,6 @@ impl PageReplacementPolicy for RandomEviction {
         let time = get_tsc().tv_sec;
 
         // println!("{}", time as usize % max_frames);
-        return time as usize % max_frames;
+        time as usize % max_frames
     }
 }
