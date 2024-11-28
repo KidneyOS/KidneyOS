@@ -28,6 +28,7 @@ pub extern "C" fn exit(code: i32) -> ! {
         )
     }
 
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 
