@@ -26,6 +26,7 @@ const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_
 pub const USER_THREAD_STACK_FRAMES: usize = 4 * 1024;
 pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
+pub const USER_HEAP_BOTTOM_VIRT: usize = 0x20000000;
 
 #[allow(unused)]
 #[derive(PartialEq, Debug)]
@@ -70,6 +71,10 @@ impl ProcessControlBlock {
             VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true),
             USER_STACK_BOTTOM_VIRT,
         );
+        let heap_avail = vmas.add_vma(
+            VMA::new(VMAInfo::Heap, USER_HEAP_BOTTOM_VIRT, true),
+            USER_HEAP_BOTTOM_VIRT
+        );
         assert!(stack_avail, "stack virtual address range not available");
 
         let pcb = Self {
@@ -103,6 +108,8 @@ pub struct ThreadControlBlock {
     pub eip: NonNull<u8>,
     // Like above, but the stack pointer.
     pub esp: NonNull<u8>,
+    
+    pub switch_threads_context: Option<NonNull<SwitchThreadsContext>>,
 
     pub tid: Tid,
     // The PID of the parent PCB.
@@ -236,14 +243,16 @@ impl ThreadControlBlock {
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
+            .expect("No Stack Space!")
+            .cast::<SwitchThreadsContext>();
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
             *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+                .as_ptr() = SwitchThreadsContext::new();
         }
+        
+        new_thread.switch_threads_context = Some(switch_threads_context);
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
@@ -273,15 +282,16 @@ impl ThreadControlBlock {
         //  * switch_threads
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
+            .expect("No Stack Space!")
+            .cast::<SwitchThreadsContext>();
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
             *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+                .as_ptr() = SwitchThreadsContext::new();
         }
 
+        new_thread.switch_threads_context = Some(switch_threads_context);
         new_thread.eip = entry; // !!!
 
         // Our thread can now be run via the `switch_threads` method.
@@ -305,6 +315,7 @@ impl ThreadControlBlock {
         Self {
             kernel_stack_pointer,
             kernel_stack,
+            switch_threads_context: None,
             eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
@@ -345,6 +356,7 @@ impl ThreadControlBlock {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
+            switch_threads_context: None,
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             tid: state.allocate_tid(),

@@ -34,6 +34,8 @@
 
 #define EBADF 9
 
+#define ENOMEM 12
+
 #define EFAULT 14
 
 #define EBUSY 16
@@ -104,6 +106,8 @@
 
 #define SYS_RMDIR 40
 
+#define SYS_BRK 45
+
 #define SYS_GETPPID 64
 
 #define SYS_SYMLINK 83
@@ -111,6 +115,8 @@
 #define SYS_FTRUNCATE 93
 
 #define SYS_FSTAT 108
+
+#define SYS_CLONE 120
 
 #define SYS_LSEEK64 140
 
@@ -137,6 +143,8 @@
 #define CLOCK_MONOTONIC 1
 
 typedef uint16_t Pid;
+
+typedef uint16_t Tid;
 
 typedef struct Stat {
   uint32_t inode;
@@ -170,6 +178,8 @@ typedef struct Timespec {
 void exit(int32_t code);
 
 Pid fork(void);
+
+int32_t clone(uint32_t flags, uint8_t *stack, Tid *parent_tid, uint32_t tls, Tid *child_tid);
 
 int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 
