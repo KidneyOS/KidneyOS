@@ -18,6 +18,7 @@ pub mod fs;
 mod interrupts;
 pub mod mem;
 mod paging;
+mod rush;
 pub mod sync;
 mod system;
 mod threading;
