@@ -83,7 +83,7 @@ pub extern "C" fn ide_init() -> i32 {
     }
 
     println!("IDE subsystem initialized");
-    
+
     0
 }
 

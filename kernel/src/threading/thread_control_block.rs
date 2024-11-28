@@ -1,4 +1,5 @@
 use super::thread_functions::{PrepareThreadContext, SwitchThreadsContext, ThreadFunction};
+use crate::fs::fs_manager::RootFileSystem;
 use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
@@ -16,7 +17,6 @@ use core::{
     ptr::{copy_nonoverlapping, write_bytes, NonNull},
 };
 use kidneyos_shared::mem::{OFFSET, PAGE_FRAME_SIZE};
-use crate::fs::fs_manager::RootFileSystem;
 
 // The stack size choice is based on that of x86-64 Linux and 32-bit Windows
 // Linux: https://docs.kernel.org/next/x86/kernel-stacks.html
@@ -142,7 +142,8 @@ impl ThreadControlBlock {
         } else {
             running_thread_ppid()
         };
-        let pid: Pid = ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
+        let pid: Pid =
+            ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
 
         let mut page_manager = PageManager::default();
 
@@ -247,7 +248,7 @@ impl ThreadControlBlock {
         state: &mut ProcessState,
     ) -> Self {
         let entry = NonNull::new(eip as *mut u8).unwrap();
-        
+
         let eip = NonNull::new(eip as *mut u8).unwrap();
 
         let mut new_thread = Self::new(
