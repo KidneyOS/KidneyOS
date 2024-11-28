@@ -17,5 +17,6 @@
 - [Frame Allocator](./assignments/frame-allocator.md)
 - [Scheduler](./assignments/scheduler.md)
 - [File System](./assignments/file-system.md)
+- [System Calls](./assignments/syscalls.md)
 
 <!-- TODO: Add additional assignments (perhaps IPC and/or paging). -->
