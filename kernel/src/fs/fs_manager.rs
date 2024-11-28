@@ -863,7 +863,7 @@ impl RootFileSystem {
         Ok((read_end.fd, write_end.fd))
     }
     fn dup_inc_ref(&mut self, open_file: &OpenFile) {
-        if let OpenFile::Regular { fs, inode, ..  } = open_file {
+        if let OpenFile::Regular { fs, inode, .. } = open_file {
             self.file_systems.get_mut(*fs).inc_ref(*inode);
         }
     }
@@ -872,7 +872,7 @@ impl RootFileSystem {
 
         let new_file = open_file.clone();
         self.dup_inc_ref(&new_file);
-        
+
         Ok(self.new_fd(pid, new_file)?.fd)
     }
     pub fn dup2(&mut self, fd: ProcessFileDescriptor, into: ProcessFileDescriptor) -> Result<()> {
@@ -973,7 +973,9 @@ impl RootFileSystem {
 
         let file_info = file_system.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir, .. } => {
+            OpenFile::Regular {
+                fs, offset, is_dir, ..
+            } => {
                 let fs = *fs;
 
                 if *is_dir {
@@ -1038,7 +1040,9 @@ impl RootFileSystem {
 
         let file_info = file_system.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir, .. } => {
+            OpenFile::Regular {
+                fs, offset, is_dir, ..
+            } => {
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
@@ -1292,7 +1296,9 @@ impl RootFileSystem {
     pub fn ftruncate(&mut self, fd: ProcessFileDescriptor, size: u64) -> Result<()> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir, .. } => {
+            OpenFile::Regular {
+                fs, offset, is_dir, ..
+            } => {
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
