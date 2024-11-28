@@ -76,6 +76,7 @@ impl ProcessControlBlock {
             USER_HEAP_BOTTOM_VIRT,
         );
         assert!(stack_avail, "stack virtual address range not available");
+        assert!(heap_avail, "stack virtual address range not available");
 
         let pcb = Self {
             pid,

@@ -182,10 +182,10 @@ pub fn brk(heap_end: usize) -> isize {
 pub fn clone(
     return_eip: usize,
     _flags: u32,
-    stack: *mut u8,
-    parent_tid: *const Tid,
-    tls: u32,
-    child_tid: *const Tid,
+    _stack: *mut u8,
+    _parent_tid: *const Tid,
+    _tls: u32,
+    _child_tid: *const Tid,
 ) -> isize {
     let (pid, page_manager) = {
         let running_thread = unwrap_system().threads.running_thread.lock();

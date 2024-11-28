@@ -6,14 +6,10 @@ use crate::fs::syscalls::{
 };
 use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::get_mut_from_user_space;
-use crate::mem::vma::VMAInfo;
-use crate::system::{
-    running_process, running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system,
-};
+use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::scheduler_yield_and_continue;
-use crate::threading::thread_control_block::USER_HEAP_BOTTOM_VIRT;
 use crate::threading::thread_sleep::thread_sleep;
 use crate::user_program::process::{brk, clone, execve};
 use crate::user_program::random::getrandom;
