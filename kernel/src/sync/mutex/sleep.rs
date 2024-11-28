@@ -1,4 +1,4 @@
-use crate::interrupts::mutex_irq::MutexIrq;
+use crate::interrupts::mutex_irq::{hold_interrupts, MutexIrq};
 use crate::interrupts::{intr_get_level, IntrLevel};
 use crate::system::running_thread_tid;
 use crate::threading::process::{AtomicTid, Tid};
@@ -126,11 +126,7 @@ impl<T: ?Sized> SleepMutex<T> {
                 wait_queue.push_back(current_tid);
             }
             drop(wait_queue);
-            debug_assert_eq!(
-                intr_get_level(),
-                IntrLevel::IntrOn,
-                "Trying to lock locked SleepMutex with interrupts off"
-            );
+            let _guard = hold_interrupts(IntrLevel::IntrOn);
             thread_sleep();
         }
 

@@ -1,9 +1,10 @@
 use crate::drivers::ata::ata_core::CHANNELS;
 use alloc::string::String;
-use kidneyos_shared::eprintln;
+use kidneyos_shared::{eprintln, println};
 use kidneyos_shared::serial::inb;
 
 pub fn on_ide_interrupt(vec_no: u8) {
+    println!("Got IDE interrupt {vec_no}");
     for (i, c) in CHANNELS.iter().enumerate() {
         let channel = &mut c.lock();
 
@@ -16,6 +17,7 @@ pub fn on_ide_interrupt(vec_no: u8) {
                     inb(channel.reg_status());
                 }
                 // Wake up the waiting thread
+                println!("waking waiting thread");
                 channel.sem_up();
             } else {
                 // Spurious interrupt

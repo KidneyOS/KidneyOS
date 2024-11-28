@@ -7,6 +7,8 @@ use crate::threading::thread_control_block::ThreadStatus;
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
+use crate::interrupts::IntrLevel;
+use crate::interrupts::mutex_irq::hold_interrupts;
 
 pub struct SemaphorePermit {
     forgotten: bool,
@@ -92,6 +94,8 @@ impl Semaphore {
                 }
             }
 
+            let _guard = hold_interrupts(IntrLevel::IntrOn);
+            
             thread_sleep();
         }
     }
