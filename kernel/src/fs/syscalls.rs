@@ -6,6 +6,7 @@ use crate::fs::{
     fs_manager::{Mode, SeekFrom},
     FileDescriptor, ProcessFileDescriptor,
 };
+use crate::fs::fs_manager::RootFileSystem;
 use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_mut_slice_from_user_space,
     get_slice_from_user_space, CStrError,
@@ -53,7 +54,7 @@ pub fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match root_filesystem().lock().read(fd, buf) {
+    match RootFileSystem::read(root_filesystem(), fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -72,7 +73,7 @@ pub fn write(fd: usize, buf: *const u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match root_filesystem().lock().write(fd, buf) {
+    match RootFileSystem::write(root_filesystem(), fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -363,5 +364,21 @@ pub fn mount(device: *const u8, target: *const u8, file_system_type: *const u8) 
     match result {
         Ok(()) => 0,
         Err(e) => -e.to_isize(),
+    }
+}
+
+pub fn pipe(fds: *mut isize) -> isize {
+    let Some(fds) = (unsafe { get_mut_slice_from_user_space(fds, 2) }) else {
+        return -EFAULT
+    };
+    
+    match root_filesystem().lock().pipe(&running_process().lock()) {
+        Ok((read_end, write_end)) => {
+            fds[0] = read_end as isize;
+            fds[1] = write_end as isize;
+            
+            0
+        }
+        Err(e) => -e.to_isize()
     }
 }

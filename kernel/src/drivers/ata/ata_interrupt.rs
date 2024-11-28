@@ -1,6 +1,6 @@
 use crate::drivers::ata::ata_core::CHANNELS;
 use alloc::string::String;
-use kidneyos_shared::{eprintln, println};
+use kidneyos_shared::eprintln;
 use kidneyos_shared::serial::inb;
 
 pub fn on_ide_interrupt(vec_no: u8) {

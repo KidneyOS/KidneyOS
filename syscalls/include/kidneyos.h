@@ -52,6 +52,8 @@
 
 #define EMLINK 31
 
+#define EPIPE 32
+
 #define ERANGE 34
 
 #define ENOSYS 38
@@ -95,6 +97,12 @@
 #define SYS_MKDIR 39
 
 #define SYS_RMDIR 40
+
+#define SYS_DUP 41
+
+#define SYS_PIPE 42
+
+#define SYS_DUP2 63
 
 #define SYS_GETPPID 64
 
