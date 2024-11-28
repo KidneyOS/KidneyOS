@@ -1,6 +1,7 @@
 pub mod fat;
 pub mod fs_manager;
 pub mod syscalls;
+pub mod vsfs;
 use crate::fs::fs_manager::Mode;
 use crate::system::{root_filesystem, running_process, running_thread_pid};
 use crate::threading::process::Pid;
