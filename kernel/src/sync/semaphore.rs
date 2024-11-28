@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use crate::interrupts::mutex_irq::hold_interrupts;
+use crate::interrupts::IntrLevel;
 use crate::sync::mutex::TicketMutex;
 use crate::system::unwrap_system;
 use crate::threading::process::Tid;
@@ -7,8 +9,6 @@ use crate::threading::thread_control_block::ThreadStatus;
 use crate::threading::thread_sleep::{thread_sleep, thread_wakeup};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
-use crate::interrupts::IntrLevel;
-use crate::interrupts::mutex_irq::hold_interrupts;
 
 pub struct SemaphorePermit {
     forgotten: bool,
@@ -95,7 +95,7 @@ impl Semaphore {
             }
 
             let _guard = hold_interrupts(IntrLevel::IntrOn);
-            
+
             thread_sleep();
         }
     }

@@ -1,9 +1,9 @@
+use crate::sync::mutex::sleep::SleepMutex;
+use crate::sync::semaphore::Semaphore;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use core::fmt::{Debug, Formatter};
 use core::sync::atomic::{AtomicUsize, Ordering};
-use crate::sync::mutex::sleep::SleepMutex;
-use crate::sync::semaphore::Semaphore;
 
 pub struct PipeInner {
     pub read_ends: AtomicUsize,
@@ -23,7 +23,7 @@ impl PipeInner {
             write_ends: AtomicUsize::new(0),
 
             semaphore: Semaphore::new(0),
-            contents: SleepMutex::new(VecDeque::new())
+            contents: SleepMutex::new(VecDeque::new()),
         }
     }
 }
@@ -31,10 +31,10 @@ impl PipeInner {
 impl PipeInner {
     pub fn read_end(inner: Arc<PipeInner>) -> PipeReadEnd {
         inner.read_ends.fetch_add(1, Ordering::SeqCst);
-        
+
         PipeReadEnd(inner)
     }
-    
+
     pub fn write_end(inner: Arc<PipeInner>) -> PipeWriteEnd {
         inner.write_ends.fetch_add(1, Ordering::SeqCst);
 
@@ -45,7 +45,7 @@ impl PipeInner {
 impl Clone for PipeReadEnd {
     fn clone(&self) -> Self {
         self.0.read_ends.fetch_add(1, Ordering::SeqCst);
-        
+
         Self(self.0.clone())
     }
 }
@@ -53,7 +53,7 @@ impl Clone for PipeReadEnd {
 impl Clone for PipeWriteEnd {
     fn clone(&self) -> Self {
         self.0.write_ends.fetch_add(1, Ordering::SeqCst);
-        
+
         Self(self.0.clone())
     }
 }

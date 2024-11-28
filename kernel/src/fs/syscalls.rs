@@ -2,11 +2,11 @@
 // Here we should be fine since we are checking the validity of pointers.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+use crate::fs::fs_manager::RootFileSystem;
 use crate::fs::{
     fs_manager::{Mode, SeekFrom},
     FileDescriptor, ProcessFileDescriptor,
 };
-use crate::fs::fs_manager::RootFileSystem;
 use crate::mem::util::{
     get_cstr_from_user_space, get_mut_from_user_space, get_mut_slice_from_user_space,
     get_slice_from_user_space, CStrError,
@@ -371,15 +371,14 @@ pub fn dup(fd: isize) -> isize {
     let Ok(fd) = FileDescriptor::try_from(fd) else {
         return -EBADF;
     };
-    
+
     let pid = running_process().lock().pid;
-    
-    let process_fd = ProcessFileDescriptor {
-        pid,
-        fd
-    };
-    
-    root_filesystem().lock().dup(pid, process_fd)
+
+    let process_fd = ProcessFileDescriptor { pid, fd };
+
+    root_filesystem()
+        .lock()
+        .dup(pid, process_fd)
         .map(|i| i.into())
         .unwrap_or_else(|err| -err.to_isize())
 }
@@ -395,35 +394,31 @@ pub fn dup2(old: isize, new: isize) -> isize {
 
     let pid = running_process().lock().pid;
 
-    let old_process_fd = ProcessFileDescriptor {
-        pid,
-        fd: old,
-    };
-    
-    let new_process_fd = ProcessFileDescriptor {
-        pid,
-        fd: new,
-    };
-    
-    root_filesystem().lock().dup2(old_process_fd, new_process_fd)
+    let old_process_fd = ProcessFileDescriptor { pid, fd: old };
+
+    let new_process_fd = ProcessFileDescriptor { pid, fd: new };
+
+    root_filesystem()
+        .lock()
+        .dup2(old_process_fd, new_process_fd)
         .map(|_| 0)
         .unwrap_or_else(|err| -err.to_isize())
 }
 
 pub fn pipe(fds: *mut isize) -> isize {
     let Some(fds) = (unsafe { get_mut_slice_from_user_space(fds, 2) }) else {
-        return -EFAULT
+        return -EFAULT;
     };
-    
+
     let pid = running_process().lock().pid;
-    
+
     match root_filesystem().lock().pipe(pid) {
         Ok((read_end, write_end)) => {
             fds[0] = read_end as isize;
             fds[1] = write_end as isize;
-            
+
             0
         }
-        Err(e) => -e.to_isize()
+        Err(e) => -e.to_isize(),
     }
 }

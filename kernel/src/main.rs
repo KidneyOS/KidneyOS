@@ -93,7 +93,8 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         root.mount_root(TempFS::new())
             .expect("Couldn't mount root FS");
 
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_init, true, 0, &mut root, &mut process);
+        let ide_tcb =
+            ThreadControlBlock::new_with_setup(ide_init, true, 0, &mut root, &mut process);
 
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());

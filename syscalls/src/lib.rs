@@ -317,7 +317,7 @@ pub extern "C" fn dup2(old_fd: i32, new_fd: i32) -> i32 {
 #[no_mangle]
 pub extern "C" fn pipe(fds: *mut i32) -> i32 {
     let result: i32;
-    
+
     unsafe {
         asm!(
             "int 0x80",
@@ -326,7 +326,7 @@ pub extern "C" fn pipe(fds: *mut i32) -> i32 {
             lateout("eax") result,
         );
     }
-    
+
     result
 }
 
