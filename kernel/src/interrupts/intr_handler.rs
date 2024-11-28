@@ -91,6 +91,9 @@ pub unsafe extern "C" fn syscall_handler() -> ! {
     asm!(
         "
         // Push arguments to stack.
+        push [esp+0] // push return eip
+        push edi
+        push esi
         push edx
         push ecx
         push ebx
@@ -105,7 +108,7 @@ pub unsafe extern "C" fn syscall_handler() -> ! {
         // eax will contain the handler's return value, which is where it should
         // remain when we return to the program.
 
-        add esp, 16 // Drop arguments from stack.
+        add esp, 28 // Drop arguments from stack.
 
         iretd
         ",

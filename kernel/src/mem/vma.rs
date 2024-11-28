@@ -60,6 +60,9 @@ impl VMA {
     pub fn size(&self) -> usize {
         self.size
     }
+    pub fn set_size(&mut self, size: usize) {
+        self.size = size
+    }
     pub fn writeable(&self) -> bool {
         self.writeable
     }
@@ -92,7 +95,7 @@ impl VMAList {
     pub fn new() -> Self {
         Self::default()
     }
-    fn vma_at(&self, addr: usize) -> Option<(usize, &VMA)> {
+    pub fn vma_at(&self, addr: usize) -> Option<(usize, &VMA)> {
         // find VMA whose address is closest to addr without going over
         let (vma_addr, vma) = self.0.range(..=addr).next_back()?;
         let vma_addr = *vma_addr;
@@ -103,7 +106,17 @@ impl VMAList {
             None
         }
     }
-    fn is_address_range_free(&self, range: core::ops::Range<usize>) -> bool {
+    pub fn vma_at_mut(&mut self, addr: usize) -> Option<(usize, &mut VMA)> {
+        // Duplicate from vma_at.
+        let (vma_addr, vma) = self.0.range_mut(..=addr).next_back()?;
+        let vma_addr = *vma_addr;
+        if addr >= vma_addr && addr < vma_addr + vma.size {
+            Some((vma_addr, vma))
+        } else {
+            None
+        }
+    }
+    pub fn is_address_range_free(&self, range: core::ops::Range<usize>) -> bool {
         // make sure there is no VMA whose address is before the start of range, but still
         // overlaps range because of its length
         if self.vma_at(range.start).is_some() {
