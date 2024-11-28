@@ -1,6 +1,6 @@
 //! A ticket-based mutex based on [spin](https://docs.rs/spin/latest/spin/).
 
-use crate::interrupts::{intr_enable, intr_get_level, IntrLevel};
+use crate::interrupts::{intr_get_level, IntrLevel};
 use core::{
     cell::UnsafeCell,
     fmt,
