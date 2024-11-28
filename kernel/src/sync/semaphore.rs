@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use crate::interrupts::mutex_irq::hold_interrupts;
+use crate::interrupts::IntrLevel;
 use crate::sync::mutex::TicketMutex;
 use crate::system::unwrap_system;
 use crate::threading::process::Tid;
@@ -91,6 +93,8 @@ impl Semaphore {
                     inner.queue.push_back(running_tid);
                 }
             }
+
+            let _guard = hold_interrupts(IntrLevel::IntrOn);
 
             thread_sleep();
         }

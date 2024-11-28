@@ -2,6 +2,7 @@ use crate::block::block_core::{BlockOp, BlockSector, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::drivers::ata::ata_channel::AtaChannel;
 use crate::drivers::ata::ata_core::CHANNELS;
+use crate::drivers::ata::ata_timer::usleep;
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct AtaDevice(pub u8);
@@ -38,6 +39,9 @@ impl BlockOp for AtaDevice {
 
         channel.select_sector(self.get_device_num(), sector, true);
         channel.issue_pio_command(crate::drivers::ata::ata_core::ATA_READ_SECTOR_RETRY);
+
+        // TODO: find a better way to resolve race condition
+        usleep(1000, true);
 
         channel.sem_down();
         if !channel.wait_while_busy(true) {

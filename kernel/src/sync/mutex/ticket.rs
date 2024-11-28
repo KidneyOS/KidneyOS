@@ -1,6 +1,7 @@
 //! A ticket-based mutex based on [spin](https://docs.rs/spin/latest/spin/).
 
-use crate::interrupts::{intr_get_level, IntrLevel};
+use crate::interrupts::mutex_irq::hold_interrupts;
+use crate::interrupts::IntrLevel;
 use core::{
     cell::UnsafeCell,
     fmt,
@@ -69,12 +70,10 @@ impl<T: ?Sized> TicketMutex<T> {
         let ticket = self.next_ticket.fetch_add(1, Ordering::Relaxed);
 
         while self.next_serving.load(Ordering::Acquire) != ticket {
+            // We need to yield to something else, otherwise we have to panic!
+            let _guard = hold_interrupts(IntrLevel::IntrOn);
+
             core::hint::spin_loop();
-            debug_assert_eq!(
-                intr_get_level(),
-                IntrLevel::IntrOn,
-                "Trying to lock locked TicketMutex with interrupts off"
-            );
         }
 
         TicketMutexGuard {

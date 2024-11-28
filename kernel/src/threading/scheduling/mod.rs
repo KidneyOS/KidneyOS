@@ -19,7 +19,7 @@ pub fn create_scheduler() -> Box<dyn Scheduler + Send> {
 
 /// Voluntarily relinquishes control of the CPU to another processor in the scheduler.
 fn scheduler_yield(status_for_current_thread: ThreadStatus) {
-    let _guard = hold_interrupts();
+    let _guard = hold_interrupts(IntrLevel::IntrOff);
 
     let mut scheduler = unwrap_system().threads.scheduler.lock();
 
