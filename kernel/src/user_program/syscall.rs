@@ -99,7 +99,7 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
                 thread_sleep();
             }
 
-            // Aquire exit code, and rmeove the process from the parent's child threads
+            // Aquire exit code, and remove the process from the parent's child threads
             let exit_code = {
                 let wait_pcb = pcb_ref.lock();
 
