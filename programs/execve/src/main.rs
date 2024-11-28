@@ -2,8 +2,8 @@
 #![cfg_attr(not(test), no_main)]
 
 use core::ffi::c_char;
-use kidneyos_syscalls::O_CREATE;
 use kidneyos_syscalls::arguments::RawArguments;
+use kidneyos_syscalls::O_CREATE;
 
 const TARGET_PROGRAM: &[u8] =
     include_bytes!("../../list_arguments/target/i686-unknown-linux-gnu/release/list_arguments");
