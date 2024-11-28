@@ -2,6 +2,8 @@ use super::thread_control_block::ProcessControlBlock;
 use crate::sync::{mutex::Mutex, rwlock::sleep::RwLock};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU16, Ordering};
 
 pub type Pid = u16;
@@ -16,6 +18,7 @@ pub struct ProcessTable {
 
 pub struct ProcessState {
     pub table: ProcessTable,
+    pub orhpans: RwLock<Vec<Pid>>,
     next_tid: AtomicTid,
     next_pid: AtomicPid,
 }
@@ -23,6 +26,7 @@ pub struct ProcessState {
 pub fn create_process_state() -> ProcessState {
     ProcessState {
         table: Default::default(),
+        orhpans: RwLock::new(vec![]),
         next_tid: AtomicTid::new(1),
         next_pid: AtomicPid::new(1),
     }
