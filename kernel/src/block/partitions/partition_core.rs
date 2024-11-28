@@ -3,10 +3,12 @@
 use crate::block::block_core::{Block, BlockOp, BlockSector, BlockType, BLOCK_SECTOR_SIZE};
 use crate::block::block_error::BlockError;
 use crate::block::partitions::partition_utils::lba_to_chs;
+use crate::rush::rush_core::IS_SYSTEM_FULLY_INITIALIZED;
 use crate::system::unwrap_system;
 use alloc::boxed::Box;
 use alloc::format;
 use core::fmt;
+use core::sync::atomic::Ordering::SeqCst;
 use kidneyos_shared::{eprintln, println};
 
 /// A partition table entry in the MBR.
@@ -520,6 +522,8 @@ pub fn partition_scan(block: &Block) {
     if part_nr == 0 {
         eprintln!("{}: Device contains no partitions", block.get_name());
     }
+
+    IS_SYSTEM_FULLY_INITIALIZED.store(true, SeqCst);
 }
 
 fn read_partition_table(

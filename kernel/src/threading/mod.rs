@@ -6,6 +6,7 @@ pub mod thread_control_block;
 pub mod thread_functions;
 pub mod thread_sleep;
 
+use crate::rush::rush_core::rush_loop;
 use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
 use crate::threading::scheduling::Scheduler;
@@ -13,7 +14,7 @@ use crate::user_program::elf::Elf;
 use crate::{
     interrupts::{intr_enable, intr_get_level, IntrLevel},
     paging::PageManager,
-    threading::scheduling::{create_scheduler, scheduler_yield_and_continue},
+    threading::scheduling::create_scheduler,
 };
 use alloc::boxed::Box;
 use thread_control_block::ThreadControlBlock;
@@ -67,15 +68,16 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources.
     // For now, we will act as the idle thread.
-    idle_function();
+    // idle_function();
+    rush_loop();
 
     // This function never returns.
 }
 
-/// The function run by the idle thread.
-/// Continually yields and should never die.
-extern "C" fn idle_function() -> ! {
-    loop {
-        scheduler_yield_and_continue();
-    }
-}
+// /// The function run by the idle thread.
+// /// Continually yields and should never die.
+// extern "C" fn idle_function() -> ! {
+//     loop {
+//         scheduler_yield_and_continue();
+//     }
+// }

@@ -1,16 +1,19 @@
+use alloc::vec::Vec;
 use core::fmt::Display;
 
 const BUFFER_SIZE: usize = 256;
 
 /// A circular buffer for storing input from the PS/2 controller.
 pub struct InputBuffer {
-    // TODO: CV for not full and not empty?
     /// The buffer itself.
     buf: [u8; BUFFER_SIZE],
     /// The index of the head of the buffer.
     head: usize,
     /// The index of the tail of the buffer.
     tail: usize,
+
+    /// Callbacks when buffer receives a byte.
+    pub on_receive: Vec<fn(u8)>,
 }
 
 #[allow(unused)]
@@ -21,6 +24,7 @@ impl InputBuffer {
             buf: [0; BUFFER_SIZE],
             head: 0,
             tail: 0,
+            on_receive: Vec::new(),
         }
     }
 
@@ -35,6 +39,10 @@ impl InputBuffer {
 
         self.buf[self.head] = c;
         self.head = (self.head + 1) % BUFFER_SIZE;
+
+        for callback in self.on_receive.iter() {
+            callback(c);
+        }
     }
 
     /// Get a byte from the buffer.

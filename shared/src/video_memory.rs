@@ -60,16 +60,16 @@ impl VideoMemoryWriter {
     }
 }
 
+#[allow(dead_code)]
+#[repr(packed)]
+#[derive(Clone, Copy)]
+struct Character {
+    ascii: u8,
+    attribute: Attribute,
+}
+
 impl fmt::Write for VideoMemoryWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        #[allow(dead_code)]
-        #[repr(packed)]
-        #[derive(Clone, Copy)]
-        struct Character {
-            ascii: u8,
-            attribute: Attribute,
-        }
-
         // SAFETY: Assumes that there is only one core => multiple threads
         // cannot be inside this function at once holding video_memory.
         let video_memory = unsafe {
@@ -114,3 +114,46 @@ pub static mut VIDEO_MEMORY_WRITER: VideoMemoryWriter = VideoMemoryWriter {
     cursor: 0,
     attribute: Attribute::new(Colour::White, Colour::Black),
 };
+
+// Functions for RUSH
+impl VideoMemoryWriter {
+    /// Clear the screen.
+    ///
+    /// # Safety
+    ///
+    /// Assumes that there is only one core => multiple threads cannot be inside
+    /// this function at once holding video_memory.
+    pub unsafe fn clear_screen(&mut self) {
+        let video_memory =
+            slice::from_raw_parts_mut(VIDEO_MEMORY_BASE as *mut Character, VIDEO_MEMORY_SIZE);
+
+        for c in video_memory.iter_mut() {
+            *c = Character {
+                ascii: b' ',
+                attribute: self.attribute,
+            };
+        }
+
+        self.cursor = 0;
+    }
+
+    /// Move the cursor back one character.
+    ///
+    /// # Safety
+    ///
+    /// Assumes that there is only one core => multiple threads cannot be inside
+    /// this function at once holding video_memory.
+    pub unsafe fn backspace(&mut self) {
+        if self.cursor < 1 {
+            return; // Not enough characters to delete.
+        }
+
+        self.cursor -= 1;
+        let video_memory =
+            slice::from_raw_parts_mut(VIDEO_MEMORY_BASE as *mut Character, VIDEO_MEMORY_SIZE);
+        video_memory[self.cursor] = Character {
+            ascii: b' ',
+            attribute: self.attribute,
+        };
+    }
+}
