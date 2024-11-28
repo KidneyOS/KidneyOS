@@ -9,7 +9,6 @@ use alloc::boxed::Box;
 use core::arch::asm;
 use kidneyos_shared::{
     global_descriptor_table::{USER_CODE_SELECTOR, USER_DATA_SELECTOR},
-    println,
     task_state_segment::TASK_STATE_SEGMENT,
 };
 
@@ -92,19 +91,19 @@ unsafe extern "C" fn run_thread(
         ..
     } = *switched_to;
 
+    // Reschedule our threads.
+    *threads.running_thread.lock() = Some(switched_to);
+
     // Setting up return frame and arguments for this thread function.
     // Allocate space for return frame and arguments.
     let esp = esp.sub(3 * core::mem::size_of::<u32>());
 
     // Return Address, we can't make our own function since we are still in user-mode on return.
-    *esp.add(0).cast::<u32>().as_ptr() = landing_pad as u32;
+    *esp.add(0).cast::<u32>().as_ptr() = landing_pad as usize as u32;
     // Argument 0
     *esp.add(4).cast::<u32>().as_ptr() = argument;
     // Last EBP
     *esp.add(8).cast::<u32>().as_ptr() = 0;
-
-    // Reschedule our threads.
-    *threads.running_thread.lock() = Some(switched_to);
 
     let switched_from = Box::from_raw(switched_from);
 
