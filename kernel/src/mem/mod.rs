@@ -243,7 +243,6 @@ unsafe impl GlobalAlloc for KernelAllocator {
                 .next_multiple_of(PAGE_FRAME_SIZE)
                 / PAGE_FRAME_SIZE,
         ) else {
-            // Evict page for swapping
             halt!("Out of virtual memory!");
         };
 

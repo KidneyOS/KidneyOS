@@ -4,9 +4,9 @@ use crate::block::block_core::{Block, BlockSector};
 use crate::system::unwrap_system_mut;
 use alloc::boxed::Box;
 use core::ptr::copy_nonoverlapping;
-use kidneyos_shared::{bitfield, println};
 use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 use kidneyos_shared::sizes::{SECTOR_SIZE, SWAP_SECTORS, SWAP_SIZE};
+use kidneyos_shared::{bitfield, println};
 
 const FRAMES: usize = SWAP_SIZE as usize / PAGE_FRAME_SIZE;
 const SWAP_INDEX: usize = 3;

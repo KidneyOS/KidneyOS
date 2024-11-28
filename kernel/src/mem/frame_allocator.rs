@@ -1,4 +1,5 @@
 use super::FrameAllocator;
+use crate::swapping::page_replacement::{PageReplacementPolicy, RandomEviction};
 use core::{alloc::Allocator, ops::Range};
 
 pub struct FrameAllocatorSolution<A>
@@ -30,7 +31,10 @@ where
 
     fn alloc(&mut self, frames: usize) -> Option<Range<usize>> {
         if self.first_unused_frame + frames >= self.max_frames {
-            return None;
+            // Evict a page and return
+            let evicted_frame = RandomEviction::evict_page(self.max_frames);
+            
+            
         }
 
         let res = self.first_unused_frame..self.first_unused_frame + frames;
