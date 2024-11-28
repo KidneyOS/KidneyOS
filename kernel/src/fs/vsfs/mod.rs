@@ -4,6 +4,7 @@ use crate::vfs::{
 };
 use alloc::{string::String, vec, vec::Vec};
 use core::cmp::{max, min};
+use zerocopy::{FromBytes, FromZeroes};
 #[allow(clippy::module_inception)]
 pub mod vsfs;
 use vsfs::{Bitmap, SuperBlock};
@@ -28,23 +29,23 @@ pub const VSFS_INODE_TABLE_BLOCK: u32 = 3;
 pub const VSFS_INODE_SIZE: usize = 64; // same inode size as the vsfs disk images
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, FromBytes, FromZeroes)]
 pub struct Timespec {
     tv_sec: i64,  // seconds since the Epoch
     tv_nsec: i64, // nanoseconds
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, FromBytes, FromZeroes)]
 pub struct Inode {
     mode: u32,                                // File type and permissions.
     n_links: u32,                             // Number of hard links.
     block_count: u32,                         // Number of blocks in the file.
+    _padding: u32,                            // Unused padding to fill out 4 bytes.
     size: u64,                                // File size in bytes.
     mtime: Timespec,                          // Last modification time.
     direct_blocks: [u32; VSFS_DIRECT_BLOCKS], // Direct block pointers.
     indirect_block: u32,                      // Indirect block pointer.
-    _padding: u32,                            // Unused padding to fill out 64 bytes.
 }
 
 // Define the VSFS struct that will hold the superblock, bitmaps, and data blocks
@@ -159,73 +160,76 @@ impl VSFS {
                 if inode_bitmap
                     .is_allocated((i - VSFS_INODE_TABLE_BLOCK) * inode_ratio as u32 + k as u32)
                 {
-                    inode.mode = u32::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE..k * VSFS_INODE_SIZE + 4]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode.n_links = u32::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 4..k * VSFS_INODE_SIZE + 8]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode.block_count = u32::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 8..k * VSFS_INODE_SIZE + 12]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode._padding = u32::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 12..k * VSFS_INODE_SIZE + 16]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode.size = u64::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 16..k * VSFS_INODE_SIZE + 24]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode.mtime.tv_sec = i64::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 24..k * VSFS_INODE_SIZE + 32]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode.mtime.tv_nsec = i64::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 32..k * VSFS_INODE_SIZE + 40]
-                            .try_into()
-                            .unwrap(),
-                    );
-                    inode.direct_blocks = [
-                        u32::from_le_bytes(
-                            buffer[k * VSFS_INODE_SIZE + 40..k * VSFS_INODE_SIZE + 44]
-                                .try_into()
-                                .unwrap(),
-                        ),
-                        u32::from_le_bytes(
-                            buffer[k * VSFS_INODE_SIZE + 44..k * VSFS_INODE_SIZE + 48]
-                                .try_into()
-                                .unwrap(),
-                        ),
-                        u32::from_le_bytes(
-                            buffer[k * VSFS_INODE_SIZE + 48..k * VSFS_INODE_SIZE + 52]
-                                .try_into()
-                                .unwrap(),
-                        ),
-                        u32::from_le_bytes(
-                            buffer[k * VSFS_INODE_SIZE + 52..k * VSFS_INODE_SIZE + 56]
-                                .try_into()
-                                .unwrap(),
-                        ),
-                        u32::from_le_bytes(
-                            buffer[k * VSFS_INODE_SIZE + 56..k * VSFS_INODE_SIZE + 60]
-                                .try_into()
-                                .unwrap(),
-                        ),
-                    ];
-                    inode.indirect_block = u32::from_le_bytes(
-                        buffer[k * VSFS_INODE_SIZE + 60..k * VSFS_INODE_SIZE + 64]
-                            .try_into()
-                            .unwrap(),
-                    );
+                    inode =
+                        Inode::read_from(&buffer[k * VSFS_INODE_SIZE..(k + 1) * VSFS_INODE_SIZE])
+                            .unwrap();
+                    // inode.mode = u32::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE..k * VSFS_INODE_SIZE + 4]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode.n_links = u32::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 4..k * VSFS_INODE_SIZE + 8]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode.block_count = u32::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 8..k * VSFS_INODE_SIZE + 12]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode._padding = u32::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 12..k * VSFS_INODE_SIZE + 16]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode.size = u64::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 16..k * VSFS_INODE_SIZE + 24]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode.mtime.tv_sec = i64::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 24..k * VSFS_INODE_SIZE + 32]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode.mtime.tv_nsec = i64::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 32..k * VSFS_INODE_SIZE + 40]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
+                    // inode.direct_blocks = [
+                    //     u32::from_le_bytes(
+                    //         buffer[k * VSFS_INODE_SIZE + 40..k * VSFS_INODE_SIZE + 44]
+                    //             .try_into()
+                    //             .unwrap(),
+                    //     ),
+                    //     u32::from_le_bytes(
+                    //         buffer[k * VSFS_INODE_SIZE + 44..k * VSFS_INODE_SIZE + 48]
+                    //             .try_into()
+                    //             .unwrap(),
+                    //     ),
+                    //     u32::from_le_bytes(
+                    //         buffer[k * VSFS_INODE_SIZE + 48..k * VSFS_INODE_SIZE + 52]
+                    //             .try_into()
+                    //             .unwrap(),
+                    //     ),
+                    //     u32::from_le_bytes(
+                    //         buffer[k * VSFS_INODE_SIZE + 52..k * VSFS_INODE_SIZE + 56]
+                    //             .try_into()
+                    //             .unwrap(),
+                    //     ),
+                    //     u32::from_le_bytes(
+                    //         buffer[k * VSFS_INODE_SIZE + 56..k * VSFS_INODE_SIZE + 60]
+                    //             .try_into()
+                    //             .unwrap(),
+                    //     ),
+                    // ];
+                    // inode.indirect_block = u32::from_le_bytes(
+                    //     buffer[k * VSFS_INODE_SIZE + 60..k * VSFS_INODE_SIZE + 64]
+                    //         .try_into()
+                    //         .unwrap(),
+                    // );
                 }
 
                 inodes.push(inode);
@@ -292,16 +296,13 @@ impl SimpleFileSystem for VSFS {
                 let file_name = &slice[4..];
                 let name_index = names.len();
 
-                let mut file_name_str = String::new();
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..file_name.len() {
-                    if file_name[i] == 0x00 {
-                        break;
-                    }
-                    if file_name[i] >= 0x20 && file_name[i] <= 0x7E {
-                        file_name_str.push(file_name[i] as char);
-                    }
-                }
+                let file_name_bytes = file_name
+                    .iter()
+                    .copied()
+                    .take_while(|&byte| byte != 0)
+                    .collect();
+                let mut file_name_str = String::from_utf8(file_name_bytes)
+                    .map_err(|_| Error::IO("bad UTF-8 in file name".into()))?;
                 file_name_str.push('\0');
                 names.push_str(&file_name_str);
 
@@ -478,6 +479,7 @@ impl SimpleFileSystem for VSFS {
     }
 }
 
+#[allow(dead_code, unused_variables)]
 #[cfg(test)]
 mod test {
     use super::*;
@@ -541,7 +543,7 @@ mod test {
         for i in 0..vsfs.inodes.len() {
             // print out only allocated inodes in the inode bitmap
             //println!("Inode {}: {:?}", i, vsfs.inodes[i]);
-            if (vsfs.inode_bitmap.is_allocated(i as u32)) {
+            if vsfs.inode_bitmap.is_allocated(i as u32) {
                 println!("Inode {}: {:?}", i, vsfs.inodes[i]);
             }
 
@@ -582,7 +584,7 @@ mod test {
         Err(Unsupported)
     }
 
-    //#[test]
+    // #[test]
     fn test_1file() {
         let image_path = "tests/vsfs/vsfs-1file.disk";
 
