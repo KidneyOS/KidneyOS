@@ -45,7 +45,7 @@ lazy_static! {
 /// # Safety
 ///
 /// This function must be called with interrupts enabled.
-pub fn ide_init() {
+pub extern "C" fn ide_init() -> i32 {
     assert_eq!(
         intr_get_level(),
         IntrLevel::IntrOn,
@@ -83,6 +83,8 @@ pub fn ide_init() {
     }
 
     println!("IDE subsystem initialized");
+    
+    0
 }
 
 /// Sends an IDENTIFY DEVICE command to disk `dev_no` and reads the response. Registers the disk

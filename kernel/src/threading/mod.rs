@@ -48,7 +48,7 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // This thread also does not need to enter the `run_thread` function.
     // SAFETY: The kernel thread's stack will be set up by the context switch following.
     // SAFETY: The kernel thread is allocated a "fake" PCB with pid 0.
-    let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager, &system.process);
+    let kernel_tcb = ThreadControlBlock::new_kernel_thread(kernel_page_manager, &mut system.root_filesystem.lock(), &system.process);
 
     // Create the initial user program thread.
     let elf = Elf::parse_bytes(init_elf).expect("failed to parse provided elf file");
