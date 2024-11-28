@@ -16,7 +16,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr::{copy_nonoverlapping, NonNull};
 use kidneyos_shared::mem::OFFSET;
-use kidneyos_shared::println;
 use kidneyos_syscalls::{E2BIG, EFAULT, EIO, ENOENT, ENOEXEC};
 
 const MAX_ARGUMENTS: usize = 256;
