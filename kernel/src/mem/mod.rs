@@ -121,7 +121,7 @@ impl KernelAllocator {
         // This should ALWAYS be the first global allocation to take place - should use dummy allocator
         //
         let core_map: Box<[CoreMapEntry]> =
-            vec![CoreMapEntry::DEFAULT; num_frames_in_system].into_boxed_slice();
+            vec![CoreMapEntry::default(); num_frames_in_system].into_boxed_slice();
 
         // Check that the dummy allocator actually updated its internal state
         // I.e. the start address should have moved to accommodate Coremap Entries

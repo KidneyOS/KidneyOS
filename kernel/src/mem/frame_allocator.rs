@@ -4,22 +4,21 @@ use self::placement_algorithms::PlacementAlgorithm;
 
 use super::FrameAllocator;
 use alloc::boxed::Box;
-use bitbybit::bitfield;
 use core::alloc::AllocError;
 use core::ptr::NonNull;
-use kidneyos_shared::mem::PAGE_FRAME_SIZE;
+use kidneyos_shared::{bit_array::BitArray, bitfield, mem::PAGE_FRAME_SIZE};
+use paste::paste;
 
-#[bitfield(u8, default = 0)]
-pub struct CoreMapEntry {
-    #[bit(0, rw)]
-    allocated: bool,
-    #[bit(1, rw)]
-    pinned: bool,
-    #[bit(2, rw)]
-    is_kernel: bool,
-    #[bit(3, rw)]
-    next: bool,
-}
+bitfield!(
+    CoreMapEntry, u8
+    {}
+    {
+        (allocated, 0),
+        (pinned, 1),
+        (is_kernel, 2),
+        (next, 3),
+    }
+);
 
 #[allow(clippy::type_complexity)]
 pub struct FrameAllocatorSolution<A: PlacementAlgorithm> {
@@ -179,7 +178,7 @@ mod tests {
     fn test_alloc_next_fit() -> Result<(), Box<dyn Error>> {
         const NUM_FRAMES: usize = 18;
 
-        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let core_map = [CoreMapEntry::default(); NUM_FRAMES];
         let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
         let region = Global.allocate(layout)?;
 
@@ -207,7 +206,7 @@ mod tests {
     fn test_alloc_first_fit() -> Result<(), Box<dyn Error>> {
         const NUM_FRAMES: usize = 18;
 
-        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let core_map = [CoreMapEntry::default(); NUM_FRAMES];
         let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
         let region = Global.allocate(layout)?;
 
@@ -235,7 +234,7 @@ mod tests {
     fn test_alloc_best_fit() -> Result<(), Box<dyn Error>> {
         const NUM_FRAMES: usize = 18;
 
-        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let core_map = [CoreMapEntry::default(); NUM_FRAMES];
         let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
         let region = Global.allocate(layout)?;
 

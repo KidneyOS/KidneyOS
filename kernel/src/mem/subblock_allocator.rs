@@ -214,7 +214,7 @@ mod tests {
     fn test_subblock_allocator() -> Result<(), Box<dyn Error>> {
         const NUM_FRAMES: usize = 25;
 
-        let core_map = [CoreMapEntry::DEFAULT; NUM_FRAMES];
+        let core_map = [CoreMapEntry::default(); NUM_FRAMES];
         let layout = Layout::from_size_align(PAGE_FRAME_SIZE * NUM_FRAMES, PAGE_FRAME_SIZE)?;
         let region = Global.allocate(layout)?;
 
