@@ -73,7 +73,7 @@ impl ProcessControlBlock {
         );
         let heap_avail = vmas.add_vma(
             VMA::new(VMAInfo::Heap, USER_HEAP_BOTTOM_VIRT, true),
-            USER_HEAP_BOTTOM_VIRT
+            USER_HEAP_BOTTOM_VIRT,
         );
         assert!(stack_avail, "stack virtual address range not available");
 
@@ -108,7 +108,7 @@ pub struct ThreadControlBlock {
     pub eip: NonNull<u8>,
     // Like above, but the stack pointer.
     pub esp: NonNull<u8>,
-    
+
     pub switch_threads_context: Option<NonNull<SwitchThreadsContext>>,
 
     pub tid: Tid,
@@ -248,10 +248,9 @@ impl ThreadControlBlock {
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *switch_threads_context
-                .as_ptr() = SwitchThreadsContext::new();
+            *switch_threads_context.as_ptr() = SwitchThreadsContext::new();
         }
-        
+
         new_thread.switch_threads_context = Some(switch_threads_context);
 
         // Our thread can now be run via the `switch_threads` method.
@@ -287,8 +286,7 @@ impl ThreadControlBlock {
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *switch_threads_context
-                .as_ptr() = SwitchThreadsContext::new();
+            *switch_threads_context.as_ptr() = SwitchThreadsContext::new();
         }
 
         new_thread.switch_threads_context = Some(switch_threads_context);

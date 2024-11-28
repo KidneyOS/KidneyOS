@@ -6,10 +6,14 @@ use crate::fs::syscalls::{
 };
 use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::get_mut_from_user_space;
-use crate::system::{running_process, running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
+use crate::mem::vma::VMAInfo;
+use crate::system::{
+    running_process, running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system,
+};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
 use crate::threading::scheduling::scheduler_yield_and_continue;
+use crate::threading::thread_control_block::USER_HEAP_BOTTOM_VIRT;
 use crate::threading::thread_sleep::thread_sleep;
 use crate::user_program::process::{brk, clone, execve};
 use crate::user_program::random::getrandom;
@@ -17,8 +21,6 @@ use crate::user_program::time::{get_rtc, get_tsc, Timespec, CLOCK_MONOTONIC, CLO
 use core::slice::from_raw_parts_mut;
 use kidneyos_shared::println;
 pub use kidneyos_syscalls::defs::*;
-use crate::mem::vma::VMAInfo;
-use crate::threading::thread_control_block::USER_HEAP_BOTTOM_VIRT;
 
 /// This function is responsible for processing syscalls made by user programs.
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
@@ -114,7 +116,9 @@ pub extern "C" fn handler(
             parent_pid as isize
         }
         SYS_EXECVE => execve(arg0 as _, arg1 as _, arg2 as _),
-        SYS_CLONE => clone(return_eip, arg0 as _, arg1 as _, arg2 as _, arg3 as _, arg4 as _),
+        SYS_CLONE => clone(
+            return_eip, arg0 as _, arg1 as _, arg2 as _, arg3 as _, arg4 as _,
+        ),
         SYS_GETPID => running_thread_pid() as isize,
         SYS_BRK => brk(arg0 as _),
         SYS_NANOSLEEP => {
