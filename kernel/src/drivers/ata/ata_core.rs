@@ -102,9 +102,7 @@ unsafe fn identify_ata_device(c: &SleepMutex<AtaChannel>, dev_no: u8, block: boo
     // is ready, and read the data into our buffer.
     channel.select_device_wait(dev_no, block);
     channel.issue_pio_command(ATA_IDENTIFY_DEVICE);
-    println!("Going to sem_down");
     channel.sem_down();
-    println!("Got sem_out");
 
     if !channel.wait_while_busy(block) {
         channel.set_is_ata(dev_no, false);
@@ -138,10 +136,7 @@ unsafe fn identify_ata_device(c: &SleepMutex<AtaChannel>, dev_no: u8, block: boo
         Box::new(AtaDevice(dev_no)),
     );
 
-    println!("Hello world!");
     // partition_scan(block_manager.read().by_id(idx).unwrap().as_ref());
     let block = block_manager.read().by_id(idx).unwrap();
     partition_scan(block.as_ref());
-    
-    println!("Returning!");
 }
