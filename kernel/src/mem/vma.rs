@@ -78,7 +78,7 @@ impl VMA {
         let Ok(frame_ptr) = (unsafe { KERNEL_ALLOCATOR.frame_alloc(1) }) else {
             return false;
         };
-        let frame_ptr = frame_ptr.as_ptr() as *mut u8;
+        let frame_ptr = frame_ptr.as_ptr();
         let phys_addr = frame_ptr as usize - OFFSET;
         let mut tcb_guard = unwrap_system().threads.running_thread.lock();
         let tcb = tcb_guard.as_mut().expect("no running thread");
