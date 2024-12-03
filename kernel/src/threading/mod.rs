@@ -6,10 +6,11 @@ pub mod thread_control_block;
 pub mod thread_functions;
 pub mod thread_sleep;
 
+use crate::drivers::ata::ata_core::ide_init;
 use crate::rush::rush_core::rush_loop;
 use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
-use crate::threading::scheduling::Scheduler;
+use crate::threading::scheduling::{scheduler_yield_and_continue, Scheduler};
 use crate::user_program::elf::Elf;
 use crate::{
     interrupts::{intr_enable, intr_get_level, IntrLevel},
@@ -17,6 +18,7 @@ use crate::{
     threading::scheduling::create_scheduler,
 };
 use alloc::boxed::Box;
+use core::ptr::NonNull;
 use thread_control_block::ThreadControlBlock;
 
 pub struct ThreadState {
@@ -57,10 +59,20 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     let user_tcb = ThreadControlBlock::new_from_elf(elf, &system.process)
         .expect("Failed to parse Elf for initial program.");
 
+    // Create the IDE initialization thread
+    let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
+    let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, true, &system.process);
+
+    // Create RUSH thread
+    let rush_addr = NonNull::new(rush_loop as *const () as *mut u8).unwrap();
+    let rush_tcb = ThreadControlBlock::new_with_setup(rush_addr, true, &system.process);
+
     // SAFETY: Interrupts must be disabled.
     *system.threads.running_thread.lock() = Some(Box::new(kernel_tcb));
     let mut scheduler = system.threads.scheduler.lock();
+    scheduler.push(Box::new(ide_tcb));
     scheduler.push(Box::new(user_tcb));
+    scheduler.push(Box::new(rush_tcb));
     drop(scheduler);
 
     intr_enable();
@@ -68,16 +80,15 @@ pub fn thread_system_start(kernel_page_manager: PageManager, init_elf: &[u8]) ->
     // Eventually, the scheduler may run the kernel thread again.
     // We may later replace this with code to clean up the kernel resources.
     // For now, we will act as the idle thread.
-    // idle_function();
-    rush_loop();
+    idle_function();
 
     // This function never returns.
 }
 
-// /// The function run by the idle thread.
-// /// Continually yields and should never die.
-// extern "C" fn idle_function() -> ! {
-//     loop {
-//         scheduler_yield_and_continue();
-//     }
-// }
+/// The function run by the idle thread.
+/// Continually yields and should never die.
+extern "C" fn idle_function() -> ! {
+    loop {
+        scheduler_yield_and_continue();
+    }
+}

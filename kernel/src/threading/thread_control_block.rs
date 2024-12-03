@@ -240,7 +240,7 @@ impl ThreadControlBlock {
     }
 
     #[allow(unused)]
-    pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &mut ProcessState) -> Self {
+    pub fn new_with_setup(eip: NonNull<u8>, is_kernel: bool, state: &ProcessState) -> Self {
         let mut new_thread = Self::new(
             eip,
             is_kernel,

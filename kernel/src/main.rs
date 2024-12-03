@@ -28,16 +28,12 @@ pub mod vfs;
 extern crate alloc;
 
 use crate::block::block_core::BlockManager;
-use crate::drivers::ata::ata_core::ide_init;
 use crate::drivers::input::input_core::InputBuffer;
 use crate::fs::fs_manager::RootFileSystem;
 use crate::sync::mutex::Mutex;
 use crate::sync::rwlock::sleep::RwLock;
 use crate::system::SystemState;
 use crate::threading::process::create_process_state;
-use crate::threading::thread_control_block::ThreadControlBlock;
-use alloc::boxed::Box;
-use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
@@ -85,16 +81,11 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
 
         println!("Initializing Thread System...");
         let threads = create_thread_state();
-        let mut process = create_process_state();
+        let process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
-
-        let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, true, &mut process);
 
         let block_manager = BlockManager::default();
         let input_buffer = Mutex::new(InputBuffer::new());
-
-        threads.scheduler.lock().push(Box::new(ide_tcb));
 
         println!("Mounting root filesystem...");
         let mut root = RootFileSystem::new();
@@ -102,7 +93,7 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         root.mount_root(TempFS::new())
             .expect("Couldn't mount root FS");
 
-        crate::system::init_system(SystemState {
+        system::init_system(SystemState {
             threads,
             process,
             block_manager: RwLock::new(block_manager),
