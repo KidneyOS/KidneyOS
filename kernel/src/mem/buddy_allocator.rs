@@ -26,6 +26,7 @@ enum State {
     Split,
 }
 
+#[allow(dead_code)]
 impl BuddyAllocator {
     /// The minimum extra space within its region required by a buddy allocator
     /// for internal bookkeeping.

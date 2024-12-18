@@ -26,6 +26,8 @@
 
 #define EBADF 9
 
+#define ENOMEM 12
+
 #define EFAULT 14
 
 #define EBUSY 16
@@ -100,6 +102,8 @@
 
 #define SYS_SYMLINK 83
 
+#define SYS_MMAP 90
+
 #define SYS_FTRUNCATE 93
 
 #define SYS_FSTAT 108
@@ -127,6 +131,12 @@
 #define CLOCK_REALTIME 0
 
 #define CLOCK_MONOTONIC 1
+
+#define PROT_READ 1
+
+#define PROT_WRITE 2
+
+#define PROT_EXEC 4
 
 typedef uint16_t Pid;
 
@@ -216,5 +226,7 @@ int32_t scheduler_yield(void);
 int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
 
 int32_t getrandom(int8_t *buf, uintptr_t size, uintptr_t flags);
+
+void *mmap(void *addr, uintptr_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

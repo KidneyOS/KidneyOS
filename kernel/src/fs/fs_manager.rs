@@ -1,5 +1,6 @@
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
-use crate::system::unwrap_system;
+use crate::mem::vma::{VMAInfo, VMA};
+use crate::system::{running_process, unwrap_system};
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
 use crate::vfs::{
@@ -17,6 +18,7 @@ use alloc::{
 };
 use core::mem::{align_of, size_of};
 use core::num::NonZeroUsize;
+use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 /// Possible places to seek from
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -269,6 +271,8 @@ impl<F: FileSystem + 'static> FileSystemManager<F> {
 trait FileSystemManagerTrait: 'static + Send + Sync {
     /// Get root inode
     fn root(&self) -> INodeNum;
+    /// Get inode number for file descriptor
+    fn inode_of(&self, fd: ProcessFileDescriptor) -> Result<INodeNum>;
     /// Get location where this FS is mounted, or `None` if this is the root FS.
     fn mount_point(&self) -> Option<(FileSystemID, INodeNum)>;
     fn lookup(&mut self, dir: INodeNum, entry: &Path) -> Result<INodeNum>;
@@ -317,6 +321,8 @@ trait FileSystemManagerTrait: 'static + Send + Sync {
     fn inc_ref(&mut self, inode: INodeNum);
     /// decrease reference count of inode (pretend there is one fewer open file to it)
     fn dec_ref(&mut self, inode: INodeNum);
+    /// Read bytes directly from a file
+    fn read_direct(&mut self, inode: INodeNum, offset: u64, buf: &mut [u8]) -> Result<usize>;
 }
 
 /// get parent directory and name of absolute path
@@ -345,6 +351,9 @@ fn filename_of(path: &Path) -> &Path {
 impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
     fn root(&self) -> INodeNum {
         self.fs.root()
+    }
+    fn inode_of(&self, fd: ProcessFileDescriptor) -> Result<INodeNum> {
+        Ok(self.open_files.get(&fd).ok_or(Error::BadFd)?.inode())
     }
     fn mount_point(&self) -> Option<(FileSystemID, INodeNum)> {
         self.mount_point
@@ -622,6 +631,37 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
                 // all open files to this inode have been closed
                 self.open_file_count.remove(&inode);
                 self.fs.release(inode);
+            }
+        }
+    }
+    fn read_direct(
+        &mut self,
+        inode: INodeNum,
+        mut offset: u64,
+        mut buf: &mut [u8],
+    ) -> Result<usize> {
+        let mut handle = self.temp_open(inode)?;
+        let mut bytes_read = 0;
+        loop {
+            let n = if buf.is_empty() {
+                Ok(0)
+            } else {
+                self.fs.read(&mut handle.handle, offset, buf)
+            };
+            match n {
+                Ok(0) => {
+                    self.temp_close(handle);
+                    return Ok(bytes_read);
+                }
+                Ok(n) => {
+                    bytes_read += n;
+                    offset += n as u64;
+                    buf = &mut buf[n..];
+                }
+                Err(e) => {
+                    self.temp_close(handle);
+                    return Err(e);
+                }
             }
         }
     }
@@ -1185,12 +1225,102 @@ impl RootFileSystem {
         for fd in fds {
             let _ = self.close(ProcessFileDescriptor { pid, fd });
         }
-        // decrement reference count to cwd
         if let Some(pcb) = unwrap_system().process.table.get(pid) {
+            // decrement reference count to cwd
             let pcb = pcb.lock();
             let (cwd_fs, cwd_inode) = pcb.cwd;
             self.file_systems.get_mut(cwd_fs).dec_ref(cwd_inode);
+            for (_addr, vma) in pcb.vmas.iter() {
+                if let VMAInfo::MMap { fs, inode, .. } = vma.info() {
+                    // decrease reference count to inode to let it be released.
+                    self.file_systems.get_mut(*fs).dec_ref(*inode);
+                }
+            }
         }
+    }
+
+    pub fn inode_of(&self, fd: ProcessFileDescriptor) -> Result<(FileSystemID, INodeNum)> {
+        let OpenFile::Regular { fs, is_dir, .. } = self.open_files.get(&fd).ok_or(Error::BadFd)?
+        else {
+            return Err(Error::IO("can't get inode number of special file".into()));
+        };
+        if *is_dir {
+            return Err(Error::IsDirectory);
+        }
+        let fs = *fs;
+        Ok((fs, self.file_systems.get(fs).inode_of(fd)?))
+    }
+
+    /// Increment reference count to inode
+    pub fn increment_inode_ref_count(&mut self, fs_id: FileSystemID, inode: INodeNum) {
+        self.file_systems.get_mut(fs_id).inc_ref(inode);
+    }
+
+    /// Decrement reference count to inode
+    pub fn decrement_inode_ref_count(&mut self, fs_id: FileSystemID, inode: INodeNum) {
+        self.file_systems.get_mut(fs_id).dec_ref(inode);
+    }
+
+    /// Read bytes directly from a file using its filesystem ID and inode number.
+    pub fn read_direct(
+        &mut self,
+        fs_id: FileSystemID,
+        inode: INodeNum,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize> {
+        self.file_systems
+            .get_mut(fs_id)
+            .read_direct(inode, offset, buffer)
+    }
+
+    /// Map file by inode into memory
+    ///
+    /// Returns `Ok(false)` if there is already something mapped in `addr..addr + length`
+    pub fn mmap_inode(
+        &mut self,
+        addr: usize,
+        fs_id: FileSystemID,
+        inode: INodeNum,
+        length: usize,
+        offset_in_pages: u32,
+        writeable: bool,
+    ) -> Result<bool> {
+        // increase reference count to ensure that file data is kept around even if file is unlinked and all descriptors are closed.
+        self.file_systems.get_mut(fs_id).inc_ref(inode);
+        let pcb = running_process();
+        let mut pcb = pcb.lock();
+        Ok(pcb.vmas.add_vma(
+            VMA::new(
+                VMAInfo::MMap {
+                    fs: fs_id,
+                    inode,
+                    offset: offset_in_pages,
+                },
+                length,
+                writeable,
+            ),
+            addr,
+        ))
+    }
+
+    /// Map file into memory
+    ///
+    /// Returns `Ok(false)` if the requested address range is unavailable.
+    pub fn mmap_file(
+        &mut self,
+        addr: usize,
+        fd: ProcessFileDescriptor,
+        length: usize,
+        offset: i64,
+        writeable: bool,
+    ) -> Result<bool> {
+        let offset = u64::try_from(offset).map_err(|_| Error::BadOffset)?;
+        let (fs, inode) = self.inode_of(fd)?;
+        let offset_in_pages: u32 = (offset / PAGE_FRAME_SIZE as u64)
+            .try_into()
+            .map_err(|_| Error::BadOffset)?;
+        self.mmap_inode(addr, fs, inode, length, offset_in_pages, writeable)
     }
 }
 
