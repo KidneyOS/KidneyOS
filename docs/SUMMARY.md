@@ -12,6 +12,16 @@
 - [Useful Tools](./useful-tools.md)
 - [From Bootloader to `main`](./bootloader-to-main.md)
 - [System calls](./syscalls/overview.md)
+  - [Process](.syscalls/process.md)
+    - [Exit](./syscalls/process/exit.md)
+    - [Fork](./syscalls/process/fork.md)
+    - [Waitpid](./syscalls/process/waitpid.md)
+    - [Execve](./syscalls/process/execve.md)
+    - [Getpid](./syscalls/process/getpid.md)
+    - [Nanosleep](./syscalls/process/nanosleep.md)
+    - [Getppid](./syscalls/process/getppid.md)
+    - [Clock Gettime](./syscalls/process/gettime.md)
+    - [Getrandom](./syscalls/process/getrandom.md)
   - [File system](./syscalls/filesystem.md)
     - [open](./syscalls/filesystem/open.md)
     - [close](./syscalls/filesystem/close.md)
@@ -39,6 +49,7 @@
 - [Frame Allocator](./assignments/frame-allocator.md)
 - [Scheduler](./assignments/scheduler.md)
 - [File System](./assignments/file-system.md)
-- [System Calls](./assignments/syscalls.md)
+- [System Calls](./assignments/syscalls/syscalls.md)
+
 
 <!-- TODO: Add additional assignments (perhaps IPC and/or paging). -->
