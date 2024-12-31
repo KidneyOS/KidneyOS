@@ -17,6 +17,7 @@ int clock_gettime(int clk_id, struct timespec *rs);
 ```
 
 ### Description
+
 Retrieves and sets the time according to the clock specified by `clk_id`.
 
 Currently the following clocks are supported:

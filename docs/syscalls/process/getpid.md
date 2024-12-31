@@ -1,4 +1,5 @@
 # Getpid
+
 Get the running process' PID.
 
 ### Synopsis
@@ -16,7 +17,9 @@ Pid getpid();
 ```
 
 ### Description
-Returns the process ID (Pid) of the of the calling process. 
+
+Returns the process ID (Pid) of the of the calling process.
 
 ### Return value
+
 These functions are always successful.

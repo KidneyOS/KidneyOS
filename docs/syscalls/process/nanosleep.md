@@ -15,7 +15,8 @@ int nanosleep(struct timespec *duration, struct timespec *rem);
 ```
 
 ### Description
-Suspends the execution of the calling thread for at least the duration specified in `duration`. 
+
+Suspends the execution of the calling thread for at least the duration specified in `duration`.
 
 Currently there is no way to interrupt a nanosleep call except for exiting the process, and `rem` is unused.
 

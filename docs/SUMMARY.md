@@ -13,6 +13,7 @@
 - [From Bootloader to `main`](./bootloader-to-main.md)
 - [System calls](./syscalls/overview.md)
   - [Process](.syscalls/process.md)
+    - [Scheduler Yield](./syscalls/process/schedyield.md)
     - [Exit](./syscalls/process/exit.md)
     - [Fork](./syscalls/process/fork.md)
     - [Waitpid](./syscalls/process/waitpid.md)
@@ -43,13 +44,13 @@
     - [getdents](./syscalls/filesystem/getdents.md)
     - [getcwd](./syscalls/filesystem/getcwd.md)
     - [mmap](./syscalls/filesystem/mmap.md)
-    
+
 # Assignments
 
 - [Frame Allocator](./assignments/frame-allocator.md)
 - [Scheduler](./assignments/scheduler.md)
 - [File System](./assignments/file-system.md)
 - [System Calls](./assignments/syscalls/syscalls.md)
-
+- [Process](./assignments/process.md)
 
 <!-- TODO: Add additional assignments (perhaps IPC and/or paging). -->
