@@ -82,6 +82,7 @@ pub extern "C" fn clone(
 // Adjustment: Seems like (according to the usage in glibc)
 // brk seems to return the adjusted address (ptr), or an error as a negative (kernel) address.
 // To get the adjusted address, just cast brk(...) as *const u8.
+#[no_mangle]
 pub extern "C" fn brk(ptr: *const u8) -> isize {
     let result: isize;
     unsafe {

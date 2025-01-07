@@ -197,6 +197,8 @@ Pid fork(void);
 
 int32_t clone(uint32_t flags, uint8_t *stack, Tid *parent_tid, uint32_t tls, Tid *child_tid);
 
+intptr_t brk(const uint8_t *ptr);
+
 int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 
 int32_t write(int32_t fd, const uint8_t *buffer, uintptr_t count);
