@@ -24,6 +24,10 @@ The filename argument refers to an ELF-encoded x86 executable that will be parse
 This is accomplished by dropping the old TCB and creating a new one with the same PID (process parent).
 Multiple threads per processes is not extensively supported here, so extra handling needs to be done to properly handle this in a process with many threads.
 
+Both argv and envp **MUST** be NULL terminated. This means they contain null-terminated strings but their last element is also a NULL pointer.
+
+argv is passed to the thread using **Thread Arguments**. This value needs to be parsed into a slice for rust guest applications, or the size can be inferred by the guest process by iterating until NULL is found (the thread argument is also NULL terminated).
+
 envp is currently ignored, as there is no way for the guest executable to access arguments.
 
 ### Return value
