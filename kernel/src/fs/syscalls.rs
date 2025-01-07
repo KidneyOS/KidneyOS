@@ -2,6 +2,7 @@
 // Here we should be fine since we are checking the validity of pointers.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+use crate::fs::fs_manager::RootFileSystem;
 use crate::fs::{
     fs_manager::{Mode, SeekFrom},
     FileDescriptor, ProcessFileDescriptor,
@@ -54,7 +55,7 @@ pub fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match root_filesystem().lock().read(fd, buf) {
+    match RootFileSystem::read(root_filesystem(), fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -73,7 +74,7 @@ pub fn write(fd: usize, buf: *const u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match root_filesystem().lock().write(fd, buf) {
+    match RootFileSystem::write(root_filesystem(), fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -363,6 +364,62 @@ pub fn mount(device: *const u8, target: *const u8, file_system_type: *const u8) 
     };
     match result {
         Ok(()) => 0,
+        Err(e) => -e.to_isize(),
+    }
+}
+
+pub fn dup(fd: isize) -> isize {
+    let Ok(fd) = FileDescriptor::try_from(fd) else {
+        return -EBADF;
+    };
+
+    let pid = running_process().lock().pid;
+
+    let process_fd = ProcessFileDescriptor { pid, fd };
+
+    root_filesystem()
+        .lock()
+        .dup(pid, process_fd)
+        .map(|i| i.into())
+        .unwrap_or_else(|err| -err.to_isize())
+}
+
+pub fn dup2(old: isize, new: isize) -> isize {
+    let Ok(old) = FileDescriptor::try_from(old) else {
+        return -EBADF;
+    };
+
+    let Ok(new) = FileDescriptor::try_from(new) else {
+        return -EBADF;
+    };
+
+    let pid = running_process().lock().pid;
+
+    let old_process_fd = ProcessFileDescriptor { pid, fd: old };
+
+    let new_process_fd = ProcessFileDescriptor { pid, fd: new };
+
+    root_filesystem()
+        .lock()
+        .dup2(old_process_fd, new_process_fd)
+        .map(|_| 0)
+        .unwrap_or_else(|err| -err.to_isize())
+}
+
+pub fn pipe(fds: *mut isize) -> isize {
+    let Some(fds) = (unsafe { get_mut_slice_from_user_space(fds, 2) }) else {
+        return -EFAULT;
+    };
+
+    let pid = running_process().lock().pid;
+
+    match root_filesystem().lock().pipe(pid) {
+        Ok((read_end, write_end)) => {
+            fds[0] = read_end as isize;
+            fds[1] = write_end as isize;
+
+            0
+        }
         Err(e) => -e.to_isize(),
     }
 }

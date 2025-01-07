@@ -1,4 +1,4 @@
-PROGRAMS := exit example_c example_rust fs execve
+PROGRAMS := exit example_c example_rust fs execve pipes
 
 .PHONY: programs
 programs: $(PROGRAMS)
@@ -22,6 +22,10 @@ execve:
 	# We don't want to export CARGO_TARGET_DIR to our destination make.
 	unset CARGO_TARGET_DIR && cd programs/execve && make
 
+pipes:
+	# We don't want to export CARGO_TARGET_DIR to our destination make.
+	unset CARGO_TARGET_DIR && cd programs/pipes && make
+
 .PHONY: clean
 clean::
 	cd programs/exit && make clean
@@ -29,3 +33,4 @@ clean::
 	# We don't want to export CARGO_TARGET_DIR to our destination make.
 	unset CARGO_TARGET_DIR && cd programs/example_rust && make clean
 	unset CARGO_TARGET_DIR && cd programs/execve && make clean
+	unset CARGO_TARGET_DIR && cd programs/pipes && make clean

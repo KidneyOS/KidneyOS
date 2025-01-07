@@ -37,7 +37,6 @@ use crate::system::SystemState;
 use crate::threading::process::create_process_state;
 use crate::threading::thread_control_block::ThreadControlBlock;
 use alloc::boxed::Box;
-use core::ptr::NonNull;
 use interrupts::{idt, pic};
 use kidneyos_shared::{global_descriptor_table, println, video_memory::VIDEO_MEMORY_WRITER};
 use mem::KernelAllocator;
@@ -54,7 +53,8 @@ fn panic(args: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-const INIT: &[u8] = include_bytes!("../../programs/exit/exit").as_slice();
+const INIT: &[u8] =
+    include_bytes!("../../programs/pipes/target/i686-unknown-linux-gnu/release/pipes").as_slice();
 
 #[cfg_attr(not(test), no_mangle)]
 extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
@@ -88,19 +88,19 @@ extern "C" fn main(mem_upper: usize, video_memory_skip_lines: usize) -> ! {
         let mut process = create_process_state();
         println!("Finished Thread System initialization. Ready to start threading.");
 
-        let ide_addr = NonNull::new(ide_init as *const () as *mut u8).unwrap();
-        let ide_tcb = ThreadControlBlock::new_with_setup(ide_addr, true, &mut process);
-
-        let block_manager = BlockManager::default();
-        let input_buffer = Mutex::new(InputBuffer::new());
-
-        threads.scheduler.lock().push(Box::new(ide_tcb));
-
         println!("Mounting root filesystem...");
         let mut root = RootFileSystem::new();
         // for now, we just use TempFS for the root filesystem
         root.mount_root(TempFS::new())
             .expect("Couldn't mount root FS");
+
+        let ide_tcb =
+            ThreadControlBlock::new_with_setup(ide_init, true, 0, &mut root, &mut process);
+
+        let block_manager = BlockManager::default();
+        let input_buffer = Mutex::new(InputBuffer::new());
+
+        threads.scheduler.lock().push(Box::new(ide_tcb));
 
         crate::system::init_system(SystemState {
             threads,
