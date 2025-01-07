@@ -56,7 +56,11 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &ProcessState, root: &mut RootFileSystem, parent_pid: Pid) -> Arc<Mutex<ProcessControlBlock>> {
+    pub fn create(
+        state: &ProcessState,
+        root: &mut RootFileSystem,
+        parent_pid: Pid,
+    ) -> Arc<Mutex<ProcessControlBlock>> {
         let pid = state.allocate_pid();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
@@ -141,7 +145,8 @@ impl ThreadControlBlock {
         } else {
             running_thread_ppid()
         };
-        let pcb = ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
+        let pcb =
+            ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
         let pcb = pcb.lock();
         let pid = pcb.pid;
         let mut page_manager = PageManager::default();
@@ -253,7 +258,9 @@ impl ThreadControlBlock {
         let mut new_thread = Self::new(
             eip,
             is_kernel,
-            ProcessControlBlock::create(state, file_system, parent_pid).lock().pid,
+            ProcessControlBlock::create(state, file_system, parent_pid)
+                .lock()
+                .pid,
             PageManager::default(),
             state,
         );
@@ -343,7 +350,9 @@ impl ThreadControlBlock {
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             tid: state.allocate_tid(),
-            pid: ProcessControlBlock::create(state, file_system, 0).lock().pid,
+            pid: ProcessControlBlock::create(state, file_system, 0)
+                .lock()
+                .pid,
             is_kernel: true,
             status: ThreadStatus::Running,
             exit_code: None,

@@ -1,7 +1,7 @@
 use crate::fs::pipe::{PipeInner, PipeReadEnd, PipeWriteEnd};
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
-use crate::sync::mutex::Mutex;
 use crate::mem::vma::{VMAInfo, VMA};
+use crate::sync::mutex::Mutex;
 use crate::system::{running_process, unwrap_system};
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
