@@ -14,7 +14,7 @@ macro_rules! impl_bitarray {
                 }
 
                 pub const fn with(self, value: bool, idx: usize) -> Self {
-                    BitArray(self.0 | (value as $t) << idx)
+                    BitArray((self.0 & !(1 << idx)) | (value as $t) << idx)
                 }
 
                 pub const fn with_range(self, value: $v, low: usize, high: usize) -> Self {

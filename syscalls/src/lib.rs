@@ -1,7 +1,7 @@
 #![no_std]
 
 use core::arch::asm;
-use core::ffi::c_char;
+use core::ffi::{c_char, c_void};
 
 pub type Pid = u16;
 
@@ -447,6 +447,37 @@ pub extern "C" fn getrandom(buf: *mut i8, size: usize, flags: usize) -> i32 {
             in("ebx") buf,
             in("ecx") size,
             in("edx") flags,
+            lateout("eax") result,
+        )
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn mmap(
+    addr: *mut c_void,
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> *mut c_void {
+    let options = MMapOptions {
+        addr,
+        length,
+        prot,
+        fd,
+        flags,
+        offset,
+    };
+    let result: *mut c_void;
+    unsafe {
+        asm!(
+            "
+            int 0x80
+            ",
+            in("eax") SYS_MMAP,
+            in("ebx") &options,
             lateout("eax") result,
         )
     }

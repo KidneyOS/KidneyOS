@@ -9,8 +9,9 @@ use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
-    KERNEL_ALLOCATOR,
+    Mutex, KERNEL_ALLOCATOR,
 };
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::{
     mem::size_of,
@@ -55,7 +56,7 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &ProcessState, root: &mut RootFileSystem, parent_pid: Pid) -> Pid {
+    pub fn create(state: &ProcessState, root: &mut RootFileSystem, parent_pid: Pid) -> Arc<Mutex<ProcessControlBlock>> {
         let pid = state.allocate_pid();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
@@ -81,9 +82,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        state.table.add(pcb);
-
-        pid
+        state.table.add(pcb)
     }
 }
 
@@ -142,9 +141,9 @@ impl ThreadControlBlock {
         } else {
             running_thread_ppid()
         };
-        let pid: Pid =
-            ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
-
+        let pcb = ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
+        let pcb = pcb.lock();
+        let pid = pcb.pid;
         let mut page_manager = PageManager::default();
 
         for program_header in elf.program_headers {
@@ -254,7 +253,7 @@ impl ThreadControlBlock {
         let mut new_thread = Self::new(
             eip,
             is_kernel,
-            ProcessControlBlock::create(state, file_system, parent_pid),
+            ProcessControlBlock::create(state, file_system, parent_pid).lock().pid,
             PageManager::default(),
             state,
         );
@@ -344,7 +343,7 @@ impl ThreadControlBlock {
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             tid: state.allocate_tid(),
-            pid: ProcessControlBlock::create(state, file_system, 0),
+            pid: ProcessControlBlock::create(state, file_system, 0).lock().pid,
             is_kernel: true,
             status: ThreadStatus::Running,
             exit_code: None,

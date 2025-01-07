@@ -13,10 +13,11 @@ use crate::mem::util::{
 };
 use crate::system::{root_filesystem, running_process, running_thread_pid};
 use crate::user_program::syscall::{
-    Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END,
-    SEEK_SET,
+    Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ENOMEM, ERANGE, O_CREATE, PROT_EXEC,
+    PROT_READ, PROT_WRITE, SEEK_CUR, SEEK_END, SEEK_SET,
 };
 use crate::vfs::tempfs::TempFS;
+use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 pub fn open(path: *const u8, flags: usize) -> isize {
     if (flags & !O_CREATE) != 0 {
@@ -422,3 +423,49 @@ pub fn pipe(fds: *mut isize) -> isize {
         Err(e) => -e.to_isize(),
     }
 }
+
+pub fn mmap(
+    addr: *mut core::ffi::c_void,
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> isize {
+    crate::println!("mmap fd={fd} addr={addr:?} length={length} prot={prot:#x} flags={flags:#x} offset={offset}");
+    let addr = addr as usize;
+    let _ = flags; // TODO: anonymous mapping
+    if (prot & PROT_READ) == 0 {
+        // non-readable pages can't be created on x86
+        return -EINVAL;
+    }
+    if (prot & !(PROT_READ | PROT_WRITE | PROT_EXEC)) != 0 {
+        return -EINVAL;
+    }
+    // it's important we impose an upper bound on length so that rounding it up to the page size doesn't overflow.
+    if length == 0 || length > 0x8000_0000 {
+        return -EINVAL;
+    }
+    let Ok(fd) = FileDescriptor::try_from(fd) else {
+        return -EBADF;
+    };
+    let fd = ProcessFileDescriptor {
+        pid: running_thread_pid(),
+        fd,
+    };
+    // align addr to page
+    let addr = addr & !(PAGE_FRAME_SIZE - 1);
+    // round length up to page frame size
+    let length = length.div_ceil(PAGE_FRAME_SIZE) * PAGE_FRAME_SIZE;
+    let mut root = root_filesystem().lock();
+    match root.mmap_file(addr, fd, length, offset, (prot & PROT_WRITE) != 0) {
+        Ok(true) => addr as isize,
+        Ok(false) => {
+            // TODO: figure out an address range that is free
+            -ENOMEM
+        }
+        Err(e) => -e.to_isize(),
+    }
+}
+
+// TODO: munmap
