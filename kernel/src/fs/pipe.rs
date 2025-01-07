@@ -16,8 +16,8 @@ pub struct PipeInner {
 pub struct PipeReadEnd(pub Arc<PipeInner>);
 pub struct PipeWriteEnd(pub Arc<PipeInner>);
 
-impl PipeInner {
-    pub fn new() -> Self {
+impl Default for PipeInner {
+    fn default() -> Self {
         Self {
             read_ends: AtomicUsize::new(0),
             write_ends: AtomicUsize::new(0),

@@ -890,7 +890,7 @@ impl RootFileSystem {
         Ok(())
     }
     pub fn pipe(&mut self, pid: Pid) -> Result<(FileDescriptor, FileDescriptor)> {
-        let pipe_inner = Arc::new(PipeInner::new());
+        let pipe_inner = Arc::new(PipeInner::default());
 
         // Ignoring the case where read_end succeeds but write_end fails for elegance.
         let read_end = self.new_fd(
