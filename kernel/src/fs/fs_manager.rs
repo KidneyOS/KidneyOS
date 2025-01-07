@@ -1380,9 +1380,13 @@ impl RootFileSystem {
     }
 
     pub fn inode_of(&self, fd: ProcessFileDescriptor) -> Result<(FileSystemID, INodeNum)> {
-        let OpenFile::Regular { fs, .. } = self.open_files.get(&fd).ok_or(Error::BadFd)? else {
+        let OpenFile::Regular { fs, is_dir, .. } = self.open_files.get(&fd).ok_or(Error::BadFd)?
+        else {
             return Err(Error::IO("can't get inode number of special file".into()));
         };
+        if *is_dir {
+            return Err(Error::IsDirectory);
+        }
         let fs = *fs;
         Ok((fs, self.file_systems.get(fs).inode_of(fd)?))
     }
