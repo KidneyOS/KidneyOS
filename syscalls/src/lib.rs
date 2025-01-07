@@ -1,9 +1,10 @@
 #![no_std]
 
 use core::arch::asm;
-use core::ffi::c_char;
+use core::ffi::{c_char, c_void};
 
 pub type Pid = u16;
+pub type Tid = u16;
 
 #[repr(C)]
 pub struct Timespec {
@@ -46,6 +47,53 @@ pub extern "C" fn fork() -> Pid {
         );
     }
     result as Pid
+}
+
+// Clone resumes execution at the same spot.
+// Stack points to the top of the stack!
+// TLS is ignored. parent_tid and child_tid are nullable and flags are ignored.
+#[no_mangle]
+pub extern "C" fn clone(
+    flags: u32,
+    stack: *mut u8,
+    parent_tid: *mut Tid,
+    tls: u32,
+    child_tid: *mut Tid,
+) -> i32 {
+    let result: i32;
+    unsafe {
+        asm!(
+        "
+        mov esi, {tls}
+        int 0x80
+        ",
+        in("eax") SYS_CLONE,
+        in("ebx") flags,
+        in("ecx") stack,
+        in("edx") parent_tid,
+        tls = in(reg) tls, // esi is "reserved by llvm"
+        in("edi") child_tid,
+        lateout("eax") result,
+        );
+    }
+    result
+}
+
+// Adjustment: Seems like (according to the usage in glibc)
+// brk seems to return the adjusted address (ptr), or an error as a negative (kernel) address.
+// To get the adjusted address, just cast brk(...) as *const u8.
+#[no_mangle]
+pub extern "C" fn brk(ptr: *const u8) -> isize {
+    let result: isize;
+    unsafe {
+        asm!(
+        "int 0x80",
+        in("eax") SYS_BRK,
+        in("ebx") ptr,
+        lateout("eax") result,
+        );
+    }
+    result
 }
 
 #[no_mangle]
@@ -100,7 +148,7 @@ pub extern "C" fn lseek64(fd: i32, offset: i64, whence: i32) -> i64 {
         asm!("
             int 0x80
         ", in("eax") SYS_LSEEK64,
-            in("ebx") fd, in("ecx") (core::ptr::addr_of_mut!(offset)),
+            in("ebx") fd, in("ecx") core::ptr::addr_of_mut!(offset),
             in("edx") whence, lateout("eax") result);
     }
     if result < 0 {
@@ -288,6 +336,54 @@ pub extern "C" fn waitpid(pid: Pid, stat: *mut i32, options: i32) -> Pid {
 }
 
 #[no_mangle]
+pub extern "C" fn dup(fd: i32) -> i32 {
+    let result: i32;
+
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("eax") SYS_DUP,
+            in("ebx") fd,
+            lateout("eax") result,
+        );
+    }
+
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn dup2(old_fd: i32, new_fd: i32) -> i32 {
+    let result: i32;
+
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("eax") SYS_DUP2,
+            in("ebx") old_fd,
+            in("ecx") new_fd,
+            lateout("eax") result,
+        );
+    }
+
+    result
+}
+#[no_mangle]
+pub extern "C" fn pipe(fds: *mut i32) -> i32 {
+    let result: i32;
+
+    unsafe {
+        asm!(
+            "int 0x80",
+            in("eax") SYS_PIPE,
+            in("ebx") fds,
+            lateout("eax") result,
+        );
+    }
+
+    result
+}
+
+#[no_mangle]
 pub extern "C" fn execve(
     filename: *const c_char,
     argv: *const *const c_char,
@@ -297,10 +393,8 @@ pub extern "C" fn execve(
 
     unsafe {
         asm!(
-            "
-            mov eax, 0x0b
-            int 0x80
-            ",
+            "int 0x80",
+            in("eax") SYS_EXECVE,
             in("ebx") filename,
             in("ecx") argv,
             in("edx") envp,
@@ -406,6 +500,37 @@ pub extern "C" fn getrandom(buf: *mut i8, size: usize, flags: usize) -> i32 {
             in("ebx") buf,
             in("ecx") size,
             in("edx") flags,
+            lateout("eax") result,
+        )
+    }
+    result
+}
+
+#[no_mangle]
+pub extern "C" fn mmap(
+    addr: *mut c_void,
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> *mut c_void {
+    let options = MMapOptions {
+        addr,
+        length,
+        prot,
+        fd,
+        flags,
+        offset,
+    };
+    let result: *mut c_void;
+    unsafe {
+        asm!(
+            "
+            int 0x80
+            ",
+            in("eax") SYS_MMAP,
+            in("ebx") &options,
             lateout("eax") result,
         )
     }

@@ -2,6 +2,7 @@
 // Here we should be fine since we are checking the validity of pointers.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+use crate::fs::fs_manager::RootFileSystem;
 use crate::fs::{
     fs_manager::{Mode, SeekFrom},
     FileDescriptor, ProcessFileDescriptor,
@@ -12,10 +13,11 @@ use crate::mem::util::{
 };
 use crate::system::{root_filesystem, running_process, running_thread_pid};
 use crate::user_program::syscall::{
-    Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ERANGE, O_CREATE, SEEK_CUR, SEEK_END,
-    SEEK_SET,
+    Dirent, Stat, EBADF, EFAULT, EINVAL, ENODEV, ENOENT, ENOMEM, ERANGE, O_CREATE, PROT_EXEC,
+    PROT_READ, PROT_WRITE, SEEK_CUR, SEEK_END, SEEK_SET,
 };
 use crate::vfs::tempfs::TempFS;
+use kidneyos_shared::mem::PAGE_FRAME_SIZE;
 
 pub fn open(path: *const u8, flags: usize) -> isize {
     if (flags & !O_CREATE) != 0 {
@@ -53,7 +55,7 @@ pub fn read(fd: usize, buf: *mut u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match root_filesystem().lock().read(fd, buf) {
+    match RootFileSystem::read(root_filesystem(), fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -72,7 +74,7 @@ pub fn write(fd: usize, buf: *const u8, count: usize) -> isize {
         pid: running_thread_pid(),
         fd,
     };
-    match root_filesystem().lock().write(fd, buf) {
+    match RootFileSystem::write(root_filesystem(), fd, buf) {
         Err(e) => -e.to_isize(),
         Ok(n) => n as isize,
     }
@@ -365,3 +367,105 @@ pub fn mount(device: *const u8, target: *const u8, file_system_type: *const u8) 
         Err(e) => -e.to_isize(),
     }
 }
+
+pub fn dup(fd: isize) -> isize {
+    let Ok(fd) = FileDescriptor::try_from(fd) else {
+        return -EBADF;
+    };
+
+    let pid = running_process().lock().pid;
+
+    let process_fd = ProcessFileDescriptor { pid, fd };
+
+    root_filesystem()
+        .lock()
+        .dup(pid, process_fd)
+        .map(|i| i.into())
+        .unwrap_or_else(|err| -err.to_isize())
+}
+
+pub fn dup2(old: isize, new: isize) -> isize {
+    let Ok(old) = FileDescriptor::try_from(old) else {
+        return -EBADF;
+    };
+
+    let Ok(new) = FileDescriptor::try_from(new) else {
+        return -EBADF;
+    };
+
+    let pid = running_process().lock().pid;
+
+    let old_process_fd = ProcessFileDescriptor { pid, fd: old };
+
+    let new_process_fd = ProcessFileDescriptor { pid, fd: new };
+
+    root_filesystem()
+        .lock()
+        .dup2(old_process_fd, new_process_fd)
+        .map(|_| 0)
+        .unwrap_or_else(|err| -err.to_isize())
+}
+
+pub fn pipe(fds: *mut isize) -> isize {
+    let Some(fds) = (unsafe { get_mut_slice_from_user_space(fds, 2) }) else {
+        return -EFAULT;
+    };
+
+    let pid = running_process().lock().pid;
+
+    match root_filesystem().lock().pipe(pid) {
+        Ok((read_end, write_end)) => {
+            fds[0] = read_end as isize;
+            fds[1] = write_end as isize;
+
+            0
+        }
+        Err(e) => -e.to_isize(),
+    }
+}
+
+pub fn mmap(
+    addr: *mut core::ffi::c_void,
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> isize {
+    crate::println!("mmap fd={fd} addr={addr:?} length={length} prot={prot:#x} flags={flags:#x} offset={offset}");
+    let addr = addr as usize;
+    let _ = flags; // TODO: anonymous mapping
+    if (prot & PROT_READ) == 0 {
+        // non-readable pages can't be created on x86
+        return -EINVAL;
+    }
+    if (prot & !(PROT_READ | PROT_WRITE | PROT_EXEC)) != 0 {
+        return -EINVAL;
+    }
+    // it's important we impose an upper bound on length so that rounding it up to the page size doesn't overflow.
+    if length == 0 || length > 0x8000_0000 {
+        return -EINVAL;
+    }
+    let Ok(fd) = FileDescriptor::try_from(fd) else {
+        return -EBADF;
+    };
+    let fd = ProcessFileDescriptor {
+        pid: running_thread_pid(),
+        fd,
+    };
+    // align addr to page
+    let addr = addr & !(PAGE_FRAME_SIZE - 1);
+    // round length up to page frame size
+    let length = length.div_ceil(PAGE_FRAME_SIZE) * PAGE_FRAME_SIZE;
+    let mut root = root_filesystem().lock();
+    match root.mmap_file(addr, fd, length, offset, (prot & PROT_WRITE) != 0) {
+        Ok(true) => addr as isize,
+        Ok(false) => {
+            // TODO: figure out an address range that is free
+            -ENOMEM
+        }
+        Err(e) => -e.to_isize(),
+    }
+}
+
+// TODO: munmap

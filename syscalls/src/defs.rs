@@ -23,6 +23,17 @@ pub struct Dirent {
     pub name: [u8; 0],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct MMapOptions {
+    pub addr: *mut core::ffi::c_void,
+    pub length: usize,
+    pub prot: i32,
+    pub flags: i32,
+    pub fd: i32,
+    pub offset: i64,
+}
+
 pub const O_CREATE: usize = 0x40;
 
 pub const SEEK_SET: i32 = 0;
@@ -38,6 +49,7 @@ pub const EIO: isize = 5;
 pub const E2BIG: isize = 7;
 pub const ENOEXEC: isize = 8;
 pub const EBADF: isize = 9;
+pub const ENOMEM: isize = 12;
 pub const EFAULT: isize = 14;
 pub const EBUSY: isize = 16;
 pub const EEXIST: isize = 17;
@@ -51,6 +63,7 @@ pub const ENOSPC: isize = 28;
 pub const ESPIPE: isize = 29;
 pub const EROFS: isize = 30;
 pub const EMLINK: isize = 31;
+pub const EPIPE: isize = 32;
 pub const ERANGE: isize = 34;
 pub const ENOSYS: isize = 38;
 pub const ENOTEMPTY: isize = 39;
@@ -74,10 +87,16 @@ pub const SYS_SYNC: usize = 0x24;
 pub const SYS_RENAME: usize = 0x26;
 pub const SYS_MKDIR: usize = 0x27;
 pub const SYS_RMDIR: usize = 0x28;
+pub const SYS_BRK: usize = 0x2D;
+pub const SYS_DUP: usize = 0x29;
+pub const SYS_PIPE: usize = 0x2A;
+pub const SYS_DUP2: usize = 0x3F;
 pub const SYS_GETPPID: usize = 0x40;
 pub const SYS_SYMLINK: usize = 0x53;
+pub const SYS_MMAP: usize = 0x5a;
 pub const SYS_FTRUNCATE: usize = 0x5d;
 pub const SYS_FSTAT: usize = 0x6c;
+pub const SYS_CLONE: usize = 0x78;
 pub const SYS_LSEEK64: usize = 0x8c;
 pub const SYS_GETDENTS: usize = 0x8d;
 pub const SYS_NANOSLEEP: usize = 0xa2;
@@ -92,3 +111,7 @@ pub const S_DIRECTORY: u8 = 3;
 
 pub const CLOCK_REALTIME: usize = 0;
 pub const CLOCK_MONOTONIC: usize = 1;
+
+pub const PROT_READ: i32 = 1;
+pub const PROT_WRITE: i32 = 2;
+pub const PROT_EXEC: i32 = 4;

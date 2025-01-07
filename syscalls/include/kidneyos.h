@@ -34,6 +34,8 @@
 
 #define EBADF 9
 
+#define ENOMEM 12
+
 #define EFAULT 14
 
 #define EBUSY 16
@@ -59,6 +61,8 @@
 #define EROFS 30
 
 #define EMLINK 31
+
+#define EPIPE 32
 
 #define ERANGE 34
 
@@ -104,13 +108,25 @@
 
 #define SYS_RMDIR 40
 
+#define SYS_BRK 45
+
+#define SYS_DUP 41
+
+#define SYS_PIPE 42
+
+#define SYS_DUP2 63
+
 #define SYS_GETPPID 64
 
 #define SYS_SYMLINK 83
 
+#define SYS_MMAP 90
+
 #define SYS_FTRUNCATE 93
 
 #define SYS_FSTAT 108
+
+#define SYS_CLONE 120
 
 #define SYS_LSEEK64 140
 
@@ -136,7 +152,15 @@
 
 #define CLOCK_MONOTONIC 1
 
+#define PROT_READ 1
+
+#define PROT_WRITE 2
+
+#define PROT_EXEC 4
+
 typedef uint16_t Pid;
+
+typedef uint16_t Tid;
 
 typedef struct Stat {
   uint32_t inode;
@@ -170,6 +194,10 @@ typedef struct Timespec {
 void exit(int32_t code);
 
 Pid fork(void);
+
+int32_t clone(uint32_t flags, uint8_t *stack, Tid *parent_tid, uint32_t tls, Tid *child_tid);
+
+intptr_t brk(const uint8_t *ptr);
 
 int32_t read(int32_t fd, uint8_t *buffer, uintptr_t count);
 
@@ -211,6 +239,12 @@ int32_t mount(const char *device, const char *target, const char *filesystem_typ
 
 Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
+int32_t dup(int32_t fd);
+
+int32_t dup2(int32_t old_fd, int32_t new_fd);
+
+int32_t pipe(int32_t *fds);
+
 int32_t execve(const char *filename, const char *const *argv, const char *const *envp);
 
 int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
@@ -224,5 +258,7 @@ int32_t scheduler_yield(void);
 int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
 
 int32_t getrandom(int8_t *buf, uintptr_t size, uintptr_t flags);
+
+void *mmap(void *addr, uintptr_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

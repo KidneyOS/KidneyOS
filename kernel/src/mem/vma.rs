@@ -41,7 +41,15 @@ impl Clone for VMAInfo {
         match self {
             Self::Stack => Self::Stack,
             Self::Heap => Self::Heap,
-            Self::MMap { .. } => todo!("increment ref count to mmapped file"),
+            Self::MMap { fs, inode, offset } => {
+                let fs = *fs;
+                let inode = *inode;
+                let offset = *offset;
+                // increment reference count to inode to allow mmapped closed file to still be read.
+                let mut root = unwrap_system().root_filesystem.lock();
+                root.increment_inode_ref_count(fs, inode);
+                Self::MMap { fs, inode, offset }
+            }
         }
     }
 }
@@ -60,6 +68,9 @@ impl VMA {
     pub fn size(&self) -> usize {
         self.size
     }
+    pub fn set_size(&mut self, size: usize) {
+        self.size = size
+    }
     pub fn writeable(&self) -> bool {
         self.writeable
     }
@@ -70,19 +81,50 @@ impl VMA {
         let Ok(frame_ptr) = (unsafe { KERNEL_ALLOCATOR.frame_alloc(1) }) else {
             return false;
         };
-        let phys_addr = frame_ptr.as_ptr() as *const u8 as usize - OFFSET;
+        let frame_ptr = frame_ptr.as_ptr();
+        let phys_addr = frame_ptr as usize - OFFSET;
         let mut tcb_guard = unwrap_system().threads.running_thread.lock();
         let tcb = tcb_guard.as_mut().expect("no running thread");
         tcb.page_manager
             .map(phys_addr, virt_addr, self.writeable(), true);
         drop(tcb_guard);
-        match self.info {
+        // important we don't use the virtual address here since it may be read-only!
+        let data = core::slice::from_raw_parts_mut(frame_ptr, PAGE_FRAME_SIZE);
+        match &self.info {
             VMAInfo::Stack | VMAInfo::Heap => {
                 // zero memory, to prevent data from being leaked between processes.
-                (virt_addr as *mut u8).write_bytes(0, PAGE_FRAME_SIZE);
+                data.fill(0);
                 true
             }
-            VMAInfo::MMap { .. } => todo!(),
+            VMAInfo::MMap { fs, inode, offset } => {
+                let fs = *fs;
+                let inode = *inode;
+                let offset = u64::from(*offset) * PAGE_FRAME_SIZE as u64;
+                let mut root = unwrap_system().root_filesystem.lock();
+                let mut bytes_read = 0;
+                while bytes_read < PAGE_FRAME_SIZE {
+                    let n = match root.read_direct(
+                        fs,
+                        inode,
+                        offset + bytes_read as u64,
+                        &mut data[bytes_read..],
+                    ) {
+                        Ok(0) => {
+                            break;
+                        }
+                        Ok(n) => n,
+                        // Generate page fault if reading data from mmapped file fails.
+                        // This seems to be consistent with other OSes (some do a bus error instead)
+                        Err(_) => {
+                            return false;
+                        }
+                    };
+                    bytes_read += n;
+                }
+                // if we reached the end of the file, fill the rest of the page with zeros.
+                data[bytes_read..].fill(0);
+                true
+            }
         }
     }
 }
@@ -92,7 +134,7 @@ impl VMAList {
     pub fn new() -> Self {
         Self::default()
     }
-    fn vma_at(&self, addr: usize) -> Option<(usize, &VMA)> {
+    pub fn vma_at(&self, addr: usize) -> Option<(usize, &VMA)> {
         // find VMA whose address is closest to addr without going over
         let (vma_addr, vma) = self.0.range(..=addr).next_back()?;
         let vma_addr = *vma_addr;
@@ -103,7 +145,17 @@ impl VMAList {
             None
         }
     }
-    fn is_address_range_free(&self, range: core::ops::Range<usize>) -> bool {
+    pub fn vma_at_mut(&mut self, addr: usize) -> Option<(usize, &mut VMA)> {
+        // Duplicate from vma_at.
+        let (vma_addr, vma) = self.0.range_mut(..=addr).next_back()?;
+        let vma_addr = *vma_addr;
+        if addr >= vma_addr && addr < vma_addr + vma.size {
+            Some((vma_addr, vma))
+        } else {
+            None
+        }
+    }
+    pub fn is_address_range_free(&self, range: core::ops::Range<usize>) -> bool {
         // make sure there is no VMA whose address is before the start of range, but still
         // overlaps range because of its length
         if self.vma_at(range.start).is_some() {

@@ -1,5 +1,6 @@
 use super::thread_functions::{SwitchThreadsContext, ThreadFunction};
-use crate::system::{root_filesystem, running_thread_ppid, unwrap_system};
+use crate::fs::fs_manager::RootFileSystem;
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -8,8 +9,9 @@ use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
-    KERNEL_ALLOCATOR,
+    Mutex, KERNEL_ALLOCATOR,
 };
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cmp::max;
 use core::{
@@ -26,6 +28,7 @@ const KERNEL_THREAD_STACK_SIZE: usize = KERNEL_THREAD_STACK_FRAMES * PAGE_FRAME_
 pub const USER_THREAD_STACK_FRAMES: usize = 4 * 1024;
 pub const USER_THREAD_STACK_SIZE: usize = USER_THREAD_STACK_FRAMES * PAGE_FRAME_SIZE;
 pub const USER_STACK_BOTTOM_VIRT: usize = 0x100000;
+pub const USER_HEAP_BOTTOM_VIRT: usize = 0x20000000;
 
 #[allow(unused)]
 #[derive(PartialEq, Debug)]
@@ -55,14 +58,16 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &ProcessState, parent_pid: Pid) -> Pid {
+    pub fn create(
+        state: &ProcessState,
+        root: &mut RootFileSystem,
+        parent_pid: Pid,
+    ) -> Arc<Mutex<ProcessControlBlock>> {
         let pid = state.allocate_pid();
-        let mut root = root_filesystem().lock();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
         // TODO: inherit cwd from parent
         let cwd = root.get_root().unwrap();
-        drop(root);
         let mut vmas = VMAList::new();
         // set up stack
         // TODO: Handle stack section defined in the ELF file?
@@ -70,7 +75,12 @@ impl ProcessControlBlock {
             VMA::new(VMAInfo::Stack, USER_THREAD_STACK_SIZE, true),
             USER_STACK_BOTTOM_VIRT,
         );
+        let heap_avail = vmas.add_vma(
+            VMA::new(VMAInfo::Heap, USER_HEAP_BOTTOM_VIRT, true),
+            USER_HEAP_BOTTOM_VIRT,
+        );
         assert!(stack_avail, "stack virtual address range not available");
+        assert!(heap_avail, "stack virtual address range not available");
 
         let pcb = Self {
             pid,
@@ -83,9 +93,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        state.table.add(pcb);
-
-        pid
+        state.table.add(pcb)
     }
 }
 
@@ -103,6 +111,8 @@ pub struct ThreadControlBlock {
     pub eip: NonNull<u8>,
     // Like above, but the stack pointer.
     pub esp: NonNull<u8>,
+
+    pub switch_threads_context: Option<NonNull<SwitchThreadsContext>>,
 
     pub tid: Tid,
     // The PID of the parent PCB.
@@ -147,8 +157,10 @@ impl ThreadControlBlock {
         } else {
             running_thread_ppid()
         };
-        let pid: Pid = ProcessControlBlock::create(state, ppid);
-
+        let pcb =
+            ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
+        let pcb = pcb.lock();
+        let pid = pcb.pid;
         let mut page_manager = PageManager::default();
 
         for program_header in elf.program_headers {
@@ -236,14 +248,15 @@ impl ThreadControlBlock {
         // Now, we must build the stack frames for our new thread.
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
+            .expect("No Stack Space!")
+            .cast::<SwitchThreadsContext>();
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+            *switch_threads_context.as_ptr() = SwitchThreadsContext::new();
         }
+
+        new_thread.switch_threads_context = Some(switch_threads_context);
 
         // Our thread can now be run via the `switch_threads` method.
         new_thread.status = ThreadStatus::Ready;
@@ -255,6 +268,8 @@ impl ThreadControlBlock {
         eip: ThreadFunction,
         is_kernel: bool,
         argument: u32,
+        parent_pid: Pid,
+        file_system: &mut RootFileSystem,
         state: &mut ProcessState,
     ) -> Self {
         let entry = NonNull::new(eip as *mut u8).unwrap();
@@ -263,7 +278,9 @@ impl ThreadControlBlock {
             entry,
             is_kernel,
             argument,
-            state.allocate_pid(),
+            ProcessControlBlock::create(state, file_system, parent_pid)
+                .lock()
+                .pid,
             PageManager::default(),
             state,
         );
@@ -273,15 +290,15 @@ impl ThreadControlBlock {
         //  * switch_threads
         let switch_threads_context = new_thread
             .allocate_stack_space(size_of::<SwitchThreadsContext>())
-            .expect("No Stack Space!");
+            .expect("No Stack Space!")
+            .cast::<SwitchThreadsContext>();
 
         // SAFETY: Manually setting stack bytes a la C.
         unsafe {
-            *switch_threads_context
-                .as_ptr()
-                .cast::<SwitchThreadsContext>() = SwitchThreadsContext::new();
+            *switch_threads_context.as_ptr() = SwitchThreadsContext::new();
         }
 
+        new_thread.switch_threads_context = Some(switch_threads_context);
         new_thread.eip = entry; // !!!
 
         // Our thread can now be run via the `switch_threads` method.
@@ -305,6 +322,7 @@ impl ThreadControlBlock {
         Self {
             kernel_stack_pointer,
             kernel_stack,
+            switch_threads_context: None,
             eip: NonNull::new(entry_instruction.as_ptr()).expect("failed to create eip"),
             esp: NonNull::new((USER_STACK_BOTTOM_VIRT + USER_THREAD_STACK_SIZE) as *mut u8)
                 .expect("failed to create esp"),
@@ -340,15 +358,19 @@ impl ThreadControlBlock {
     pub fn new_kernel_thread(
         page_manager: PageManager,
         argument: u32,
+        file_system: &mut RootFileSystem,
         state: &ProcessState,
     ) -> Self {
         ThreadControlBlock {
             kernel_stack_pointer: NonNull::dangling(), // This will be set in the context switch immediately following.
             kernel_stack: NonNull::dangling(),
+            switch_threads_context: None,
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             tid: state.allocate_tid(),
-            pid: state.allocate_pid(),
+            pid: ProcessControlBlock::create(state, file_system, 0)
+                .lock()
+                .pid,
             is_kernel: true,
             argument,
             status: ThreadStatus::Running,

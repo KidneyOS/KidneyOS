@@ -13,10 +13,13 @@ impl !Send for InterruptsGuard {}
 
 /// Prevents interrupts from occurring until the `InterruptsGuard` is dropped.
 /// After it is dropped, the interrupts are returned to the previous state.
-pub fn hold_interrupts() -> InterruptsGuard {
+pub fn hold_interrupts(level: IntrLevel) -> InterruptsGuard {
     let enabled = intr_get_level() == IntrLevel::IntrOn;
     let retval = InterruptsGuard(enabled);
-    intr_disable();
+    match level {
+        IntrLevel::IntrOn => intr_enable(),
+        IntrLevel::IntrOff => intr_disable(),
+    }
     retval
 }
 
@@ -76,7 +79,7 @@ impl<T: ?Sized> MutexIrq<T> {
         if self.lock.is_locked() {
             return None;
         }
-        let _held_irq = hold_interrupts();
+        let _held_irq = hold_interrupts(IntrLevel::IntrOff);
         self.lock.try_lock().map(|guard| MutexGuardIrq {
             guard,
             _guard: _held_irq,
