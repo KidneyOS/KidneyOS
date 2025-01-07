@@ -48,14 +48,17 @@ impl ProcessState {
 }
 
 impl ProcessTable {
-    pub fn add(&self, pcb: ProcessControlBlock) {
+    pub fn add(&self, pcb: ProcessControlBlock) -> Arc<Mutex<ProcessControlBlock>> {
+        let pid = pcb.pid;
         let mut content = self.content.write();
         assert!(
-            !content.contains_key(&pcb.pid),
+            !content.contains_key(&pid),
             "PCB with pid {} already added to process table.",
-            pcb.pid
+            pid
         );
-        content.insert(pcb.pid, Arc::new(Mutex::new(pcb)));
+        let pcb = Arc::new(Mutex::new(pcb));
+        content.insert(pid, pcb.clone());
+        pcb
     }
 
     #[allow(dead_code)]

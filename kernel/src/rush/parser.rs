@@ -3,9 +3,10 @@ use crate::rush::clear::clear;
 use crate::rush::env::CURR_DIR;
 use crate::rush::ls::ls_config::LsConfig;
 use crate::rush::ls::ls_core::list;
+use crate::rush::pwd::pwd;
 use alloc::string::ToString;
 use alloc::vec::Vec;
-use kidneyos_shared::{eprintln, println};
+use kidneyos_shared::eprintln;
 use kidneyos_syscalls::exit;
 
 pub(crate) fn parse_input(input: &str) {
@@ -38,7 +39,7 @@ pub(crate) fn parse_input(input: &str) {
         }
         "pwd" => {
             // print working directory
-            println!("{}", CURR_DIR.read().as_str());
+            pwd();
         }
         _ => {
             // command not found

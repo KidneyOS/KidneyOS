@@ -1,11 +1,11 @@
 // https://docs.google.com/document/d/1qMMU73HW541wME00Ngl79ou-kQ23zzTlGXJYo9FNh5M
 
 use crate::fs::syscalls::{
-    chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
-    rename, rmdir, symlink, sync, unlink, unmount, write,
+    chdir, close, dup, dup2, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mmap, mount,
+    open, pipe, read, rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::interrupts::{intr_disable, intr_enable};
-use crate::mem::util::get_mut_from_user_space;
+use crate::mem::util::{get_mut_from_user_space, get_ref_from_user_space};
 use crate::system::{running_thread_pid, running_thread_ppid, running_thread_tid, unwrap_system};
 use crate::threading::process::Pid;
 use crate::threading::process_functions;
@@ -115,6 +115,9 @@ pub extern "C" fn handler(
         SYS_CLONE => clone(
             return_eip, arg0 as _, arg1 as _, arg2 as _, arg3 as _, arg4 as _,
         ),
+        SYS_DUP => dup(arg0 as _),
+        SYS_PIPE => pipe(arg0 as _),
+        SYS_DUP2 => dup2(arg0 as _, arg1 as _),
         SYS_GETPID => running_thread_pid() as isize,
         SYS_BRK => brk(arg0 as _),
         SYS_NANOSLEEP => {
@@ -147,6 +150,20 @@ pub extern "C" fn handler(
 
             let buffer = unsafe { from_raw_parts_mut(buffer_ptr, arg1) };
             getrandom(buffer, arg1, arg2)
+        }
+        SYS_MMAP => {
+            let Some(options) = (unsafe { get_ref_from_user_space(arg0 as *const MMapOptions) })
+            else {
+                return -EFAULT;
+            };
+            mmap(
+                options.addr,
+                options.length,
+                options.prot,
+                options.flags,
+                options.fd,
+                options.offset,
+            )
         }
         _ => -ENOSYS,
     }

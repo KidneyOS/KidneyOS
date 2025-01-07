@@ -62,6 +62,8 @@
 
 #define EMLINK 31
 
+#define EPIPE 32
+
 #define ERANGE 34
 
 #define ENOSYS 38
@@ -108,9 +110,17 @@
 
 #define SYS_BRK 45
 
+#define SYS_DUP 41
+
+#define SYS_PIPE 42
+
+#define SYS_DUP2 63
+
 #define SYS_GETPPID 64
 
 #define SYS_SYMLINK 83
+
+#define SYS_MMAP 90
 
 #define SYS_FTRUNCATE 93
 
@@ -141,6 +151,12 @@
 #define CLOCK_REALTIME 0
 
 #define CLOCK_MONOTONIC 1
+
+#define PROT_READ 1
+
+#define PROT_WRITE 2
+
+#define PROT_EXEC 4
 
 typedef uint16_t Pid;
 
@@ -221,6 +237,12 @@ int32_t mount(const char *device, const char *target, const char *filesystem_typ
 
 Pid waitpid(Pid pid, int32_t *stat, int32_t options);
 
+int32_t dup(int32_t fd);
+
+int32_t dup2(int32_t old_fd, int32_t new_fd);
+
+int32_t pipe(int32_t *fds);
+
 int32_t execve(const char *filename, const char *const *argv, const char *const *envp);
 
 int32_t nanosleep(const struct Timespec *duration, struct Timespec *remainder);
@@ -234,5 +256,7 @@ int32_t scheduler_yield(void);
 int32_t clock_gettime(int32_t clock_id, struct Timespec *timespec);
 
 int32_t getrandom(int8_t *buf, uintptr_t size, uintptr_t flags);
+
+void *mmap(void *addr, uintptr_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset);
 
 #endif  /* KIDNEYOS_SYSCALLS_H */

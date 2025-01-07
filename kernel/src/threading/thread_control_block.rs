@@ -1,5 +1,6 @@
 use super::thread_functions::{SwitchThreadsContext, ThreadFunction};
-use crate::system::{root_filesystem, running_thread_ppid, unwrap_system};
+use crate::fs::fs_manager::RootFileSystem;
+use crate::system::{running_thread_ppid, unwrap_system};
 use crate::threading::process::{Pid, ProcessState, Tid};
 use crate::user_program::elf::{ElfArchitecture, ElfProgramType, ElfUsage};
 use crate::{
@@ -8,8 +9,9 @@ use crate::{
     paging::{PageManager, PageManagerDefault},
     user_program::elf::Elf,
     vfs::{INodeNum, OwnedPath},
-    KERNEL_ALLOCATOR,
+    Mutex, KERNEL_ALLOCATOR,
 };
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cmp::max;
 use core::{
@@ -56,14 +58,16 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn create(state: &ProcessState, parent_pid: Pid) -> Pid {
+    pub fn create(
+        state: &ProcessState,
+        root: &mut RootFileSystem,
+        parent_pid: Pid,
+    ) -> Arc<Mutex<ProcessControlBlock>> {
         let pid = state.allocate_pid();
-        let mut root = root_filesystem().lock();
         // open stdin, stdout, stderr
         root.open_standard_fds(pid);
         // TODO: inherit cwd from parent
         let cwd = root.get_root().unwrap();
-        drop(root);
         let mut vmas = VMAList::new();
         // set up stack
         // TODO: Handle stack section defined in the ELF file?
@@ -89,9 +93,7 @@ impl ProcessControlBlock {
             cwd_path: "/".into(),
         };
 
-        state.table.add(pcb);
-
-        pid
+        state.table.add(pcb)
     }
 }
 
@@ -155,8 +157,10 @@ impl ThreadControlBlock {
         } else {
             running_thread_ppid()
         };
-        let pid: Pid = ProcessControlBlock::create(state, ppid);
-
+        let pcb =
+            ProcessControlBlock::create(state, &mut unwrap_system().root_filesystem.lock(), ppid);
+        let pcb = pcb.lock();
+        let pid = pcb.pid;
         let mut page_manager = PageManager::default();
 
         for program_header in elf.program_headers {
@@ -264,6 +268,8 @@ impl ThreadControlBlock {
         eip: ThreadFunction,
         is_kernel: bool,
         argument: u32,
+        parent_pid: Pid,
+        file_system: &mut RootFileSystem,
         state: &mut ProcessState,
     ) -> Self {
         let entry = NonNull::new(eip as *mut u8).unwrap();
@@ -272,7 +278,9 @@ impl ThreadControlBlock {
             entry,
             is_kernel,
             argument,
-            state.allocate_pid(),
+            ProcessControlBlock::create(state, file_system, parent_pid)
+                .lock()
+                .pid,
             PageManager::default(),
             state,
         );
@@ -350,6 +358,7 @@ impl ThreadControlBlock {
     pub fn new_kernel_thread(
         page_manager: PageManager,
         argument: u32,
+        file_system: &mut RootFileSystem,
         state: &ProcessState,
     ) -> Self {
         ThreadControlBlock {
@@ -359,7 +368,9 @@ impl ThreadControlBlock {
             eip: NonNull::dangling(),
             esp: NonNull::dangling(),
             tid: state.allocate_tid(),
-            pid: state.allocate_pid(),
+            pid: ProcessControlBlock::create(state, file_system, 0)
+                .lock()
+                .pid,
             is_kernel: true,
             argument,
             status: ThreadStatus::Running,
