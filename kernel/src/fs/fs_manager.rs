@@ -1,4 +1,6 @@
+use crate::fs::pipe::{PipeInner, PipeReadEnd, PipeWriteEnd};
 use crate::fs::{FileDescriptor, ProcessFileDescriptor};
+use crate::sync::mutex::Mutex;
 use crate::system::unwrap_system;
 use crate::threading::{process::Pid, thread_control_block::ProcessControlBlock};
 use crate::user_program::syscall::Dirent;
@@ -7,6 +9,7 @@ use crate::vfs::{
     Result,
 };
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use alloc::{
     boxed::Box,
     collections::{btree_map::Entry as BTreeMapEntry, BTreeMap},
@@ -15,8 +18,11 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::cmp::min;
+use core::fmt::Debug;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroUsize;
+use core::sync::atomic::Ordering;
 
 /// Possible places to seek from
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -630,18 +636,25 @@ impl<F: 'static + FileSystem> FileSystemManagerTrait for FileSystemManager<F> {
 pub type FileSystemID = u16;
 
 /// Metadata for an open file
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum OpenFile {
     /// regular file/directory
     Regular {
         fs: FileSystemID,
+        inode: INodeNum,
         offset: u64,
         is_dir: bool,
     },
+
     /// standard output
     StdOut,
     /// `/dev/null` (discards reads/writes)
     Null,
+
+    // Read end of the a pipe
+    PipeRead(PipeReadEnd),
+    // Write end of a pipe
+    PipeWrite(PipeWriteEnd),
 }
 
 // wrapper around an array of filesystems for convenience
@@ -836,6 +849,47 @@ impl RootFileSystem {
         self.root_mount = Some(new_fs);
         Ok(())
     }
+    pub fn pipe(&mut self, pid: Pid) -> Result<(FileDescriptor, FileDescriptor)> {
+        let pipe_inner = Arc::new(PipeInner::new());
+
+        // Ignoring the case where read_end succeeds but write_end fails for elegance.
+        let read_end = self.new_fd(
+            pid,
+            OpenFile::PipeRead(PipeInner::read_end(pipe_inner.clone())),
+        )?;
+
+        let write_end = self.new_fd(pid, OpenFile::PipeWrite(PipeInner::write_end(pipe_inner)))?;
+
+        Ok((read_end.fd, write_end.fd))
+    }
+    fn dup_inc_ref(&mut self, open_file: &OpenFile) {
+        if let OpenFile::Regular { fs, inode, .. } = open_file {
+            self.file_systems.get_mut(*fs).inc_ref(*inode);
+        }
+    }
+    pub fn dup(&mut self, pid: Pid, fd: ProcessFileDescriptor) -> Result<FileDescriptor> {
+        let open_file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+
+        let new_file = open_file.clone();
+        self.dup_inc_ref(&new_file);
+
+        Ok(self.new_fd(pid, new_file)?.fd)
+    }
+    pub fn dup2(&mut self, fd: ProcessFileDescriptor, into: ProcessFileDescriptor) -> Result<()> {
+        if self.open_files.contains_key(&into) {
+            self.close(fd).ok(); // errors are discarded
+        }
+
+        let open_file = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+
+        // Note on cloning in self.dup() function.
+        let new_file = open_file.clone();
+        self.dup_inc_ref(&new_file);
+
+        self.open_files.insert(into, new_file);
+
+        Ok(())
+    }
     pub fn open(
         &mut self,
         process: &ProcessControlBlock,
@@ -850,6 +904,7 @@ impl RootFileSystem {
             process.pid,
             OpenFile::Regular {
                 fs,
+                inode,
                 offset: 0,
                 is_dir: false,
             },
@@ -907,14 +962,26 @@ impl RootFileSystem {
         let fs = self.file_systems.get_mut(fs);
         fs.mkdir(parent, name)
     }
-    pub fn read(&mut self, fd: ProcessFileDescriptor, buf: &mut [u8]) -> Result<usize> {
-        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+
+    // Why take a Mutex<Self> instead of just &mut self?
+    // Reads/Writes can be asynchronous, for example:
+    //   waiting on disc, waiting on another process to write, waiting on socket...
+    // So we need to unlock the file system so other processes can write to it.
+    pub fn read(fs: &Mutex<Self>, fd: ProcessFileDescriptor, buf: &mut [u8]) -> Result<usize> {
+        let mut file_system_guard = fs.lock();
+        let file_system = &mut *file_system_guard;
+
+        let file_info = file_system.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir } => {
+            OpenFile::Regular {
+                fs, offset, is_dir, ..
+            } => {
+                let fs = *fs;
+
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
-                let fs = self.file_systems.get_mut(*fs);
+                let fs = file_system.file_systems.get_mut(fs);
                 let read_count = fs.read(fd, *offset, buf)?;
                 *offset += read_count as u64;
                 Ok(read_count)
@@ -923,17 +990,63 @@ impl RootFileSystem {
                 // shouldn't read from stdout
                 Err(Error::BadFd)
             }
+            OpenFile::PipeRead(pipe) => {
+                let inner = pipe.0.clone();
+
+                drop(file_system_guard); // don't hold the mutex while we are holding the condvar
+
+                loop {
+                    // forget = use the write
+                    inner.semaphore.acquire().forget();
+
+                    {
+                        let mut contents = inner.contents.lock();
+
+                        if !contents.is_empty() {
+                            let bytes_read = min(contents.len(), buf.len());
+
+                            // No easy way here to memcpy out of VecDeque. Might be the wrong type.
+                            for (i, byte) in contents.drain(0..bytes_read).enumerate() {
+                                buf[i] = byte
+                            }
+
+                            if !contents.is_empty() {
+                                // let another process know that the pipe is not empty
+                                inner.semaphore.post();
+                            }
+
+                            return Ok(bytes_read);
+                        }
+                    }
+
+                    if inner.write_ends.load(Ordering::SeqCst) == 0 {
+                        // keep spreading the signal, we don't have a broadcast
+                        inner.semaphore.post();
+
+                        return Ok(0); // no bytes left to read
+                    }
+                }
+            }
+            OpenFile::PipeWrite(_) => {
+                // Not open for writing.
+                Err(Error::BadFd)
+            }
             OpenFile::Null => Ok(0),
         }
     }
-    pub fn write(&mut self, fd: ProcessFileDescriptor, buf: &[u8]) -> Result<usize> {
-        let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
+    pub fn write(fs: &Mutex<Self>, fd: ProcessFileDescriptor, buf: &[u8]) -> Result<usize> {
+        let mut file_system_guard = fs.lock();
+        let file_system = &mut *file_system_guard;
+
+        let file_info = file_system.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir } => {
+            OpenFile::Regular {
+                fs, offset, is_dir, ..
+            } => {
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
-                let fs = self.file_systems.get_mut(*fs);
+                let fs = file_system.file_systems.get_mut(*fs);
                 let write_count = fs.write(fd, *offset, buf)?;
                 *offset += write_count as u64;
                 Ok(write_count)
@@ -951,6 +1064,29 @@ impl RootFileSystem {
                     Ok(buf.len())
                 }
             }
+            OpenFile::PipeRead(_) => {
+                // Not open for writing
+                Err(Error::BadFd)
+            }
+            OpenFile::PipeWrite(pipe) => {
+                let inner = pipe.0.clone();
+
+                drop(file_system_guard);
+
+                {
+                    let mut contents = inner.contents.lock();
+
+                    contents.extend(buf.iter());
+                }
+
+                if inner.read_ends.load(Ordering::SeqCst) == 0 {
+                    return Err(Error::PipeClosed);
+                }
+
+                inner.semaphore.post();
+
+                Ok(buf.len())
+            }
             OpenFile::Null => Ok(buf.len()),
         }
     }
@@ -965,6 +1101,7 @@ impl RootFileSystem {
             fs,
             offset: file_offset,
             is_dir,
+            ..
         } = file_info
         {
             let new_offset = offset
@@ -1146,6 +1283,7 @@ impl RootFileSystem {
                 fs,
                 offset,
                 is_dir: true,
+                ..
             } => {
                 let fs = self.file_systems.get_mut(*fs);
                 let read_count = fs.getdents(fd, offset, output, size)?;
@@ -1158,7 +1296,9 @@ impl RootFileSystem {
     pub fn ftruncate(&mut self, fd: ProcessFileDescriptor, size: u64) -> Result<()> {
         let file_info = self.open_files.get_mut(&fd).ok_or(Error::BadFd)?;
         match file_info {
-            OpenFile::Regular { fs, offset, is_dir } => {
+            OpenFile::Regular {
+                fs, offset, is_dir, ..
+            } => {
                 if *is_dir {
                     return Err(Error::IsDirectory);
                 }
@@ -1220,15 +1360,18 @@ mod test {
     }
     // create file with the given contents
     fn create(
-        root: &mut RootFileSystem,
+        root_mutex: &Mutex<RootFileSystem>,
         name: &str,
         mut contents: &[u8],
     ) -> Result<ProcessFileDescriptor> {
-        let pcb = test_pcb(root);
-        let fd = root.open(&pcb, name, Mode::CreateReadWrite)?;
-        let fd = ProcessFileDescriptor { fd, pid: pcb.pid };
+        let fd = {
+            let mut root = root_mutex.lock();
+            let pcb = test_pcb(&root);
+            let fd = root.open(&pcb, name, Mode::CreateReadWrite)?;
+            ProcessFileDescriptor { fd, pid: pcb.pid }
+        };
         while !contents.is_empty() {
-            let n = root.write(fd, contents)?;
+            let n = RootFileSystem::write(&root_mutex, fd, contents)?;
             assert!(n > 0);
             contents = &contents[n..];
         }
@@ -1236,17 +1379,23 @@ mod test {
     }
     #[test]
     fn test_one_filesystem_simple() {
-        let mut root = RootFileSystem::new();
+        let root_mutex = Mutex::new(RootFileSystem::new());
         let fs = TempFS::new();
-        root.mount_root(fs).unwrap();
-        let file = open(&mut root, "/foo", Mode::CreateReadWrite).unwrap();
-        assert_eq!(root.write(file, b"test data").unwrap(), 9);
-        root.close(file).unwrap();
-        let file = open(&mut root, "/foo", Mode::ReadWrite).unwrap();
+        root_mutex.lock().mount_root(fs).unwrap();
+        let file = open(&mut root_mutex.lock(), "/foo", Mode::CreateReadWrite).unwrap();
+        assert_eq!(
+            RootFileSystem::write(&root_mutex, file, b"test data").unwrap(),
+            9
+        );
+        root_mutex.lock().close(file).unwrap();
+        let file = open(&mut root_mutex.lock(), "/foo", Mode::ReadWrite).unwrap();
         let mut buf = [0; 10];
-        assert_eq!(root.read(file, &mut buf).unwrap(), 9);
+        assert_eq!(
+            RootFileSystem::read(&root_mutex, file, &mut buf).unwrap(),
+            9
+        );
         assert_eq!(&buf, b"test data\0");
-        root.close(file).unwrap();
+        root_mutex.lock().close(file).unwrap();
     }
     #[test]
     fn test_multiple_filesystems_simple() {
@@ -1260,21 +1409,31 @@ mod test {
         let fs3 = TempFS::new();
         root.mkdir(&pcb, "/2/3").unwrap();
         root.mount(&pcb, "/2/3", fs3).unwrap();
+        let root_mutex = Mutex::new(root);
         for path in ["/foo", "/2/foo", "/2/3/foo"] {
-            let file = open(&mut root, path, Mode::CreateReadWrite).unwrap();
+            let file = open(&mut *root_mutex.lock(), path, Mode::CreateReadWrite).unwrap();
             // we shouldn't be allowed to unmount the FS file is contained in while it's open
             assert!(matches!(
-                root.unmount(&pcb, dirname_and_filename(path).0),
+                root_mutex
+                    .lock()
+                    .unmount(&pcb, dirname_and_filename(path).0),
                 Err(Error::FileSystemInUse)
             ));
-            assert_eq!(root.write(file, b"test data").unwrap(), 9);
-            root.close(file).unwrap();
-            let file = open(&mut root, path, Mode::ReadWrite).unwrap();
+            assert_eq!(
+                RootFileSystem::write(&root_mutex, file, b"test data").unwrap(),
+                9
+            );
+            root_mutex.lock().close(file).unwrap();
+            let file = open(&mut root_mutex.lock(), path, Mode::ReadWrite).unwrap();
             let mut buf = [0; 10];
-            assert_eq!(root.read(file, &mut buf).unwrap(), 9);
+            assert_eq!(
+                RootFileSystem::read(&root_mutex, file, &mut buf).unwrap(),
+                9
+            );
             assert_eq!(&buf, b"test data\0");
-            root.close(file).unwrap();
+            root_mutex.lock().close(file).unwrap();
         }
+        let mut root = root_mutex.lock();
         assert!(matches!(
             root.unmount(&pcb, "/2"),
             Err(Error::FileSystemInUse)
@@ -1290,8 +1449,13 @@ mod test {
         let pcb = test_pcb(&root);
         let fd = open(&mut root, "/file", Mode::CreateReadWrite).unwrap();
         root.unlink(&pcb, "/file").unwrap();
+
+        let root_mutex = Mutex::new(root);
+
         // should still be able to write to file...
-        root.write(fd, b"hello").unwrap();
+        RootFileSystem::write(&root_mutex, fd, b"hello").unwrap();
+
+        let mut root = root_mutex.lock();
         // but not open it
         assert!(matches!(
             root.open(&pcb, "/file", Mode::ReadWrite).unwrap_err(),
@@ -1302,11 +1466,12 @@ mod test {
     }
     #[test]
     fn link_symlink() {
-        let mut root = RootFileSystem::new();
+        let root_mutex = Mutex::new(RootFileSystem::new());
         let fs = TempFS::new();
-        root.mount_root(fs).unwrap();
-        let pcb = test_pcb(&root);
-        let fd = create(&mut root, "/file", b"hello").unwrap();
+        root_mutex.lock().mount_root(fs).unwrap();
+        let pcb = test_pcb(&root_mutex.lock());
+        let fd = create(&root_mutex, "/file", b"hello").unwrap();
+        let mut root = root_mutex.lock();
         for method in [RootFileSystem::link, RootFileSystem::symlink] {
             method(&mut root, &pcb, "/file", "/file2").unwrap();
             let fd2 = open(&mut root, "/file2", Mode::ReadWrite).unwrap();
@@ -1332,29 +1497,30 @@ mod test {
     }
     #[test]
     fn rename() {
-        let mut root = RootFileSystem::new();
+        let root_mutex = Mutex::new(RootFileSystem::new());
         let fs = TempFS::new();
-        root.mount_root(fs).unwrap();
-        let pcb = test_pcb(&root);
-        let fd = create(&mut root, "/file", b"hello").unwrap();
-        root.rename(&pcb, "/file", "/file2").unwrap();
-        root.close(fd).unwrap();
-        let fd = open(&mut root, "/file2", Mode::ReadWrite).unwrap();
+        root_mutex.lock().mount_root(fs).unwrap();
+        let pcb = test_pcb(&root_mutex.lock());
+        let fd = create(&root_mutex, "/file", b"hello").unwrap();
+        root_mutex.lock().rename(&pcb, "/file", "/file2").unwrap();
+        root_mutex.lock().close(fd).unwrap();
+        let fd = open(&mut root_mutex.lock(), "/file2", Mode::ReadWrite).unwrap();
         let mut buf = [0; 6];
-        assert_eq!(root.read(fd, &mut buf).unwrap(), 5);
+        assert_eq!(RootFileSystem::read(&root_mutex, fd, &mut buf).unwrap(), 5);
         assert_eq!(&buf, b"hello\0");
     }
     #[test]
     fn dirents() {
-        let mut root = RootFileSystem::new();
+        let root_mutex = Mutex::new(RootFileSystem::new());
         let fs = TempFS::new();
-        root.mount_root(fs).unwrap();
-        let pcb = test_pcb(&root);
-        let fd = create(&mut root, "/file", b"test").unwrap();
-        root.close(fd).unwrap();
-        let fd = create(&mut root, "/file2", b"test").unwrap();
-        root.close(fd).unwrap();
-        root.mkdir(&pcb, "/dir").unwrap();
+        root_mutex.lock().mount_root(fs).unwrap();
+        let pcb = test_pcb(&root_mutex.lock());
+        let fd = create(&root_mutex, "/file", b"test").unwrap();
+        root_mutex.lock().close(fd).unwrap();
+        let fd = create(&root_mutex, "/file2", b"test").unwrap();
+        root_mutex.lock().close(fd).unwrap();
+        root_mutex.lock().mkdir(&pcb, "/dir").unwrap();
+        let mut root = root_mutex.lock();
         assert!(std::mem::align_of::<u64>() >= std::mem::align_of::<Dirent>());
         let mut dirents = vec![0u64; 1024];
         let dir = open(&mut root, "/", Mode::ReadWrite).unwrap();
@@ -1404,17 +1570,17 @@ mod test {
     }
     #[test]
     fn ftruncate() {
-        let mut root = RootFileSystem::new();
+        let root_mutex = Mutex::new(RootFileSystem::new());
         let fs = TempFS::new();
-        root.mount_root(fs).unwrap();
-        let fd = create(&mut root, "/file", b"test").unwrap();
-        root.ftruncate(fd, 10).unwrap();
-        let stat = root.fstat(fd).unwrap();
+        root_mutex.lock().mount_root(fs).unwrap();
+        let fd = create(&root_mutex, "/file", b"test").unwrap();
+        root_mutex.lock().ftruncate(fd, 10).unwrap();
+        let stat = root_mutex.lock().fstat(fd).unwrap();
         assert_eq!(stat.size, 10);
-        root.lseek(fd, SeekFrom::Start, 0).unwrap();
+        root_mutex.lock().lseek(fd, SeekFrom::Start, 0).unwrap();
         let mut buf = [0; 10];
-        root.read(fd, &mut buf).unwrap();
+        RootFileSystem::read(&root_mutex, fd, &mut buf).unwrap();
         assert_eq!(&buf, b"test\0\0\0\0\0\0");
-        root.close(fd).unwrap();
+        root_mutex.lock().close(fd).unwrap();
     }
 }
