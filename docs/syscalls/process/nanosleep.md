@@ -22,4 +22,4 @@ Currently there is no way to interrupt a nanosleep call except for exiting the p
 
 ### Return value
 
-After sucessfully sleeping for `duration` 0 is returned. -1 is returned on error.
+After successfully sleeping for `duration` 0 is returned. -1 is returned on error.
