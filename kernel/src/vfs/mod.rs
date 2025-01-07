@@ -56,8 +56,6 @@ pub enum Error {
     TooManyLevelsOfLinks,
     /// Source and destination of link() lie in different mounted file systems.
     HardLinkBetweenFileSystems,
-    /// All read handles are closed, a write cannot be performed (EPIPE).
-    PipeClosed,
     /// Error accessing underlying storage device
     IO(String),
 }
@@ -91,7 +89,6 @@ impl core::fmt::Display for Error {
             Self::HardLinkBetweenFileSystems => {
                 write!(f, "hard link between different file systems")
             }
-            Self::PipeClosed => write!(f, "write to closed pipe"),
             Self::IO(s) => write!(f, "I/O error: {s}"),
         }
     }
@@ -120,7 +117,6 @@ impl Error {
             Error::NotLink => syscall::EINVAL,
             Error::TooManyLevelsOfLinks => syscall::ELOOP,
             Error::HardLinkBetweenFileSystems => syscall::EXDEV,
-            Error::PipeClosed => syscall::EPIPE,
             Error::IO(_) => syscall::EIO,
         }
     }

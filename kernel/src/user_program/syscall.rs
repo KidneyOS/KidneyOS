@@ -2,8 +2,8 @@
 
 use crate::fs::read_file;
 use crate::fs::syscalls::{
-    chdir, close, dup, dup2, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open,
-    pipe, read, rename, rmdir, symlink, sync, unlink, unmount, write,
+    chdir, close, fstat, ftruncate, getcwd, getdents, link, lseek64, mkdir, mount, open, read,
+    rename, rmdir, symlink, sync, unlink, unmount, write,
 };
 use crate::interrupts::{intr_disable, intr_enable};
 use crate::mem::util::get_mut_from_user_space;
@@ -106,9 +106,6 @@ pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2:
 
             parent_pid as isize
         }
-        SYS_DUP => dup(arg0 as _),
-        SYS_PIPE => pipe(arg0 as _),
-        SYS_DUP2 => dup2(arg0 as _, arg1 as _),
         SYS_EXECVE => {
             let cstr = match unsafe { get_cstr_from_user_space(arg0 as *const u8) } {
                 Ok(cstr) => cstr,

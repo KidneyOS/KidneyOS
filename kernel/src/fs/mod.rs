@@ -1,9 +1,7 @@
 pub mod fat;
 pub mod fs_manager;
-mod pipe;
 pub mod syscalls;
-
-use crate::fs::fs_manager::{Mode, RootFileSystem};
+use crate::fs::fs_manager::Mode;
 use crate::system::{root_filesystem, running_process, running_thread_pid};
 use crate::threading::process::Pid;
 use crate::vfs::{Path, Result};
@@ -19,9 +17,8 @@ pub struct ProcessFileDescriptor {
 
 /// Read entire contents of file to kernel memory.
 pub fn read_file(path: &Path) -> Result<Vec<u8>> {
-    let fd = root_filesystem()
-        .lock()
-        .open(&running_process().lock(), path, Mode::ReadWrite)?;
+    let mut root = root_filesystem().lock();
+    let fd = root.open(&running_process().lock(), path, Mode::ReadWrite)?;
     let fd = ProcessFileDescriptor {
         fd,
         pid: running_thread_pid(),
@@ -30,7 +27,7 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>> {
     loop {
         let bytes_read = data.len();
         data.resize(bytes_read + 4096, 0);
-        let n = RootFileSystem::read(root_filesystem(), fd, &mut data[bytes_read..])?;
+        let n = root.read(fd, &mut data[bytes_read..])?;
         data.truncate(bytes_read + n);
         if n == 0 {
             break;
