@@ -27,6 +27,7 @@ pub use kidneyos_syscalls::defs::*;
 /// Its return value is the syscall return value, whose meaning depends on the syscall.
 /// It might not actually return sometimes, such as when the syscall is exit.
 pub extern "C" fn handler(syscall_number: usize, arg0: usize, arg1: usize, arg2: usize) -> isize {
+    intr_enable();
     println!("syscall number {syscall_number:#X} with arguments: {arg0:#X} {arg1:#X} {arg2:#X}");
     // TODO: Start implementing this by branching on syscall_number.
     // Add todo!()'s for any syscalls that aren't implemented.
