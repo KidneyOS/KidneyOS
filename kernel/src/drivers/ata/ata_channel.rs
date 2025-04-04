@@ -114,7 +114,8 @@ const CTL_HOB: u8 = 0x80;
 // Offsets -----------------------------------------------------------------------------------------
 
 /// Control Base offset
-/// Reference: https://lateblt.tripod.com/atapi.htm
+///
+/// Reference: <https://lateblt.tripod.com/atapi.htm>
 /// 0x3F6 - 0x1F0 = 0x206
 const CTL_OFFSET: u16 = 0x206;
 

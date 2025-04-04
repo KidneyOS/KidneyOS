@@ -13,7 +13,7 @@ use kidneyos_shared::{eprintln, println};
 
 /// A partition table entry in the MBR.
 ///
-/// Reference: https://wiki.osdev.org/MBR_(x86)#Partition_table_entry_format
+/// Reference: <https://wiki.osdev.org/MBR_(x86)#Partition_table_entry_format>
 pub(crate) struct PartitionTableEntry {
     /// 0x00    1   Drive attributes (bit 7 set = active or bootable)
     bootable: u8,
@@ -306,7 +306,7 @@ impl PartitionTableEntry {
 
 /// An MBR partition table.
 ///
-/// Reference: https://wiki.osdev.org/MBR_(x86)#MBR_format
+/// Reference: <https://wiki.osdev.org/MBR_(x86)#MBR_format>
 pub(crate) struct PartitionTable {
     /// 0x000   440     MBR Bootstrap (flat binary executable code)
     ///
@@ -321,7 +321,7 @@ pub(crate) struct PartitionTable {
     /// 0x1BC   2       Optional, reserved 0x0000
     ///
     /// The 2 byte reserved is usually 0x0000. 0x5A5A means read-only according to
-    /// https://neosmart.net/wiki/mbr-boot-process/
+    /// <https://neosmart.net/wiki/mbr-boot-process/>
     pub reserved: u16,
 
     /// 0x1BE   16      First partition table entry
